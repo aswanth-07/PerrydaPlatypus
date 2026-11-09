@@ -1,0 +1,40 @@
+{
+ "ckpts": [
+  "runs\\core_deploy2_s82\\best.pt",
+  "runs\\core_deploy2_s83\\best.pt"
+ ],
+ "t_in": 64,
+ "test_clips": 258,
+ "torch": {
+  "n": 258,
+  "top1": 91.47,
+  "top5": 98.06,
+  "class_avg": 91.75
+ },
+ "fp32": {
+  "size_mb": 14.44,
+  "test": {
+   "n": 258,
+   "top1": 91.47,
+   "top5": 98.06,
+   "class_avg": 91.75
+  },
+  "one_thread": {
+   "p50_ms": 20.376,
+   "p95_ms": 22.841
+  }
+ },
+ "int8": {
+  "size_mb": 4.174,
+  "test": {
+   "n": 258,
+   "top1": 91.47,
+   "top5": 98.06,
+   "class_avg": 91.75
+  },
+  "one_thread": {
+   "p50_ms": 14.538,
+   "p95_ms": 15.623
+  }
+ }
+}

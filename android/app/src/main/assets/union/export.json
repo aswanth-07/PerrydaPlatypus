@@ -1,0 +1,39 @@
+{
+ "ckpts": [
+  "runs\\union_deploy_s71\\best.pt"
+ ],
+ "t_in": 64,
+ "test_clips": 2878,
+ "torch": {
+  "n": 2878,
+  "top1": 59.97,
+  "top5": 90.38,
+  "class_avg": 56.74
+ },
+ "fp32": {
+  "size_mb": 11.821,
+  "test": {
+   "n": 2878,
+   "top1": 59.97,
+   "top5": 90.38,
+   "class_avg": 56.74
+  },
+  "one_thread": {
+   "p50_ms": 5.225,
+   "p95_ms": 7.709
+  }
+ },
+ "int8": {
+  "size_mb": 3.301,
+  "test": {
+   "n": 2878,
+   "top1": 59.45,
+   "top5": 89.85,
+   "class_avg": 56.22
+  },
+  "one_thread": {
+   "p50_ms": 4.427,
+   "p95_ms": 6.653
+  }
+ }
+}

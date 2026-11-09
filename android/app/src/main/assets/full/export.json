@@ -1,0 +1,40 @@
+{
+ "ckpts": [
+  "runs\\w2000_aslc_deploy_s51\\best.pt",
+  "runs\\w2000_aslc_deploy_s52\\best.pt"
+ ],
+ "t_in": 64,
+ "test_clips": 2878,
+ "torch": {
+  "n": 2878,
+  "top1": 60.95,
+  "top5": 90.97,
+  "class_avg": 57.77
+ },
+ "fp32": {
+  "size_mb": 20.292,
+  "test": {
+   "n": 2878,
+   "top1": 60.95,
+   "top5": 90.97,
+   "class_avg": 57.77
+  },
+  "one_thread": {
+   "p50_ms": 17.919,
+   "p95_ms": 24.454
+  }
+ },
+ "int8": {
+  "size_mb": 5.698,
+  "test": {
+   "n": 2878,
+   "top1": 60.88,
+   "top5": 91.04,
+   "class_avg": 57.69
+  },
+  "one_thread": {
+   "p50_ms": 14.409,
+   "p95_ms": 22.163
+  }
+ }
+}
