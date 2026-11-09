@@ -6,6 +6,9 @@ WLASL test entries that point into a longer video are cut to their frame range f
 --cut-dir), because the scored clips each hold one sign.
 
 Usage: predict_test.py <index.json> <videos> <main_videos> <model_dir> <out.jsonl> [--subset 100] [--clips 0]
+       [--shard k/n]    run every n-th clip from k (one process each), then combine the shards with
+predict_test.py <index.json> <videos> <main_videos> <model_dir> <out.jsonl> --merge <shard.jsonl> ...
+Shards run side by side share the CPU, so their per-clip timings are a little slower than a single run's.
 """
 import argparse
 import importlib.util
@@ -63,7 +66,16 @@ def main():
     ap.add_argument("--clips", type=int, default=0, help="score only the first N test clips (0 = all)")
     ap.add_argument("--cut-dir", default="data/wlasl_test_cut")
     ap.add_argument("--fresh", action="store_true", help="build a new Holistic landmarker for every clip")
+    ap.add_argument("--shard", default="0/1", help="k/n: score every n-th clip starting at k")
+    ap.add_argument("--merge", nargs="+", default=None, help="shard outputs to combine into <out.jsonl>")
     a = ap.parse_args()
+    if a.merge:
+        rows = [json.loads(line) for m in a.merge for line in open(pathlib.Path(m).with_suffix(".rows.jsonl"), encoding="utf-8")]
+        rows.sort(key=lambda r: r["job"])
+        with open(a.out, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps({k: r[k] for k in r["keys"]}) + "\n")
+        return summarise(a, rows, sum(r["cut"] for r in rows))
 
     entries = json.load(open(a.index, encoding="utf-8"))[:a.subset]
     vdir, mdir, cdir = pathlib.Path(a.videos), pathlib.Path(a.main_videos), pathlib.Path(a.cut_dir)
@@ -76,24 +88,33 @@ def main():
                 jobs.append((dict(video=str(p), vid=i["video_id"], start=i["frame_start"], end=i["frame_end"],
                                   main=str(mdir / f"{i['video_id']}.mp4")), e["gloss"].upper()))
     jobs = jobs[:a.clips] if a.clips else jobs
+    k, n = map(int, a.shard.split("/"))
+    jobs = [(j, job, truth) for j, (job, truth) in enumerate(jobs) if j % n == k]
 
     pred = echo.Predictor(a.model_dir, reuse_landmarker=not a.fresh)
-    rows, hit1, hit5, cuts = [], 0, 0, 0
-    with open(a.out, "w", encoding="utf-8") as f:
-        for job, truth in jobs:
+    rows, cuts = [], 0
+    with open(a.out, "w", encoding="utf-8") as f, open(pathlib.Path(a.out).with_suffix(".rows.jsonl"), "w", encoding="utf-8") as g:
+        for j, job, truth in jobs:
             keep = ev.slice_for(job)
             path = pathlib.Path(job["video"])
             if keep:
                 path, cuts = cut(path, keep, cdir / path.name), cuts + 1
             r = pred(path)
             f.write(json.dumps(r) + "\n")
-            hit1 += r["prediction"] == truth
-            hit5 += truth in r["top5"]
-            rows.append(dict(r, **pred.last_stages))
-    lat = [r["latency_ms"] for r in rows]
-    summary = dict(model_dir=a.model_dir, landmarker="fresh per clip" if a.fresh else "reused", clips=len(rows), cut_from_longer_videos=cuts,
+            rows.append(dict(r, **pred.last_stages, truth=truth, job=j, cut=bool(keep), keys=list(r)))
+            g.write(json.dumps(rows[-1]) + "\n")
+    summarise(a, rows, cuts)
+
+
+def summarise(a, rows, cuts):
+    hit1 = sum(r["prediction"] == r["truth"] for r in rows)
+    hit5 = sum(r["truth"] in r["top5"] for r in rows)
+    lat = [r["pipeline_ms"] for r in rows]
+    summary = dict(model_dir=a.model_dir, shards=len(a.merge) if a.merge else 1, landmarker="fresh per clip" if a.fresh else "reused",
+                   clips=len(rows), cut_from_longer_videos=cuts,
                    top1=round(100 * hit1 / len(rows), 2), top5=round(100 * hit5 / len(rows), 2),
                    whole_clip_ms=dict(p50=pct(lat, 0.5), p95=pct(lat, 0.95)),
+                   latency_ms=dict(p50=pct([r["latency_ms"] for r in rows], 0.5), p95=pct([r["latency_ms"] for r in rows], 0.95)),
                    decode_ms_p50=pct([r["decode_ms"] for r in rows], 0.5),
                    keypoints_ms=dict(p50=pct([r["keypoints_ms"] for r in rows], 0.5), p95=pct([r["keypoints_ms"] for r in rows], 0.95)),
                    keypoints_per_frame_ms_p50=pct([r["keypoints_ms"] / max(r["frames"], 1) for r in rows], 0.5),

@@ -1,0 +1,58 @@
+{
+ "clips": 258,
+ "ckpts": [
+  "runs/soup_union2/best.pt"
+ ],
+ "tta": false,
+ "results": {
+  "clean": {
+   "n": 258,
+   "top1": 71.71,
+   "top5": 93.41,
+   "class_avg": 71.5,
+   "drop": 0.0
+  },
+  "angled": {
+   "n": 258,
+   "top1": 74.42,
+   "top5": 92.64,
+   "class_avg": 74.88,
+   "drop": -2.71
+  },
+  "combined": {
+   "n": 258,
+   "top1": 67.44,
+   "top5": 87.98,
+   "class_avg": 67.17,
+   "drop": 4.27
+  },
+  "low_light": {
+   "n": 258,
+   "top1": 71.32,
+   "top5": 89.92,
+   "class_avg": 71.42,
+   "drop": 0.39
+  },
+  "low_res": {
+   "n": 258,
+   "top1": 68.22,
+   "top5": 90.7,
+   "class_avg": 68.92,
+   "drop": 3.49
+  },
+  "moving_head": {
+   "n": 258,
+   "top1": 74.81,
+   "top5": 93.41,
+   "class_avg": 74.75,
+   "drop": -3.1
+  },
+  "occlusion": {
+   "n": 258,
+   "top1": 68.22,
+   "top5": 86.43,
+   "class_avg": 67.92,
+   "drop": 3.49
+  }
+ }
+}

@@ -1,40 +1,48 @@
 {
  "ckpts": [
-  "runs\\w2000_aslc_deploy_s51\\best.pt",
-  "runs\\w2000_aslc_deploy_s52\\best.pt"
+  "runs/soupAll8/best.pt"
  ],
  "t_in": 64,
  "test_clips": 2878,
+ "int8_scheme": {
+  "dynamic": true,
+  "ops": "Conv,Gemm,MatMul",
+  "fp32_nodes": [
+   "/models.0/stem/Conv"
+  ]
+ },
  "torch": {
   "n": 2878,
-  "top1": 60.95,
-  "top5": 90.97,
-  "class_avg": 57.77
+  "top1": 62.72,
+  "top5": 91.52,
+  "class_avg": 59.53
  },
  "fp32": {
-  "size_mb": 20.292,
+  "size_mb": 10.166,
   "test": {
    "n": 2878,
-   "top1": 60.95,
-   "top5": 90.97,
-   "class_avg": 57.77
+   "top1": 62.72,
+   "top5": 91.52,
+   "class_avg": 59.53,
+   "agree_top1_with_torch": 100.0
   },
   "one_thread": {
-   "p50_ms": 17.919,
-   "p95_ms": 24.454
+   "p50_ms": 3.709,
+   "p95_ms": 3.978
   }
  },
  "int8": {
-  "size_mb": 5.698,
+  "size_mb": 3.176,
   "test": {
    "n": 2878,
-   "top1": 60.88,
-   "top5": 91.04,
-   "class_avg": 57.69
+   "top1": 62.72,
+   "top5": 91.56,
+   "class_avg": 59.47,
+   "agree_top1_with_torch": 96.98
   },
   "one_thread": {
-   "p50_ms": 14.409,
-   "p95_ms": 22.163
+   "p50_ms": 3.231,
+   "p95_ms": 3.4
   }
  }
 }

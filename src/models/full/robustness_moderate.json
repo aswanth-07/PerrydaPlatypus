@@ -1,0 +1,58 @@
+{
+ "clips": 258,
+ "ckpts": [
+  "runs/soupAll8/best.pt"
+ ],
+ "tta": false,
+ "results": {
+  "clean": {
+   "n": 258,
+   "top1": 74.42,
+   "top5": 92.64,
+   "class_avg": 74.25,
+   "drop": 0.0
+  },
+  "angled": {
+   "n": 258,
+   "top1": 75.19,
+   "top5": 93.41,
+   "class_avg": 75.38,
+   "drop": -0.77
+  },
+  "combined": {
+   "n": 258,
+   "top1": 68.22,
+   "top5": 88.37,
+   "class_avg": 68.5,
+   "drop": 6.2
+  },
+  "low_light": {
+   "n": 258,
+   "top1": 71.71,
+   "top5": 91.47,
+   "class_avg": 71.75,
+   "drop": 2.71
+  },
+  "low_res": {
+   "n": 258,
+   "top1": 69.38,
+   "top5": 91.47,
+   "class_avg": 69.83,
+   "drop": 5.04
+  },
+  "moving_head": {
+   "n": 258,
+   "top1": 75.97,
+   "top5": 93.8,
+   "class_avg": 75.92,
+   "drop": -1.55
+  },
+  "occlusion": {
+   "n": 258,
+   "top1": 67.83,
+   "top5": 85.66,
+   "class_avg": 67.42,
+   "drop": 6.59
+  }
+ }
+}

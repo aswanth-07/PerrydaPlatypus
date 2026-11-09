@@ -7,6 +7,7 @@
 # The INT8 models the app and the parity test load ship with the source
 !android/app/src/main/assets/**/*.onnx
 !android/parity/*.onnx
+!src/models/**/*.onnx
 *.tflite
 *.npz
 __pycache__/

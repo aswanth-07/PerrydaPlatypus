@@ -25,11 +25,12 @@ First launch explains what the camera is for before asking for it; the Clips tab
 | `app/.../data/SettingsRepository.kt` | Settings in DataStore |
 
 `signcore` has a parity test that runs the real INT8 model on the desktop JVM and checks that the Kotlin
-normaliser and the model's probabilities match Python on recorded test clips (40/40 top-1 agreement,
-normaliser within 7e-6):
+normaliser and the model's probabilities match Python on recorded test clips (normaliser within 7e-6,
+probabilities within 0.02, top-1 identical except where Python itself scores a near-tie; with the shipped 2,000-word
+model, 39/40 identical and the other clip a 0.0671 vs 0.0668 tie):
 
 ```bash
-python -I scripts/make_parity_fixture.py data/index/WLASL_v0.3.json data/kp_hol runs/deploy android/parity
+python -I scripts/make_parity_fixture.py data/index/WLASL_v0.3.json data/kp_hol src/models/full android/parity --subset 2000
 gradle -p android :signcore:test
 ```
 
@@ -40,7 +41,7 @@ The build uses Gradle, the standard Android build tool (Android Studio runs the 
 1. Install the Android SDK (Android Studio, or the command-line tools) with platform 36 and build-tools 36.1.0,
    and accept its licence.
 2. `android/local.properties`: `sdk.dir=C:\\path\\to\\Android\\Sdk` (Android Studio writes this for you).
-3. `runs/deploy/` must hold `sign_int8.onnx`, `labels.json`, `export.json` (from `scripts/export_v2.py`) and
+3. `src/models/` (in the repository) holds `sign_int8.onnx`, `labels.json`, `export.json` (from `scripts/export_v2.py`) and
    `holistic_landmarker.task`; the `copyModels` task puts them in the app's assets before every build.
 4. `gradle -p android :app:assembleRelease` → `app/build/outputs/apk/release/app-release.apk` (signed with the
    debug key so it installs directly; use a real key for distribution).

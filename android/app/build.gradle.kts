@@ -73,8 +73,9 @@ dependencies {
 }
 
 // The Holistic bundle and the exported vocabularies (core: 100 words, full: 2,000, union: 3,075 when exported)
-// are copied into assets before each build; Sync also removes anything stale from earlier layouts.
-val modelDir = rootProject.file("../runs/deploy")
+// are copied from src/models (the same files predict() loads, kept in Git) into assets before each build; Sync
+// also removes anything stale from earlier layouts.
+val modelDir = rootProject.file("../src/models")
 val copyModels = tasks.register<Sync>("copyModels") {
     into(layout.projectDirectory.dir("src/main/assets"))
     from(modelDir) { include("holistic_landmarker.task") }

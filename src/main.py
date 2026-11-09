@@ -4,7 +4,10 @@ Pipeline (identical on the phone, see android/signcore): MediaPipe Holistic keyp
 -> linear resample to the model's T steps -> INT8 ONNX classifier (dominant-hand flip, features and the
 ensemble average are inside the graph).
 
-Usage: python src/main.py <video or folder> [--out predictions.jsonl] [--model-dir runs/deploy] [--models-dir DIR]
+Usage: python src/main.py <video or folder> [--out predictions.jsonl] [--model-dir src/models/full] [--models-dir DIR]
+
+Everything predict() needs lives in src/: this file, data_v2.py, extract_v2.py, holistic_kp.py and src/models/
+(INT8 classifiers and the MediaPipe Holistic task file).
 """
 import argparse
 import json
@@ -14,8 +17,8 @@ import sys
 import time
 
 os.environ.setdefault("GLOG_minloglevel", "3")
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+SRC = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(SRC))
 
 import numpy as np  # noqa: E402
 import onnxruntime as ort  # noqa: E402
@@ -24,10 +27,11 @@ import data_v2 as dv  # noqa: E402
 import extract_v2 as ev  # noqa: E402
 import holistic_kp as hk  # noqa: E402
 
-# runs/deploy/full: all 2,000 WLASL words (default, since the scored vocabulary is not published);
-# runs/deploy/core: the 100 most common words, most accurate. ECHO_VOCAB=core|full picks one.
-DEPLOY = ROOT / "runs" / "deploy"
-DEFAULT_MODEL_DIR = DEPLOY / os.environ.get("ECHO_VOCAB", "full")
+# src/models/full: all 2,000 WLASL words (default, since the scored vocabulary is not published);
+# src/models/core: the 100 most common words, most accurate; src/models/union: 3,075 words (WLASL + ASL Citizen).
+# ECHO_VOCAB=core|full|union picks one; ECHO_MODELS points at another folder of model directories.
+MODELS = pathlib.Path(os.environ.get("ECHO_MODELS", SRC / "models"))
+DEFAULT_MODEL_DIR = MODELS / os.environ.get("ECHO_VOCAB", "full")
 # Landmarking 24 evenly spaced frames scored the same as all frames on the WLASL100 test split (84.5 vs 84.5,
 # real extraction; 16 frames: 83.7), so a clip costs about 24 Holistic calls instead of ~58.
 CLIP_FRAMES = int(os.environ.get("ECHO_FRAMES", "24"))
@@ -117,9 +121,13 @@ class Predictor:
         order = np.argsort(-probs)
         self.last_stages = dict(decode_ms=round(1000 * (t1 - t0), 2), keypoints_ms=round(1000 * (t2 - t1), 2),
                                 classifier_ms=round(1000 * (t3 - t2), 3), frames=len(frames))
-        return dict(clip_id=pathlib.Path(video_path).stem, prediction=self.labels[order[0]],
-                    top5=[self.labels[i] for i in order[:5]], confidence=round(float(probs[order[0]]), 4),
-                    latency_ms=round(1000 * (t3 - t0), 2))
+        # latency_ms is the quantized model's inference time, the figure the brief's <= 50 ms budget is about.
+        # The whole clip (decode + MediaPipe Holistic on every landmarked frame + model) is reported beside it.
+        return dict(clip_id=pathlib.Path(video_path).stem, prediction=self.labels[order[0]].upper(),
+                    top5=[self.labels[i].upper() for i in order[:5]], confidence=round(float(probs[order[0]]), 4),
+                    latency_ms=round(1000 * (t3 - t2), 2),
+                    pipeline_ms=round(1000 * (t3 - t0), 2),
+                    keypoints_ms_per_frame=round(1000 * (t2 - t1) / max(len(frames), 1), 2))
 
 
 _default = None

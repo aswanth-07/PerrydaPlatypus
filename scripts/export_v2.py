@@ -63,7 +63,7 @@ def batches(data, ids, t_in):
     return out
 
 
-def run_onnx(path, feeds, y, threads=1):
+def run_onnx(path, feeds, y, threads=1, reference=None):
     import onnxruntime as ort
     so = ort.SessionOptions()
     so.intra_op_num_threads = threads
@@ -76,7 +76,10 @@ def run_onnx(path, feeds, y, threads=1):
         times.append(1000 * (time.perf_counter() - t))
     probs = torch.from_numpy(np.concatenate(probs))
     times = sorted(times[5:])
-    return tv.score(probs, y), dict(p50_ms=round(times[len(times) // 2], 3), p95_ms=round(times[int(0.95 * len(times))], 3))
+    sc = tv.score(probs, y)
+    if reference is not None:  # label-free fidelity: how often the ONNX model's top-1 equals the PyTorch model's
+        sc["agree_top1_with_torch"] = round(100 * float((probs.argmax(1) == reference.argmax(1)).float().mean()), 2)
+    return sc, dict(p50_ms=round(times[len(times) // 2], 3), p95_ms=round(times[int(0.95 * len(times))], 3))
 
 
 def main():
@@ -88,9 +91,16 @@ def main():
     ap.add_argument("--subset", type=int, default=100)
     ap.add_argument("--calib", type=int, default=400)
     ap.add_argument("--ops", default="Conv,Gemm", help="op types quantized to INT8")
+    ap.add_argument("--calib-method", default="MinMax", choices=["MinMax", "Entropy", "Percentile"],
+                    help="how activation ranges are set from the calibration clips")
+    ap.add_argument("--act-type", default="QInt8", choices=["QInt8", "QUInt8"], help="activation integer type (static)")
+    ap.add_argument("--dynamic", action="store_true",
+                    help="weight-only INT8 (activations quantized on the fly) instead of static calibration")
+    ap.add_argument("--exclude", default="", help="comma-separated substrings of node names kept in FP32 (e.g. stem/Conv,eca)")
     ap.add_argument("--labels", default="", help="JSON label list for vocabularies beyond the WLASL index (union)")
     a = ap.parse_args()
-    from onnxruntime.quantization import CalibrationDataReader, QuantFormat, QuantType, quantize_static
+    from onnxruntime.quantization import (CalibrationDataReader, CalibrationMethod, QuantFormat, QuantType, quantize_dynamic,
+                                          quantize_static)
     from onnxruntime.quantization.shape_inference import quant_pre_process
 
     out = pathlib.Path(a.out)
@@ -133,13 +143,22 @@ def main():
 
     # Only the weight-bearing ops go to INT8. The coordinate maths in front (palm frame, differences,
     # norms) and the activation-by-activation attention products lose 6 points top-1 when quantized.
-    quantize_static(str(raw), str(int8), Reader(), quant_format=QuantFormat.QDQ, per_channel=True,
-                    activation_type=QuantType.QInt8, weight_type=QuantType.QInt8,
-                    op_types_to_quantize=a.ops.split(","))
+    import onnx
+    keep = [k for k in a.exclude.split(",") if k]
+    exclude = [n.name for n in onnx.load(str(raw)).graph.node if any(k in n.name for k in keep)]
+    if a.dynamic:
+        quantize_dynamic(str(raw), str(int8), per_channel=True, weight_type=QuantType.QInt8,
+                         op_types_to_quantize=a.ops.split(","), nodes_to_exclude=exclude)
+    else:
+        quantize_static(str(raw), str(int8), Reader(), quant_format=QuantFormat.QDQ, per_channel=True,
+                        activation_type=getattr(QuantType, a.act_type), weight_type=QuantType.QInt8,
+                        op_types_to_quantize=a.ops.split(","), calibrate_method=getattr(CalibrationMethod, a.calib_method),
+                        nodes_to_exclude=exclude)
     raw.unlink()
-    res = dict(ckpts=a.ckpts, t_in=t_in, test_clips=len(y), torch=tv.score(torch_probs, y))
+    res = dict(ckpts=a.ckpts, t_in=t_in, test_clips=len(y), int8_scheme=dict(dynamic=a.dynamic, ops=a.ops, fp32_nodes=exclude),
+               torch=tv.score(torch_probs, y))
     for name, path in (("fp32", fp32), ("int8", int8)):
-        sc, lat = run_onnx(path, feeds, y)
+        sc, lat = run_onnx(path, feeds, y, reference=torch_probs)
         res[name] = dict(size_mb=round(path.stat().st_size / 1e6, 3), test=sc, one_thread=lat)
     labels = json.loads(pathlib.Path(a.labels).read_text(encoding="utf-8")) if a.labels else [e["gloss"].upper() for e in entries[:a.subset]]
     labels = labels[:cks[0]["classes"]]

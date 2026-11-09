@@ -1,0 +1,48 @@
+{
+ "ckpts": [
+  "runs/soupAll8/best.pt"
+ ],
+ "t_in": 64,
+ "test_clips": 2878,
+ "int8_scheme": {
+  "dynamic": true,
+  "ops": "Conv,Gemm,MatMul",
+  "fp32_nodes": [
+   "/models.0/stem/Conv"
+  ]
+ },
+ "torch": {
+  "n": 2878,
+  "top1": 62.72,
+  "top5": 91.52,
+  "class_avg": 59.53
+ },
+ "fp32": {
+  "size_mb": 10.166,
+  "test": {
+   "n": 2878,
+   "top1": 62.72,
+   "top5": 91.52,
+   "class_avg": 59.53,
+   "agree_top1_with_torch": 100.0
+  },
+  "one_thread": {
+   "p50_ms": 3.709,
+   "p95_ms": 3.978
+  }
+ },
+ "int8": {
+  "size_mb": 3.176,
+  "test": {
+   "n": 2878,
+   "top1": 62.72,
+   "top5": 91.56,
+   "class_avg": 59.47,
+   "agree_top1_with_torch": 96.98
+  },
+  "one_thread": {
+   "p50_ms": 3.231,
+   "p95_ms": 3.4
+  }
+ }
+}

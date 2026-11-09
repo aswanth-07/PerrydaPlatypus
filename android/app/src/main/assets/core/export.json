@@ -1,40 +1,42 @@
 {
  "ckpts": [
-  "runs\\core_deploy2_s82\\best.pt",
-  "runs\\core_deploy2_s83\\best.pt"
+  "runs/core_occ_deploy_s111/best.pt",
+  "runs/core_occ_deploy_s112/best.pt"
  ],
  "t_in": 64,
  "test_clips": 258,
  "torch": {
   "n": 258,
-  "top1": 91.47,
-  "top5": 98.06,
-  "class_avg": 91.75
+  "top1": 92.25,
+  "top5": 98.45,
+  "class_avg": 92.5
  },
  "fp32": {
   "size_mb": 14.44,
   "test": {
    "n": 258,
-   "top1": 91.47,
-   "top5": 98.06,
-   "class_avg": 91.75
+   "top1": 92.25,
+   "top5": 98.45,
+   "class_avg": 92.5,
+   "agree_top1_with_torch": 100.0
   },
   "one_thread": {
-   "p50_ms": 20.376,
-   "p95_ms": 22.841
+   "p50_ms": 7.447,
+   "p95_ms": 10.147
   }
  },
  "int8": {
   "size_mb": 4.174,
   "test": {
    "n": 258,
-   "top1": 91.47,
-   "top5": 98.06,
-   "class_avg": 91.75
+   "top1": 92.25,
+   "top5": 98.45,
+   "class_avg": 92.5,
+   "agree_top1_with_torch": 99.22
   },
   "one_thread": {
-   "p50_ms": 14.538,
-   "p95_ms": 15.623
+   "p50_ms": 6.886,
+   "p95_ms": 9.111
   }
  }
 }

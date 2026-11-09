@@ -31,7 +31,7 @@ def init(models_dir, limit):
     import psutil
     cv2.setNumThreads(1)
     if hasattr(psutil, "BELOW_NORMAL_PRIORITY_CLASS"):
-        psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+        psutil.Process().nice(getattr(psutil, os.environ.get("ECHO_EXTRACT_PRIORITY", "BELOW_NORMAL_PRIORITY_CLASS")))
     _state.update(models=models_dir, limit=limit)
 
 
@@ -77,6 +77,9 @@ def main():
     ap.add_argument("--enhance", action="store_true", help="apply the run-time low-light fix after degrading")
     ap.add_argument("--conditions", default="", help="eval: only these conditions (comma-separated)")
     ap.add_argument("--strength-scale", type=float, default=1.0, help="eval: scale every condition's strength (0.57 turns 0.7 into 0.4)")
+    ap.add_argument("--must", default="", help="train: conditions every copy includes (comma-separated), at strength 0.3-1.0")
+    ap.add_argument("--copy-offset", type=int, default=0, help="train: first copy index, so new copies get new seeds and names")
+    ap.add_argument("--shuffle", action="store_true", help="process jobs in a fixed random order, so a stopped run covers every class")
     a = ap.parse_args()
 
     import numpy as np
@@ -95,9 +98,12 @@ def main():
                         main=str(mdir / f"{i['video_id']}.mp4") if mdir else None)
             h = zlib.crc32(i["video_id"].encode())
             if a.mode == "train" and i["split"] == "train":
-                for k in range(a.copies):
+                for k in range(a.copy_offset, a.copy_offset + a.copies):
                     seed = h * 31 + k
-                    spec = va.random_spec(np.random.default_rng(seed))
+                    rng = np.random.default_rng(seed)
+                    spec = va.random_spec(rng)
+                    for c in filter(None, a.must.split(",")):
+                        spec.setdefault(c, float(rng.uniform(0.3, 1.0)))
                     jobs.append(dict(base, spec=spec, seed=seed, dst=str(out / f"{i['video_id']}__a{k}.npz")))
             elif a.mode == "eval" and i["split"] == a.split:
                 for c, spec in va.EVAL_SPECS.items():
@@ -107,6 +113,8 @@ def main():
                     (out / c).mkdir(parents=True, exist_ok=True)
                     jobs.append(dict(base, spec=spec, seed=10_000_019 + h, enhance=a.enhance, dst=str(out / c / f"{i['video_id']}.npz")))
     out.mkdir(parents=True, exist_ok=True)
+    if a.shuffle:
+        jobs = [jobs[i] for i in np.random.default_rng(0).permutation(len(jobs))]
     print(f"{len(jobs)} jobs, {a.workers} workers", flush=True)
     t0 = time.time()
     counts, frames, bad = {}, 0, []

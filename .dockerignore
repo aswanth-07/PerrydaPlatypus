@@ -1,0 +1,4 @@
+# The image needs only src/ (code, models, requirements); keep the 76 GB data/ and runs/ out of the build context.
+*
+!src/
+src/**/__pycache__

@@ -1,0 +1,28 @@
+{
+ "model_dir": "src/models/full",
+ "shards": 6,
+ "landmarker": "reused",
+ "clips": 2878,
+ "cut_from_longer_videos": 8,
+ "top1": 61.88,
+ "top5": 91.35,
+ "whole_clip_ms": {
+  "p50": 984.27,
+  "p95": 1136.0
+ },
+ "latency_ms": {
+  "p50": 6.89,
+  "p95": 7.88
+ },
+ "decode_ms_p50": 16.48,
+ "keypoints_ms": {
+  "p50": 960.54,
+  "p95": 1105.16
+ },
+ "keypoints_per_frame_ms_p50": 40.04,
+ "classifier_ms": {
+  "p50": 6.89,
+  "p95": 7.88
+ },
+ "frames_p50": 24
+}

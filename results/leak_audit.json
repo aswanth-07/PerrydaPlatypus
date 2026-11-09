@@ -1,0 +1,22 @@
+{
+ "all": {
+  "clips": 2878,
+  "top1": 61.88
+ },
+ "clean": {
+  "clips": 2689,
+  "top1": 64.75
+ },
+ "other_gloss": {
+  "clips": 165,
+  "top1": 10.91
+ },
+ "overlap": {
+  "clips": 189,
+  "top1": 21.16
+ },
+ "same_gloss": {
+  "clips": 24,
+  "top1": 91.67
+ }
+}

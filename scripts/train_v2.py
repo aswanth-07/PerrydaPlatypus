@@ -318,6 +318,9 @@ def main():
     ap.add_argument("--distill-temp", type=float, default=2.0)
     ap.add_argument("--phonology", default="", help="ASL-LEX signdata.csv: adds auxiliary phoneme heads (training only)")
     ap.add_argument("--phon-weight", type=float, default=0.5)
+    ap.add_argument("--phon-smooth", type=float, default=0.0,
+                    help="with --phonology: sharpness of phonology-weighted label smoothing (0 = uniform smoothing)")
+    ap.add_argument("--phon-smooth-mix", type=float, default=0.5, help="share of the smoothing mass given by phonology")
     ap.add_argument("--ema", type=float, default=0.999)
     ap.add_argument("--eval-every", type=int, default=5)
     a = ap.parse_args()
@@ -394,7 +397,22 @@ def main():
         phon = {t: torch.tensor(v + [-1] * (n_cls - len(v)), device=dev) for t, v in labels_by_type.items()}
         aux = torch.nn.ModuleDict({t: torch.nn.Linear(2 * a.dim, n) for t, n in sizes.items()}).to(dev)
         print(f"phonology heads: {matched}/{a.subset} glosses labelled, {len(sizes)} phoneme types", flush=True)
-    opt = torch.optim.AdamW(list(model.parameters()) + (list(aux.parameters()) if aux else []), lr=a.lr, weight_decay=a.wd)
+    smooth_q = None
+    if a.phon_smooth and phon is not None:
+        # Phonology-weighted label smoothing (after NLA-SLR's language-aware smoothing, with sign form in place of
+        # gloss meaning): the smoothing mass goes to words sharing more ASL-LEX phoneme values with the true word.
+        # Words without phoneme labels have similarity 0 to everything, so their rows stay uniform.
+        P = torch.stack([phon[t] for t in phon], 1)
+        lab = P >= 0
+        both = (lab[:, None, :] & lab[None, :, :])
+        sim = ((P[:, None, :] == P[None, :, :]) & both).float().sum(-1) / both.float().sum(-1).clamp(min=1)
+        eye = torch.eye(n_cls, device=dev, dtype=torch.bool)
+        q = torch.softmax((a.phon_smooth * sim).masked_fill(eye, float("-inf")), 1)
+        uni = (~eye).float() / (n_cls - 1)
+        smooth_q = a.phon_smooth_mix * q + (1 - a.phon_smooth_mix) * uni
+        del P, lab, both, sim
+        print(f"phonology-weighted smoothing: kappa {a.phon_smooth}, mix {a.phon_smooth_mix}", flush=True)
+    opt =torch.optim.AdamW(list(model.parameters()) + (list(aux.parameters()) if aux else []), lr=a.lr, weight_decay=a.wd)
     ids, labels = rows["train"]
     steps = max(len(ids) // a.batch, 1)
     total_steps = a.epochs * steps
@@ -437,7 +455,11 @@ def main():
             else:
                 emb = model.embed(x, w, s)
                 logits = model.head(model.head_drop(emb))
-                loss = F.cross_entropy(logits, y, label_smoothing=a.smooth)
+                if smooth_q is not None:
+                    target = (1 - a.smooth) * F.one_hot(y, n_cls).float() + a.smooth * smooth_q[y]
+                    loss = -(target * F.log_softmax(logits, -1)).sum(-1).mean()
+                else:
+                    loss = F.cross_entropy(logits, y, label_smoothing=a.smooth)
                 if teachers:
                     with torch.no_grad():
                         soft = sum(torch.softmax(t(x, w, s) / a.distill_temp, -1) for t in teachers) / len(teachers)
