@@ -23,13 +23,19 @@ import train_v2 as tv
 
 
 class Deploy(nn.Module):
-    def __init__(self, models, cfgs, face_flip):
+    """Outputs: probs (what predict() answers from: the same-sign answer rule applied when the model has one),
+    set_probs (per gloss, the probability of its whole same-sign set: the confidence the captions use),
+    embedding (the pooled features, for signs the user teaches on the device), raw_probs (the network's own
+    probabilities, before the rule)."""
+
+    def __init__(self, models, cfgs, face_flip, rule=None):
         super().__init__()
         self.models = nn.ModuleList(models)
         self.canon = [bool(c["canon"]) for c in cfgs]
         self.canon_rel = [bool(c.get("canon_rel", False)) for c in cfgs]
         self.register_buffer("perm", tv.flip_perm(face_flip), persistent=False)
         self.t_in = cfgs[0]["t_in"]
+        self.rule = rule
 
     def flip(self, x, w, s):
         xf = x.index_select(2, self.perm)
@@ -41,7 +47,7 @@ class Deploy(nn.Module):
 
     def forward(self, x, w, s):
         lengths = torch.full((x.shape[0],), self.t_in, dtype=torch.long, device=x.device)
-        probs = 0
+        probs, emb = 0, 0
         for m, canon, rel in zip(self.models, self.canon, self.canon_rel):
             xi, wi, si = x, w, s
             if canon:
@@ -50,8 +56,14 @@ class Deploy(nn.Module):
                 xi = torch.where(left, xf, x)
                 wi = torch.where(left[..., None], wf, w)
                 si = torch.where(left[:, :, :, 0], sf, s)
-            probs = probs + torch.softmax(m(xi, wi, si), -1)
-        return probs / len(self.models)
+            e = m.embed(xi, wi, si)
+            probs = probs + torch.softmax(m.head(e), -1)
+            emb = emb + e
+        raw, emb = probs / len(self.models), emb / len(self.models)
+        if self.rule is None:
+            return raw, raw, emb, raw
+        ruled, mass = self.rule(raw)
+        return ruled, mass, emb, raw
 
 
 def batches(data, ids, t_in):
@@ -98,6 +110,8 @@ def main():
                     help="weight-only INT8 (activations quantized on the fly) instead of static calibration")
     ap.add_argument("--exclude", default="", help="comma-separated substrings of node names kept in FP32 (e.g. stem/Conv,eca)")
     ap.add_argument("--labels", default="", help="JSON label list for vocabularies beyond the WLASL index (union)")
+    ap.add_argument("--set-rule", action="store_true",
+                    help="put the same-sign answer rule (signsets.py, sets from train+val listings) inside the graph")
     a = ap.parse_args()
     from onnxruntime.quantization import (CalibrationDataReader, CalibrationMethod, QuantFormat, QuantType, quantize_dynamic,
                                           quantize_static)
@@ -113,10 +127,22 @@ def main():
         if isinstance(m.head, mv.CosineHead):
             m.head = m.head.folded()   # a plain Linear on normalised input, so it is quantized as a Gemm
         models.append(m.eval())
-    deploy = Deploy(models, [ck["cfg"] for ck in cks], cks[0].get("face_flip", torch.arange(62))).eval()
+    entries = json.load(open(a.index, encoding="utf-8"))
+    rule, sets_info = None, None
+    if a.set_rule:
+        import signsets
+        n_idx, n_cls = min(a.subset, len(entries)), cks[0]["classes"]
+        set_of, links = signsets.same_sign_sets(entries, n_idx)
+        counts = signsets.wlasl_counts(entries, n_idx)
+        # Classes outside the WLASL index (a union vocabulary) are sets of their own with a neutral weight.
+        set_of = torch.cat([set_of, int(set_of.max()) + 1 + torch.arange(n_cls - n_idx)])
+        counts = torch.cat([counts, torch.ones(n_cls - n_idx)])
+        rule = signsets.SetRule(set_of, counts)
+        sets_info = dict(links=links, sets_of_two_or_more=int((torch.bincount(set_of) > 1).sum()),
+                         gamma=signsets.GAMMA, beta=signsets.BETA, set_of=set_of.tolist())
+    deploy = Deploy(models, [ck["cfg"] for ck in cks], cks[0].get("face_flip", torch.arange(62)), rule).eval()
     t_in = deploy.t_in
 
-    entries = json.load(open(a.index, encoding="utf-8"))
     cache = torch.load(a.cache, weights_only=False)
     rows = tv.select(cache, entries, a.subset)
     data = {k: cache[k] for k in ("X", "W", "S", "L")}
@@ -127,11 +153,13 @@ def main():
     calib = batches(data, calib_ids, t_in)
 
     with torch.no_grad():
-        torch_probs = torch.cat([deploy(*(torch.from_numpy(f[k]) for k in ("points", "world", "seen"))) for f in feeds])
+        outs = [deploy(*(torch.from_numpy(f[k]) for k in ("points", "world", "seen"))) for f in feeds]
+        torch_probs = torch.cat([o[0] for o in outs])
+        torch_raw = torch.cat([o[3] for o in outs])
     fp32, raw, int8 = out / "sign_fp32.onnx", out / "sign_pre.onnx", out / "sign_int8.onnx"
     ex = tuple(torch.from_numpy(feeds[0][k]) for k in ("points", "world", "seen"))
-    torch.onnx.export(deploy, ex, str(fp32), input_names=["points", "world", "seen"], output_names=["probs"],
-                      opset_version=17, dynamo=False)
+    torch.onnx.export(deploy, ex, str(fp32), input_names=["points", "world", "seen"],
+                      output_names=["probs", "set_probs", "embedding", "raw_probs"], opset_version=17, dynamo=False)
     quant_pre_process(str(fp32), str(raw))
 
     class Reader(CalibrationDataReader):
@@ -157,6 +185,10 @@ def main():
     raw.unlink()
     res = dict(ckpts=a.ckpts, t_in=t_in, test_clips=len(y), int8_scheme=dict(dynamic=a.dynamic, ops=a.ops, fp32_nodes=exclude),
                torch=tv.score(torch_probs, y))
+    if sets_info is not None:  # the network's own answer, before the rule, for the record
+        res["torch_before_rule"] = tv.score(torch_raw, y)
+        res["same_sign"] = {k: v for k, v in sets_info.items() if k != "set_of"}
+        (out / "sets.json").write_text(json.dumps(sets_info["set_of"]), encoding="utf-8")
     for name, path in (("fp32", fp32), ("int8", int8)):
         sc, lat = run_onnx(path, feeds, y, reference=torch_probs)
         res[name] = dict(size_mb=round(path.stat().st_size / 1e6, 3), test=sc, one_thread=lat)

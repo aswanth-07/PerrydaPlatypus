@@ -19,6 +19,9 @@ data class Settings(
     val backCamera: Boolean = true,    // exocentric: the camera faces the signer
     val gpu: Boolean = true,           // MediaPipe on the GPU delegate
     val vocabulary: String = "core",   // "core" 100 words or "full" 2,000 words
+    val speak: Boolean = false,        // say each caption word aloud (on-device voice)
+    val speechRate: Float = 1.15f,     // a little faster than the engine's default keeps up with signing
+    val teachThreshold: Float = 0.55f, // cosine a window needs to a taught sign's prototype
 )
 
 private val Context.store by preferencesDataStore(name = "settings")
@@ -32,6 +35,9 @@ class SettingsRepository(private val context: Context) {
         val back = booleanPreferencesKey("back_camera")
         val gpu = booleanPreferencesKey("gpu")
         val vocabulary = stringPreferencesKey("vocabulary")
+        val speak = booleanPreferencesKey("speak")
+        val speechRate = floatPreferencesKey("speech_rate")
+        val teachThreshold = floatPreferencesKey("teach_threshold")
     }
 
     private fun read(p: Preferences) = Settings(
@@ -42,6 +48,9 @@ class SettingsRepository(private val context: Context) {
         backCamera = p[K.back] ?: Settings().backCamera,
         gpu = p[K.gpu] ?: Settings().gpu,
         vocabulary = p[K.vocabulary] ?: Settings().vocabulary,
+        speak = p[K.speak] ?: Settings().speak,
+        speechRate = p[K.speechRate] ?: Settings().speechRate,
+        teachThreshold = p[K.teachThreshold] ?: Settings().teachThreshold,
     )
 
     val settings: Flow<Settings> = context.store.data.map(::read)
@@ -56,6 +65,9 @@ class SettingsRepository(private val context: Context) {
             p[K.back] = s.backCamera
             p[K.gpu] = s.gpu
             p[K.vocabulary] = s.vocabulary
+            p[K.speak] = s.speak
+            p[K.speechRate] = s.speechRate
+            p[K.teachThreshold] = s.teachThreshold
         }
     }
 }

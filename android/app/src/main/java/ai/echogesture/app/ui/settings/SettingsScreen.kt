@@ -81,6 +81,38 @@ fun SettingsScreen(vm: MainViewModel) {
             s.windowSec, 1f..3f, 7,
         ) { v -> vm.update { it.copy(windowSec = v) } }
 
+        SliderSetting(
+            "How closely a taught sign must match", "%.2f".format(s.teachThreshold),
+            "For signs taught on the Teach tab. Lower catches more of them but mistakes more known words for them.",
+            s.teachThreshold, 0.45f..0.65f, 3,
+        ) { v -> vm.update { it.copy(teachThreshold = v) } }
+
+        SectionTitle("Voice")
+        val voice by vm.engine.speaker.state.collectAsStateWithLifecycle()
+        SwitchSetting(
+            "Speak captions aloud",
+            when {
+                voice.error != null -> voice.error!!
+                !voice.ready -> "Starting the phone's text-to-speech engine."
+                voice.onDevice -> "Each word is spoken as soon as it is recognised, by a voice installed on this phone."
+                else -> "Each word is spoken as soon as it is recognised. No installed English voice was found: add one in the phone's text-to-speech settings to keep speech offline."
+            },
+            s.speak,
+        ) { v -> vm.update { it.copy(speak = v) } }
+        if (s.speak) {
+            SliderSetting(
+                "Speaking speed", "%.2f×".format(s.speechRate),
+                "Faster speech keeps up with quick signing.",
+                s.speechRate, 0.8f..1.8f, 9,
+            ) { v -> vm.update { it.copy(speechRate = v) } }
+            if (voice.spoken > 0) {
+                Text(
+                    "Last word sounded %.0f ms after the camera frame that settled it (median %.0f ms over %d words).".format(voice.lastMs, voice.medianMs, voice.spoken),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         SectionTitle("Camera")
         Text("Which camera faces the signer", style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(8.dp))

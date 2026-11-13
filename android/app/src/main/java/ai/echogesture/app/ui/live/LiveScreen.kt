@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.FrontHand
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.VoiceOverOff
 import androidx.compose.material.icons.outlined.FrontHand
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
@@ -66,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.engine.HAND_EDGES
 import ai.echogesture.app.engine.LiveState
+import ai.echogesture.app.engine.VoiceState
 import ai.echogesture.app.ui.components.ConfidenceRow
 import ai.echogesture.app.ui.components.StatusPill
 import ai.echogesture.app.ui.theme.CaptionStyle
@@ -76,14 +79,15 @@ import java.util.concurrent.Executors
 fun LiveScreen(vm: MainViewModel) {
     val state by vm.live.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val voice by vm.engine.speaker.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     DisposableEffect(Unit) {
-        vm.engine.startLive()
+        vm.engine.acquireLive()
         val window = (context as? Activity)?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
-            vm.engine.stopLive()
+            vm.engine.releaseLive()
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
@@ -92,7 +96,7 @@ fun LiveScreen(vm: MainViewModel) {
         CameraPreview(backCamera = settings.backCamera, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
         if (settings.showLandmarks) HandOverlay(state, mirror = !settings.backCamera, modifier = Modifier.fillMaxSize())
 
-        StatusBar(state, Modifier.align(Alignment.TopStart).padding(16.dp))
+        StatusBar(state, if (settings.speak) voice else null, Modifier.align(Alignment.TopStart).padding(16.dp))
         AnimatedVisibility(
             visible = state.top.isNotEmpty() && !state.paused,
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 16.dp),
@@ -103,6 +107,8 @@ fun LiveScreen(vm: MainViewModel) {
             Controls(
                 paused = state.paused,
                 showLandmarks = settings.showLandmarks,
+                speak = settings.speak,
+                onSpeak = { vm.update { it.copy(speak = !it.speak) } },
                 onFlip = { vm.update { it.copy(backCamera = !it.backCamera) }; vm.engine.clearCaption() },
                 onPause = { vm.engine.setPaused(!state.paused) },
                 onClear = vm.engine::clearCaption,
@@ -123,7 +129,7 @@ fun LiveScreen(vm: MainViewModel) {
 }
 
 @Composable
-private fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, modifier: Modifier) {
+internal fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val previewView = remember {
@@ -160,7 +166,7 @@ private fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, m
 
 /** Hand skeletons drawn in the same letterboxed rectangle the preview uses. */
 @Composable
-private fun HandOverlay(state: LiveState, mirror: Boolean, modifier: Modifier) {
+internal fun HandOverlay(state: LiveState, mirror: Boolean, modifier: Modifier) {
     val primary = MaterialTheme.colorScheme.primary
     Canvas(modifier) {
         if (state.imageWidth == 0 || state.imageHeight == 0) return@Canvas
@@ -183,7 +189,7 @@ private fun HandOverlay(state: LiveState, mirror: Boolean, modifier: Modifier) {
 }
 
 @Composable
-private fun StatusBar(state: LiveState, modifier: Modifier) {
+private fun StatusBar(state: LiveState, voice: VoiceState?, modifier: Modifier) {
     Column(modifier) {
         val (text, colour) = when {
             state.error != null -> "Hand tracking unavailable" to Palette.Red
@@ -199,6 +205,21 @@ private fun StatusBar(state: LiveState, modifier: Modifier) {
             Modifier.clip(RoundedCornerShape(8.dp)).background(Palette.Glass).padding(horizontal = 10.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall, color = Palette.TextMuted,
         )
+        if (voice != null) {
+            Spacer(Modifier.height(6.dp))
+            // Frame-to-sound: from the camera frame that settled the word to the first sound, median of the last words.
+            val text = when {
+                voice.error != null -> voice.error
+                !voice.ready -> "Voice starting"
+                voice.spoken == 0 -> "Voice on" + if (voice.onDevice) "  ·  on this phone" else ""
+                else -> "Voice %.0f ms after the frame  ·  median %.0f ms".format(voice.lastMs, voice.medianMs)
+            }
+            Text(
+                text,
+                Modifier.clip(RoundedCornerShape(8.dp)).background(Palette.Glass).padding(horizontal = 10.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall, color = if (voice.error != null) Palette.Red else Palette.TextMuted,
+            )
+        }
     }
 }
 
@@ -225,7 +246,7 @@ private fun CaptionBand(state: LiveState) {
                 if (state.paused) "Paused" else "Sign in front of the camera — captions appear here",
                 style = MaterialTheme.typography.titleMedium, color = Palette.TextMuted,
             )
-        } else {
+        } else Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val older = state.caption.dropLast(1).takeLast(5).joinToString(" ")
                 if (older.isNotEmpty()) {
@@ -241,17 +262,28 @@ private fun CaptionBand(state: LiveState) {
                     Text(word, style = CaptionStyle, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold)
                 }
             }
+            // One sign, several names: WLASL lists the same signing under DOCTOR and PHYSICIAN, so show both.
+            val note = when {
+                state.lastTaught -> "taught on this phone"
+                state.lastAlso.isNotEmpty() -> "same sign: " + state.lastAlso.joinToString(" · ")
+                else -> null
+            }
+            if (note != null) {
+                Text(note, style = MaterialTheme.typography.titleSmall, color = Palette.Amber, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
 
 @Composable
 private fun Controls(
-    paused: Boolean, showLandmarks: Boolean,
-    onFlip: () -> Unit, onPause: () -> Unit, onClear: () -> Unit, onLandmarks: () -> Unit,
+    paused: Boolean, showLandmarks: Boolean, speak: Boolean,
+    onSpeak: () -> Unit, onFlip: () -> Unit, onPause: () -> Unit, onClear: () -> Unit, onLandmarks: () -> Unit,
     modifier: Modifier,
 ) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ControlButton(if (speak) Icons.Filled.RecordVoiceOver else Icons.Filled.VoiceOverOff,
+            if (speak) "Stop speaking captions" else "Speak captions aloud", onSpeak, active = speak)
         ControlButton(if (showLandmarks) Icons.Filled.FrontHand else Icons.Outlined.FrontHand, "Show hand tracking", onLandmarks)
         ControlButton(Icons.Filled.ClearAll, "Clear captions", onClear)
         ControlButton(if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause, if (paused) "Resume" else "Pause", onPause)
@@ -260,10 +292,13 @@ private fun Controls(
 }
 
 @Composable
-private fun ControlButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun ControlButton(icon: ImageVector, label: String, onClick: () -> Unit, active: Boolean = false) {
     FilledTonalIconButton(
         onClick = onClick,
         modifier = Modifier.size(52.dp),
-        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Palette.Glass, contentColor = Palette.Text),
+        colors = IconButtonDefaults.filledTonalIconButtonColors(
+            containerColor = if (active) MaterialTheme.colorScheme.primary else Palette.Glass,
+            contentColor = if (active) MaterialTheme.colorScheme.onPrimary else Palette.Text,
+        ),
     ) { Icon(icon, contentDescription = label) }
 }

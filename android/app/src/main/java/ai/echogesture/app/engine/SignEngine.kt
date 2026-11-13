@@ -7,9 +7,19 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import androidx.camera.core.ImageProxy
+import ai.echogesture.app.data.TaughtSign
+import ai.echogesture.app.data.TaughtStore
+import ai.echogesture.signcore.Clip
+import ai.echogesture.signcore.Embeddings
+import ai.echogesture.signcore.Layout
+import ai.echogesture.signcore.Normaliser
+import ai.echogesture.signcore.Prediction
 import ai.echogesture.signcore.RawFrame
+import ai.echogesture.signcore.Resampler
+import ai.echogesture.signcore.SameSignSets
 import ai.echogesture.signcore.SignModel
 import ai.echogesture.signcore.Spotter
+import ai.echogesture.signcore.TaughtMatcher
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.MPImage
 import com.google.mediapipe.tasks.core.BaseOptions
@@ -17,6 +27,7 @@ import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarker
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarkerResult
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +36,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
@@ -48,6 +60,9 @@ data class LiveState(
     val caption: List<String> = emptyList(),
     val lastWord: String? = null,
     val lastWordAt: Long = 0,
+    val lastAlso: List<String> = emptyList(),   // other names of the same sign (DOCTOR · PHYSICIAN)
+    val lastTaught: Boolean = false,            // the last word is a sign taught on this phone
+    val recording: Float? = null,               // 0..1 while an example for a taught sign is being recorded
     val fps: Double = 0.0,
     val landmarksMs: Double = 0.0,
     val modelMs: Double = 0.0,
@@ -60,6 +75,12 @@ data class LiveState(
 
 data class TranscriptEntry(val word: String, val confidence: Float, val atMillis: Long)
 
+/** Teach-a-sign state: whether the loaded model can do it, and the signs taught so far. */
+data class TeachState(val supported: Boolean = false, val signs: List<TaughtSign> = emptyList(), val note: String? = null)
+
+/** One recorded example: the model input (64 steps), the share of frames with a hand, and its embedding. */
+class TeachExample(val clip: Clip, val handFraction: Float, val embedding: FloatArray?)
+
 data class ClipResult(
     val name: String,
     val top5: List<Pair<String, Float>>,
@@ -68,6 +89,8 @@ data class ClipResult(
     val modelMs: Double,
     val totalMs: Double,
     val atMillis: Long = System.currentTimeMillis(),
+    val also: List<String> = emptyList(),
+    val taught: Boolean = false,
 ) {
     val word: String get() = top5.first().first
     val confidence: Float get() = top5.first().second
@@ -87,6 +110,38 @@ class SignEngine(private val context: Context) : AutoCloseable {
     private var lastTs = 0L
     private var lastResultTs = 0L
     @Volatile private var useGpu = true
+
+    /** Spoken captions: every word the spotter settles is said aloud by the phone's own installed voice. */
+    val speaker = Speaker(context)
+
+    fun setSpeech(on: Boolean, rate: Float) {
+        speaker.enabled = on
+        speaker.setRate(rate)
+        if (!on) speaker.silence()
+    }
+
+    // ---------- same-sign names and signs taught on the phone ----------
+
+    @Volatile private var sameSign: SameSignSets? = null
+    private val store = TaughtStore(context)
+    @Volatile private var matcher: TaughtMatcher? = null
+    @Volatile private var teachThreshold = TaughtMatcher.DEFAULT_THRESHOLD
+    private val _teach = MutableStateFlow(TeachState())
+    val teach: StateFlow<TeachState> = _teach.asStateFlow()
+
+    private class Recording(val durationMs: Long, val done: CompletableDeferred<TeachExample>) {
+        var startTs = -1L
+        val frames = ArrayList<RawFrame>()
+        var w = 0
+        var h = 0
+    }
+    @Volatile private var recording: Recording? = null
+
+    private fun also(p: Prediction, word: String): List<String> {
+        val i = p.order[0]
+        if (p.labels[i] != word) return emptyList()
+        return sameSign?.others(i)?.map { p.labels[it] }.orEmpty()
+    }
 
     private val _live = MutableStateFlow(LiveState())
     val liveState: StateFlow<LiveState> = _live.asStateFlow()
@@ -115,8 +170,13 @@ class SignEngine(private val context: Context) : AutoCloseable {
         val old = model
         val s = Spotter(m)
         spotter?.let { o -> s.threshold = o.threshold; s.agree = o.agree; s.windowMs = o.windowMs }
+        // sets.json: one set id per label; only exports made with the same-sign rule have it.
+        val sets = runCatching {
+            val a = JSONArray(context.assets.open("$vocab/sets.json").bufferedReader().readText())
+            IntArray(a.length()) { a.getInt(it) }.takeIf { it.size == labels.size }?.let(::SameSignSets)
+        }.getOrNull()
         // Swap on the worker thread so a live frame never meets a half-replaced model.
-        worker.submit { model = m; spotter = s }.get()
+        worker.submit { model = m; spotter = s; sameSign = sets }.get()
         old?.let(retired::add)   // a clip may still be using it; closed with the engine
         vocabulary = vocab
         info = runCatching {
@@ -125,7 +185,70 @@ class SignEngine(private val context: Context) : AutoCloseable {
             ModelInfo(labels.size, int8.getJSONObject("test").getDouble("top1"), int8.getJSONObject("test").getDouble("top5"),
                 e.getInt("test_clips"), e.getJSONArray("ckpts").length(), int8.getDouble("size_mb"))
         }.getOrNull()
-        _live.update { it.copy(ready = true, caption = emptyList(), top = emptyList(), lastWord = null) }
+        rebuildTaught(m)
+        _live.update { it.copy(ready = true, caption = emptyList(), top = emptyList(), lastWord = null, lastAlso = emptyList(), lastTaught = false) }
+    }
+
+    /** Prototypes are rebuilt from the stored examples with the loaded model: each model has its own embedding. */
+    private fun rebuildTaught(m: SignModel) {
+        val zero = Clip(m.tIn, FloatArray(m.tIn * Layout.P * 3), FloatArray(m.tIn * 2 * 21 * 3), FloatArray(m.tIn * 4))
+        val supported = runCatching { m.classify(zero).embedding != null }.getOrDefault(false)
+        val signs = store.list()
+        val protos = if (!supported) emptyList() else signs.mapNotNull { sign ->
+            val embs = store.examples(sign.id).mapNotNull { runCatching { m.classify(it).embedding }.getOrNull() }
+            if (embs.isEmpty()) null else sign.word to Embeddings.prototype(embs)
+        }
+        val tm = TaughtMatcher(protos, teachThreshold).takeIf { protos.isNotEmpty() }
+        worker.submit { matcher = tm; spotter?.taught = tm }.get()
+        _teach.value = TeachState(
+            supported, signs,
+            if (supported) null else "This vocabulary's model has no embedding output. Choose the 2,000-word vocabulary in Settings to teach signs.",
+        )
+    }
+
+    fun setTeachThreshold(t: Float) {
+        teachThreshold = t
+        matcher?.threshold = t
+    }
+
+    /** Records [durationMs] of live tracked frames as one example; the camera must be running. */
+    suspend fun recordExample(durationMs: Long = 2500): TeachExample {
+        check(live != null && model != null) { "The camera is not running" }
+        val r = Recording(durationMs, CompletableDeferred())
+        recording = r
+        try {
+            return withTimeout(durationMs + 4000) { r.done.await() }
+        } finally {
+            if (recording === r) recording = null
+            _live.update { it.copy(recording = null) }
+        }
+    }
+
+    private fun finishRecording(r: Recording) {
+        val m = model
+        if (m == null || r.frames.size < 8) {
+            r.done.completeExceptionally(IllegalStateException("Too few camera frames. Try again."))
+            return
+        }
+        val hands = r.frames.count { it.hands[0] != null || it.hands[1] != null }.toFloat() / r.frames.size
+        val clip = Resampler.resample(Normaliser.normalise(r.frames, r.w, r.h), m.tIn)
+        val emb = runCatching { m.classify(clip).embedding }.getOrNull()
+        r.done.complete(TeachExample(clip, hands, emb))
+    }
+
+    suspend fun saveTaught(word: String, clips: List<Clip>) = withContext(Dispatchers.IO) {
+        store.add(word, clips)
+        loading.withLock { model?.let(::rebuildTaught) }
+    }
+
+    suspend fun renameTaught(id: String, word: String) = withContext(Dispatchers.IO) {
+        store.rename(id, word)
+        loading.withLock { model?.let(::rebuildTaught) }
+    }
+
+    suspend fun deleteTaught(id: String) = withContext(Dispatchers.IO) {
+        store.delete(id)
+        loading.withLock { model?.let(::rebuildTaught) }
     }
 
     fun configure(threshold: Float, agree: Int, windowMs: Long, gpu: Boolean) {
@@ -134,13 +257,29 @@ class SignEngine(private val context: Context) : AutoCloseable {
         }
         if (gpu != useGpu) {
             useGpu = gpu
-            if (live != null) { stopLive(); startLive() }
+            synchronized(this) { if (live != null) { stopLive(); startLive() } }
         }
     }
 
     // ---------- live camera ----------
 
-    fun startLive() {
+    // Live and Teach both use the camera; navigating between them may start the new screen before the old one
+    // stops, so the landmarker is counted rather than toggled.
+    private var liveUsers = 0
+
+    @Synchronized
+    fun acquireLive() {
+        liveUsers++
+        startLive()
+    }
+
+    @Synchronized
+    fun releaseLive() {
+        liveUsers = maxOf(0, liveUsers - 1)
+        if (liveUsers == 0) stopLive()
+    }
+
+    private fun startLive() {
         if (live != null) return
         var onGpu = useGpu
         live = runCatching { createLandmarker(RunningMode.LIVE_STREAM, useGpu) }
@@ -150,7 +289,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
         _live.update { it.copy(running = live != null, gpu = onGpu) }
     }
 
-    fun stopLive() {
+    private fun stopLive() {
         live?.close()
         live = null
         _live.update { it.copy(running = false) }
@@ -160,7 +299,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     fun clearCaption() {
         worker.execute { spotter?.reset() }
-        _live.update { it.copy(caption = emptyList(), lastWord = null, top = emptyList()) }
+        _live.update { it.copy(caption = emptyList(), lastWord = null, top = emptyList(), lastAlso = emptyList(), lastTaught = false) }
     }
 
     fun clearTranscript() = _transcript.update { emptyList() }
@@ -190,10 +329,30 @@ class SignEngine(private val context: Context) : AutoCloseable {
         lastResultTs = ts
         worker.execute {
             val s = spotter ?: return@execute
-            val event = s.push(ts, frame, w, h)
+            // While an example is being recorded the frames go to it, not to the captions.
+            val rec = recording
+            var progress: Float? = null
+            if (rec != null) {
+                if (rec.startTs < 0) rec.startTs = ts
+                rec.frames += frame
+                rec.w = w
+                rec.h = h
+                progress = ((ts - rec.startTs).toFloat() / rec.durationMs).coerceIn(0f, 1f)
+                if (ts - rec.startTs >= rec.durationMs) {
+                    recording = null
+                    progress = null
+                    finishRecording(rec)
+                }
+            }
+            val event = if (rec == null) s.push(ts, frame, w, h) else null
             val word = event?.word
+            val hit = event?.taught
+            val taught = hit != null
+            val alsoNames = if (word != null && !taught) event.prediction?.let { also(it, word) }.orEmpty() else emptyList()
             if (word != null) {
-                _transcript.update { it + TranscriptEntry(word, event.prediction?.confidence ?: 0f, System.currentTimeMillis()) }
+                speaker.speak(word, ts)   // ts is the uptime of the camera frame that settled the word
+                val conf = hit?.cosine ?: event.prediction?.confidence ?: 0f
+                _transcript.update { it + TranscriptEntry(word, conf, System.currentTimeMillis()) }
             }
             _live.update { st ->
                 val fps = if (dt > 0) (if (st.fps == 0.0) 1000.0 / dt else 0.9 * st.fps + 0.1 * 1000.0 / dt) else st.fps
@@ -205,13 +364,18 @@ class SignEngine(private val context: Context) : AutoCloseable {
                     landmarksMs = if (st.landmarksMs == 0.0) landmarksMs else 0.8 * st.landmarksMs + 0.2 * landmarksMs,
                     modelMs = event?.prediction?.latencyMs ?: st.modelMs,
                     top = when {
+                        rec != null -> emptyList()
                         event == null -> st.top
                         !event.active -> emptyList()
+                        hit != null -> listOf(hit.word to hit.cosine) + (event.prediction?.topK(2) ?: emptyList())
                         else -> event.prediction?.topK(3) ?: st.top
                     },
                     caption = s.caption.toList(),
                     lastWord = word ?: st.lastWord,
                     lastWordAt = if (word != null) SystemClock.uptimeMillis() else st.lastWordAt,
+                    lastAlso = if (word != null) alsoNames else st.lastAlso,
+                    lastTaught = if (word != null) taught else st.lastTaught,
+                    recording = progress,
                 )
             }
         }
@@ -275,7 +439,11 @@ class SignEngine(private val context: Context) : AutoCloseable {
             val landmarksMs = (System.nanoTime() - tLandmarks) / 1e6
             progress(0.97f, "Recognising")
             val pred = m.classifyFrames(frames, w, h, MAX_CLIP_FRAMES)
-            ClipResult(name, pred.topK(5), frames.size, landmarksMs, pred.latencyMs, (System.nanoTime() - t0) / 1e6)
+            val hit = matcher?.match(pred.embedding)
+            val top5 = if (hit != null) listOf(hit.word to hit.cosine) + pred.topK(4) else pred.topK(5)
+            speaker.speak(top5.first().first)
+            ClipResult(name, top5, frames.size, landmarksMs, pred.latencyMs, (System.nanoTime() - t0) / 1e6,
+                also = if (hit == null) also(pred, pred.top) else emptyList(), taught = hit != null)
         } finally {
             mmr.release()
         }
@@ -304,6 +472,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     override fun close() {
         stopLive()
+        speaker.close()
         clipLandmarker?.close()
         worker.shutdown()
         model?.close()

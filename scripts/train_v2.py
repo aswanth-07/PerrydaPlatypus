@@ -104,18 +104,29 @@ def dominant_left(x, s, L, relative=False):
     return score[0] > score[1]
 
 
-def sample_time(X, W, S, L, t_in, train, crop=0.0, power=1.0):
-    """Resample each clip to t_in steps. Training jitters the window and the speed per clip."""
+def time_params(b, dev, prefix=0.0):
+    """One training window per clip: start, end, speed curve, and (with prefix > 0) an early end for a share of
+    the clips, so the model also sees signs cut short. Drawn once so a teacher view can reuse the same window."""
+    start = torch.rand(b, 1, device=dev) * 0.15
+    end = 1 - torch.rand(b, 1, device=dev) * 0.15
+    pw = torch.empty(b, 1, device=dev).uniform_(0.7, 1.4)
+    cut = end
+    if prefix > 0:
+        cut = torch.where(torch.rand(b, 1, device=dev) < prefix, torch.empty(b, 1, device=dev).uniform_(0.45, 0.85), end)
+    return start, end, pw, cut
+
+
+def sample_time(X, W, S, L, t_in, train, crop=0.0, power=1.0, tp=None, cut=False, upto=1.0):
+    """Resample each clip to t_in steps. Training jitters the window and the speed per clip (tp fixes the draw;
+    cut=True ends the window at tp's early end). Evaluation can stop at a fraction `upto` of the clip."""
     b = len(L)
     dev = X.device
     grid = torch.linspace(0, 1, t_in, device=dev).unsqueeze(0).expand(b, -1)
     if train:
-        start = torch.rand(b, 1, device=dev) * 0.15
-        end = 1 - torch.rand(b, 1, device=dev) * 0.15
-        pw = torch.empty(b, 1, device=dev).uniform_(0.7, 1.4)
-        grid = start + (end - start) * grid.pow(pw)
+        start, end, pw, early = tp if tp is not None else time_params(b, dev)
+        grid = start + ((early if cut else end) - start) * grid.pow(pw)
     else:
-        grid = crop + (1 - 2 * crop) * grid.pow(power)
+        grid = crop + (upto - 2 * crop) * grid.pow(power)
     pos = grid * (L[:, None].float() - 1).clamp_min(0)
     lo = pos.floor().long()
     hi = torch.minimum(lo + 1, (L[:, None] - 1).clamp_min(0))
@@ -225,18 +236,19 @@ def augment(x, w, s, perm, a):
 
 
 @torch.no_grad()
-def predict_logits(model, data, ids, cfg, tta, perm, keep_none=False):
-    """Class probabilities; a model trained with a "no sign" class drops that column unless keep_none."""
-    probs = _predict(model, data, ids, cfg, tta, perm)
+def predict_logits(model, data, ids, cfg, tta, perm, keep_none=False, upto=1.0):
+    """Class probabilities; a model trained with a "no sign" class drops that column unless keep_none.
+    upto < 1 shows the model only the first part of each clip (a sign cut short)."""
+    probs = _predict(model, data, ids, cfg, tta, perm, upto)
     return probs if keep_none or not cfg.get("none_class") else probs[:, :-1]
 
 
-def _predict(model, data, ids, cfg, tta, perm):
+def _predict(model, data, ids, cfg, tta, perm, upto=1.0):
     model.eval()
     out = []
     for chunk in ids.split(512):
         X, W, S, L = (data[k][chunk] for k in ("X", "W", "S", "L"))
-        views = [dict(crop=0.0, power=1.0)]
+        views = [dict(crop=0.0, power=1.0, upto=upto)]
         if tta:
             views += [dict(crop=0.06, power=1.0), dict(crop=0.0, power=0.85), dict(crop=0.0, power=1.15)]
         probs = 0
@@ -323,6 +335,14 @@ def main():
     ap.add_argument("--phon-smooth-mix", type=float, default=0.5, help="share of the smoothing mass given by phonology")
     ap.add_argument("--ema", type=float, default=0.999)
     ap.add_argument("--eval-every", type=int, default=5)
+    ap.add_argument("--set-loss", type=float, default=0.0,
+                    help="share of the loss asked of the gloss's same-sign set (signsets.py) instead of the gloss itself")
+    ap.add_argument("--consist", type=float, default=0.0,
+                    help="weight of the clean-view teacher: the averaged model reads the clean, full, un-augmented clip and "
+                         "the model must match it on the degraded, augmented or cut-short view of the same clip")
+    ap.add_argument("--consist-temp", type=float, default=2.0)
+    ap.add_argument("--consist-ramp", type=int, default=3, help="epochs over which the teacher term ramps up")
+    ap.add_argument("--prefix", type=float, default=0.0, help="share of clips shown only up to 45-85%% of their length")
     a = ap.parse_args()
 
     torch.manual_seed(a.seed)
@@ -352,6 +372,10 @@ def main():
     used = torch.unique(torch.cat([r[0] for r in rows.values()]))
     remap = torch.full((len(cache["vid"]),), -1, dtype=torch.long)
     remap[used] = torch.arange(len(used))
+    # Each degraded copy (<vid>__a<k>) points at the clean clip it was made from; every other row points at itself.
+    clean_row = {v: n for n, v in enumerate(cache["vid"]) if "__a" not in v}
+    partner = remap[torch.tensor([clean_row.get(v.split("__a")[0], n) for n, v in enumerate(cache["vid"])])][used]
+    partner = torch.where(partner >= 0, partner, torch.arange(len(used))).to(dev)
     rows = {k: (remap[i].to(dev), y.to(dev)) for k, (i, y) in rows.items()}
     data = {k: cache[k][used].to(dev) for k in ("X", "W", "S")}
     data["L"] = cache["L"][used].to(dev)
@@ -412,6 +436,14 @@ def main():
         smooth_q = a.phon_smooth_mix * q + (1 - a.phon_smooth_mix) * uni
         del P, lab, both, sim
         print(f"phonology-weighted smoothing: kappa {a.phon_smooth}, mix {a.phon_smooth_mix}", flush=True)
+    set_of = None
+    if a.set_loss:
+        import signsets
+        n_idx = min(a.subset, len(entries))
+        set_of, links = signsets.same_sign_sets(entries, n_idx, ("train", "val") if a.trainval else ("train",))
+        # Classes outside the WLASL index (a union vocabulary, the "no sign" class) are sets of their own.
+        set_of = torch.cat([set_of, int(set_of.max()) + 1 + torch.arange(n_cls - n_idx)]).to(dev)
+        print(f"same-sign sets: {links} links, {int((torch.bincount(set_of) > 1).sum())} sets of two or more glosses", flush=True)
     opt =torch.optim.AdamW(list(model.parameters()) + (list(aux.parameters()) if aux else []), lr=a.lr, weight_decay=a.wd)
     ids, labels = rows["train"]
     steps = max(len(ids) // a.batch, 1)
@@ -432,11 +464,21 @@ def main():
             Xb, Wb, Sb, Lb = data["X"][c], data["W"][c], data["S"][c], data["L"][c]
             if a.sparse and np.random.rand() < a.sparse:
                 Xb, Wb, Sb, Lb = sparsify(Xb, Wb, Sb, Lb)
-            x, w, s = sample_time(Xb, Wb, Sb, Lb, a.t_in, True)
+            tp = time_params(len(c), dev, a.prefix)
+            x, w, s = sample_time(Xb, Wb, Sb, Lb, a.t_in, True, tp=tp, cut=True)
             if a.canon:
                 x, w, s = apply_flip(x, w, s, dominant_left(x, s, torch.full_like(c, a.t_in), a.canon_rel), perm)
             x, w, s = augment(x, w, s, perm, a)
             y = labels[pick]
+            t_emb = t_logits = None
+            if a.consist:  # the teacher's view: the clean clip this row came from, same window, whole, un-augmented
+                with torch.no_grad():
+                    cp = partner[c]
+                    xt, wt, st = sample_time(data["X"][cp], data["W"][cp], data["S"][cp], data["L"][cp], a.t_in, True, tp=tp)
+                    if a.canon:
+                        xt, wt, st = apply_flip(xt, wt, st, dominant_left(xt, st, torch.full_like(cp, a.t_in), a.canon_rel), perm)
+                    t_emb = ema.embed(xt, wt, st)
+                    t_logits = ema.head(t_emb)
             if a.none_prob:  # boundary windows: the end of one sign spliced to the start of another -> "no sign"
                 k = max(int(len(pick) * a.none_prob), 1)
                 j, j2 = torch.randperm(len(pick), device=dev)[:k], torch.randperm(len(pick), device=dev)[:k]
@@ -460,6 +502,15 @@ def main():
                     loss = -(target * F.log_softmax(logits, -1)).sum(-1).mean()
                 else:
                     loss = F.cross_entropy(logits, y, label_smoothing=a.smooth)
+                if set_of is not None:  # the probability of the gloss's whole same-sign set, not of the gloss alone
+                    mass = torch.zeros(len(y), int(set_of.max()) + 1, device=dev).index_add_(1, set_of, torch.softmax(logits, -1))
+                    in_set = mass.gather(1, set_of[y][:, None]).clamp_min(1e-8).log().mean()
+                    loss = (1 - a.set_loss) * loss - a.set_loss * in_set
+                if t_logits is not None:
+                    tt = a.consist_temp
+                    match = F.kl_div(F.log_softmax(logits / tt, -1), torch.softmax(t_logits / tt, -1), reduction="batchmean") * tt * tt
+                    apart = 1 - F.cosine_similarity(emb, t_emb, dim=-1).mean()
+                    loss = loss + a.consist * min(1.0, epoch / max(a.consist_ramp, 1)) * (match + apart)
                 if teachers:
                     with torch.no_grad():
                         soft = sum(torch.softmax(t(x, w, s) / a.distill_temp, -1) for t in teachers) / len(teachers)

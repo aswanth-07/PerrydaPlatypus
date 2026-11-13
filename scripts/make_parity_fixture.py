@@ -54,12 +54,15 @@ def main():
         L = torch.tensor([len(pts)])
         x, w, s = tv.sample_time(torch.from_numpy(pts)[None], torch.from_numpy(wld)[None], torch.from_numpy(seen)[None], L, t_in, False)
         feed = dict(points=x.numpy(), world=w.numpy(), seen=s.numpy())
+        outs = dict(zip([o.name for o in sess.get_outputs()], sess.run(None, feed)))
         probs = sess.run(None, feed)[0][0]
+        raw = outs.get("raw_probs")   # the network's own probabilities, before the same-sign answer rule
         clips.append(dict(video_id=vid, label=label, width=int(d["wh"][0]), height=int(d["wh"][1]), frames=frames,
                           points=[float(v) for v in feed["points"].reshape(-1)],
                           world_in=[float(v) for v in feed["world"].reshape(-1)],
                           seen=[float(v) for v in feed["seen"].reshape(-1)],
-                          probs=[float(v) for v in probs]))
+                          probs=[float(v) for v in probs],
+                          **({} if raw is None else dict(raw_probs=[float(v) for v in raw[0]]))))
     (out / "fixture.json").write_text(json.dumps(dict(t_in=t_in, clips=clips)), encoding="utf-8")
     shutil.copy(exp / "sign_int8.onnx", out / "sign_int8.onnx")
     shutil.copy(exp / "labels.json", out / "labels.json")

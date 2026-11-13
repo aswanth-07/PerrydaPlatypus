@@ -1,27 +1,27 @@
 metric,target,measured,unit,device,runtime,pass
-top1_accuracy,>=70,62.72,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider",False
-latency_p95,<=50,3.4,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider (classifier, per clip)",True
-model_size,<=20,3.176,MB,,INT8 ONNX classifier,True
-accuracy_drop_robustness,<=5,6.59,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing); worst moderate condition: occlusion",False
+top1_accuracy,>=70,64.42,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider",False
+latency_p95,<=50,4.263,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider (classifier, per clip)",True
+model_size,<=20,3.32,MB,,INT8 ONNX classifier,True
+accuracy_drop_robustness,<=5,5.49,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition; worst moderate condition: combined",False
 avg_power,<=500,not measured,mW,Android phone,needs phone,needs phone
 thermal_drift_10min,<=20,not measured,%,Android phone,needs phone,needs phone
-top5_accuracy,,91.56,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider",
+top5_accuracy,,91.97,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider",
 test_clips,,2878,clips,,"WLASL official test split, 2000-word vocabulary",
-latency_p50,,3.231,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider (classifier, per clip)",
-model_size_with_landmarker,<=20,16.859,MB,,INT8 classifier + MediaPipe Holistic task,True
-robustness_drop_moderate_angled,<=5,-0.77,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",True
-robustness_drop_moderate_moving_head,<=5,-1.55,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",True
-robustness_drop_moderate_low_light,<=5,2.71,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",True
-robustness_drop_moderate_occlusion,<=5,6.59,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",False
-robustness_drop_moderate_low_res,<=5,5.04,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",False
-robustness_drop_moderate_combined,<=5,6.2,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",False
-robustness_drop_harsh_angled,<=5,-0.39,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",True
-robustness_drop_harsh_moving_head,<=5,3.1,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",True
-robustness_drop_harsh_low_light,<=5,6.98,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",False
-robustness_drop_harsh_occlusion,<=5,11.63,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",False
-robustness_drop_harsh_low_res,<=5,12.02,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",False
-robustness_drop_harsh_combined,<=5,8.92,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)",False
-top1_unseen_signers,>=70,83.09,%,,"PyTorch FP32, matched runs that held these signers out; ASL Citizen test split, signers in no training data",True
-top1_end_to_end,>=70,61.88,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",predict() on 2878 raw test videos,False
-pipeline_p95_per_clip,,1136.0,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",decode + MediaPipe Holistic + classifier; 6 processes sharing the CPU,
-keypoints_per_frame_p50,,40.04,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","MediaPipe Holistic, per landmarked frame; 6 processes sharing the CPU",
+latency_p50,,3.615,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider (classifier, per clip)",
+model_size_with_landmarker,<=20,17.004,MB,,INT8 classifier + MediaPipe Holistic task,True
+robustness_drop_moderate_angled,<=5,-0.52,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",True
+robustness_drop_moderate_moving_head,<=5,0.28,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",True
+robustness_drop_moderate_low_light,<=5,0.49,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",True
+robustness_drop_moderate_occlusion,<=5,5.0,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",True
+robustness_drop_moderate_low_res,<=5,2.33,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",True
+robustness_drop_moderate_combined,<=5,5.49,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",False
+robustness_drop_harsh_angled,<=5,-0.24,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",True
+robustness_drop_harsh_moving_head,<=5,2.05,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",True
+robustness_drop_harsh_low_light,<=5,5.8,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",False
+robustness_drop_harsh_occlusion,<=5,8.37,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",False
+robustness_drop_harsh_low_res,<=5,9.63,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",False
+robustness_drop_harsh_combined,<=5,10.6,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",False
+top1_unseen_signers,>=70,82.99,%,,"PyTorch FP32, matched runs that held these signers out; ASL Citizen test split, signers in no training data",True
+top1_end_to_end,>=70,63.45,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",predict() on 2878 raw test videos,False
+pipeline_p95_per_clip,,1267.19,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",decode + MediaPipe Holistic + classifier; 6 processes sharing the CPU,
+keypoints_per_frame_p50,,42.95,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","MediaPipe Holistic, per landmarked frame; 6 processes sharing the CPU",

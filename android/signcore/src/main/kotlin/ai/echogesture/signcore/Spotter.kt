@@ -16,7 +16,11 @@ class Spotter(
     @Volatile var agree: Int = 2,
     @Volatile var minHandFraction: Float = 0.5f,
 ) {
-    class Event(val word: String?, val prediction: Prediction?, val active: Boolean)
+    /** `taught` is set when the window's word (emitted or not) came from a sign taught on the device. */
+    class Event(val word: String?, val prediction: Prediction?, val active: Boolean, val taught: TaughtMatcher.Match? = null)
+
+    /** Signs taught on the device; a window that matches one is that word, whatever the classifier says. */
+    @Volatile var taught: TaughtMatcher? = null
 
     private val frames = ArrayDeque<Pair<Long, RawFrame>>()
     private var sinceLast = 0
@@ -42,9 +46,11 @@ class Spotter(
             return Event(null, null, false)
         }
         val pred = model.classify(Normaliser.normalise(window, width, height))
-        val word = pred.top
-        if (pred.confidence >= threshold && word == streakWord) streak++ else {
-            streakWord = if (pred.confidence >= threshold) word else null
+        val hit = taught?.match(pred.embedding)
+        val word = hit?.word ?: pred.top
+        val sure = hit != null || pred.confidence >= threshold   // a taught match has passed its own threshold
+        if (sure && word == streakWord) streak++ else {
+            streakWord = if (sure) word else null
             streak = if (streakWord != null) 1 else 0
         }
         var emitted: String? = null
@@ -55,7 +61,7 @@ class Spotter(
             caption.addLast(word)
             while (caption.size > 8) caption.removeFirst()
         }
-        return Event(emitted, pred, true)
+        return Event(emitted, pred, true, hit)
     }
 
     fun reset() {

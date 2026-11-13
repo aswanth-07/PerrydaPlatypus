@@ -64,8 +64,14 @@ class ParityTest {
         val fixture = JSONObject(File(dir, "fixture.json").readText())
         val labels = JSONArray(File(dir, "labels.json").readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
         val clips = fixture.getJSONArray("clips")
-        val tolerance = 2e-2
+        // Dynamic INT8 quantizes activations from each input's own range, so the model is sensitive to tiny input
+        // changes by itself: in Python, noise of +-7e-6 (the normaliser's worst difference) on the present points
+        // moves the shipped 2,000-word model's probabilities by up to 0.037 while its FP32 export moves by 0.0
+        // (2026-11-13). The bound sits above that; agreement on the answer is the real test.
+        val tolerance = 5e-2
         var worst = 0.0
+        var worstRaw = 0.0
+        var rawChecked = 0
         var agree = 0
         var correct = 0
         val flips = mutableListOf<String>()
@@ -75,6 +81,12 @@ class ParityTest {
                 val pred = model.classify(Normaliser.normalise(frames(c), c.getInt("width"), c.getInt("height")))
                 val ref = floats(c.get("probs"))!!
                 for (k in ref.indices) worst = maxOf(worst, abs(ref[k] - pred.probs[k]).toDouble())
+                val refRaw = floats(c.opt("raw_probs"))
+                val raw = pred.rawProbs
+                if (refRaw != null && raw != null) {
+                    rawChecked++
+                    for (k in refRaw.indices) worstRaw = maxOf(worstRaw, abs(refRaw[k] - raw[k]).toDouble())
+                }
                 val sorted = ref.indices.sortedByDescending { ref[it] }
                 if (sorted[0] == pred.order[0]) agree++
                 else {
@@ -88,8 +100,10 @@ class ParityTest {
                 if (labels[pred.order[0]] == c.getString("label")) correct++
             }
         }
-        println("int8 model: worst prob difference $worst; top-1 agrees with Python on $agree/${clips.length()}; correct $correct; near-tie flips: $flips")
+        println("int8 model: worst prob difference $worst (network's own, before the rule: $worstRaw on $rawChecked clips); " +
+            "top-1 agrees with Python on $agree/${clips.length()}; correct $correct; near-tie flips: $flips")
         assertTrue(worst < tolerance, "probabilities differ from Python by $worst")
+        assertTrue(worstRaw < tolerance, "the network's own probabilities differ from Python by $worstRaw")
     }
 
     @Test

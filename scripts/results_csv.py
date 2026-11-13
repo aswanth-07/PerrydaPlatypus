@@ -10,7 +10,10 @@ and harsh 0.7), since the scorer's strength is not published; accuracy_drop_robu
 the harsh drops are listed too.
 Power and thermal drift need the phone; they are written as "not measured" rather than guessed.
 
-Usage: results_csv.py <model_dir> <out.csv> [--unseen unseen.json] [--e2e predictions.summary.json]
+With --suite (scripts/eval_suite.py output with --robust <moderate dir> <harsh dir>), the robustness rows come from
+all 2,878 WLASL2000 test clips degraded at both strengths, top-1 with the same-sign answer rule as the shipped graph
+answers, instead of the 258-clip sets in the model folder.
+Usage: results_csv.py <model_dir> <out.csv> [--unseen unseen.json] [--e2e predictions.summary.json] [--suite suite.json]
 """
 import argparse
 import csv
@@ -39,6 +42,7 @@ def main():
     ap.add_argument("--unseen", default="", help="JSON with an unseen-signer score to list (optional)")
     ap.add_argument("--e2e", default="", help="predict_test.py summary JSON: end-to-end accuracy and timings (optional)")
     ap.add_argument("--runtime", default="ONNX Runtime 1.31.1, INT8, CPUExecutionProvider")
+    ap.add_argument("--suite", default="", help="eval_suite.py JSON with both robustness strengths on 2,878 clips (optional)")
     a = ap.parse_args()
     d = pathlib.Path(a.deploy)
     exp = json.loads((d / "export.json").read_text())
@@ -51,6 +55,15 @@ def main():
     lat = exp["int8"]["one_thread"]
     dev, rt = cpu_name(), a.runtime
     rob_rt = "PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing)"
+    if a.suite:
+        su = json.loads(pathlib.Path(a.suite).read_text())
+        rob, n_rob = {}, 0
+        for k, v in su.items():
+            if k.startswith("robust_"):
+                strength = "moderate" if k.endswith("_mod") else "harsh"
+                rob[strength] = {c: {"drop": r["rule_drop"]} for c, r in v.items() if isinstance(r, dict) and c != "clean"}
+                n_rob = v["clips"]
+        rob_rt += f", top-1 with the same-sign answer rule as shipped; {n_rob} WLASL2000 test clips per condition"
     top1 = exp["int8"]["test"]["top1"]
     rows = [("top1_accuracy", ">=70", top1, "%", dev, rt, top1 >= 70)]
     rows.append(("latency_p95", "<=50", lat["p95_ms"], "ms", dev, rt + " (classifier, per clip)", lat["p95_ms"] <= 50))

@@ -5,6 +5,13 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Deliberately no INTERNET permission: video and keypoints never leave the device. -->
 
+    <!-- Spoken captions use the phone's installed text-to-speech engine; this lets the app find it. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"

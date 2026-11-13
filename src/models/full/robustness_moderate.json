@@ -1,58 +1,58 @@
 {
  "clips": 258,
  "ckpts": [
-  "runs/soupAll8/best.pt"
+  "runs/soup_mix16/best.pt"
  ],
  "tta": false,
  "results": {
   "clean": {
    "n": 258,
-   "top1": 74.42,
+   "top1": 75.19,
    "top5": 92.64,
-   "class_avg": 74.25,
+   "class_avg": 75.25,
    "drop": 0.0
   },
   "angled": {
    "n": 258,
-   "top1": 75.19,
+   "top1": 74.81,
    "top5": 93.41,
-   "class_avg": 75.38,
-   "drop": -0.77
+   "class_avg": 74.92,
+   "drop": 0.38
   },
   "combined": {
    "n": 258,
-   "top1": 68.22,
-   "top5": 88.37,
-   "class_avg": 68.5,
-   "drop": 6.2
+   "top1": 69.77,
+   "top5": 87.6,
+   "class_avg": 70.0,
+   "drop": 5.42
   },
   "low_light": {
    "n": 258,
-   "top1": 71.71,
+   "top1": 70.93,
    "top5": 91.47,
-   "class_avg": 71.75,
-   "drop": 2.71
+   "class_avg": 71.25,
+   "drop": 4.26
   },
   "low_res": {
    "n": 258,
-   "top1": 69.38,
-   "top5": 91.47,
-   "class_avg": 69.83,
-   "drop": 5.04
+   "top1": 70.16,
+   "top5": 91.09,
+   "class_avg": 70.83,
+   "drop": 5.03
   },
   "moving_head": {
    "n": 258,
-   "top1": 75.97,
-   "top5": 93.8,
-   "class_avg": 75.92,
+   "top1": 76.74,
+   "top5": 94.57,
+   "class_avg": 76.75,
    "drop": -1.55
   },
   "occlusion": {
    "n": 258,
-   "top1": 67.83,
+   "top1": 68.99,
    "top5": 85.66,
-   "class_avg": 67.42,
-   "drop": 6.59
+   "class_avg": 68.42,
+   "drop": 6.2
   }
  }
 }

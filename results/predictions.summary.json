@@ -4,25 +4,25 @@
  "landmarker": "reused",
  "clips": 2878,
  "cut_from_longer_videos": 8,
- "top1": 61.88,
- "top5": 91.35,
+ "top1": 63.45,
+ "top5": 91.45,
  "whole_clip_ms": {
-  "p50": 984.27,
-  "p95": 1136.0
+  "p50": 1053.55,
+  "p95": 1267.19
  },
  "latency_ms": {
-  "p50": 6.89,
-  "p95": 7.88
+  "p50": 6.88,
+  "p95": 9.89
  },
- "decode_ms_p50": 16.48,
+ "decode_ms_p50": 18.76,
  "keypoints_ms": {
-  "p50": 960.54,
-  "p95": 1105.16
+  "p50": 1027.27,
+  "p95": 1232.59
  },
- "keypoints_per_frame_ms_p50": 40.04,
+ "keypoints_per_frame_ms_p50": 42.95,
  "classifier_ms": {
-  "p50": 6.89,
-  "p95": 7.88
+  "p50": 6.88,
+  "p95": 9.89
  },
  "frames_p50": 24
 }

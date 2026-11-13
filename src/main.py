@@ -35,6 +35,11 @@ DEFAULT_MODEL_DIR = MODELS / os.environ.get("ECHO_VOCAB", "full")
 # Landmarking 24 evenly spaced frames scored the same as all frames on the WLASL100 test split (84.5 vs 84.5,
 # real extraction; 16 frames: 83.7), so a clip costs about 24 Holistic calls instead of ~58.
 CLIP_FRAMES = int(os.environ.get("ECHO_FRAMES", "24"))
+# Some WLASL words are one sign under several names (DOCTOR / PHYSICIAN): WLASL's own index lists the same video
+# segment under both. A model exported with the same-sign answer rule adds up the probability of such a set and
+# answers with the name WLASL uses most (scripts/signsets.py). ECHO_SET_RULE=0 answers from the network's own
+# probabilities instead; it changes nothing for a model exported without the rule.
+SET_RULE = os.environ.get("ECHO_SET_RULE", "1") != "0"
 
 
 def resample(a, t_in):
@@ -72,6 +77,8 @@ class Predictor:
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = 1
         self.session = ort.InferenceSession(str(model_dir / "sign_int8.onnx"), so, providers=["CPUExecutionProvider"])
+        outputs = [o.name for o in self.session.get_outputs()]
+        self.output = "raw_probs" if not SET_RULE and "raw_probs" in outputs else outputs[0]
         # ECHO_VOCAB_FILE: when the scored vocabulary is published, answer only from those words.
         self.keep = load_vocab_filter(self.labels, vocab_file) if vocab_file else None
         self.last_stages = {}
@@ -112,7 +119,7 @@ class Predictor:
         t2 = time.perf_counter()
         feed = dict(points=resample(pts, self.t_in)[None].astype(np.float32), world=resample(wld, self.t_in)[None].astype(np.float32),
                     seen=resample(seen, self.t_in)[None].astype(np.float32))
-        probs = self.session.run(None, feed)[0][0]
+        probs = self.session.run([self.output], feed)[0][0]
         t3 = time.perf_counter()
         if self.keep is not None and len(self.keep):
             masked = np.zeros_like(probs)

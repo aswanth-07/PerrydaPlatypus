@@ -80,7 +80,7 @@ val copyModels = tasks.register<Sync>("copyModels") {
     into(layout.projectDirectory.dir("src/main/assets"))
     from(modelDir) { include("holistic_landmarker.task") }
     for (v in listOf("core", "full", "union").filter { File(modelDir, it).isDirectory }) {
-        from(File(modelDir, v)) { include("sign_int8.onnx", "labels.json", "export.json"); into(v) }
+        from(File(modelDir, v)) { include("sign_int8.onnx", "labels.json", "export.json", "sets.json"); into(v) }
     }
 }
 tasks.named("preBuild") { dependsOn(copyModels) }

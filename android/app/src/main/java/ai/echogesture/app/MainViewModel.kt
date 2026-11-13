@@ -37,6 +37,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             settings.collect { s ->
                 engine.load(s.vocabulary)   // first call loads; later calls reload only when the vocabulary changed
                 engine.configure(s.threshold, s.agree, (s.windowSec * 1000).toLong(), s.gpu)
+                engine.setSpeech(s.speak, s.speechRate)
+                engine.setTeachThreshold(s.teachThreshold)
             }
         }
     }

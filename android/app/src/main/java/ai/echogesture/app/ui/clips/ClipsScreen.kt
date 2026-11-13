@@ -116,8 +116,14 @@ private fun ResultCard(r: ClipResult) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(r.word, style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
-                Text("${(100 * r.confidence).toInt()}% sure", style = MaterialTheme.typography.titleMedium,
+                Text(if (r.taught) "taught sign · match %.2f".format(r.confidence) else "${(100 * r.confidence).toInt()}% sure",
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
+            }
+            if (r.also.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text("Same sign: " + r.also.joinToString(" · "), style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.secondary)
             }
             Spacer(Modifier.height(14.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

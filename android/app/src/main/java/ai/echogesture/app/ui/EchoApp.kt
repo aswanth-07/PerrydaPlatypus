@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FrontHand
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -57,11 +58,13 @@ import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.ui.clips.ClipsScreen
 import ai.echogesture.app.ui.live.LiveScreen
 import ai.echogesture.app.ui.settings.SettingsScreen
+import ai.echogesture.app.ui.teach.TeachScreen
 import ai.echogesture.app.ui.transcript.TranscriptScreen
 
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     Live("live", "Live", Icons.Filled.Videocam),
     Clips("clips", "Clips", Icons.Filled.VideoLibrary),
+    Teach("teach", "Teach", Icons.Filled.School),
     Transcript("transcript", "Transcript", Icons.Filled.Description),
     Settings("settings", "Settings", Icons.Filled.Tune),
 }
@@ -101,6 +104,7 @@ fun EchoApp(vm: MainViewModel = viewModel()) {
         NavHost(nav, startDestination = Tab.Live.route, modifier = Modifier.padding(padding)) {
             composable(Tab.Live.route) { CameraGate { LiveScreen(vm) } }
             composable(Tab.Clips.route) { ClipsScreen(vm) }
+            composable(Tab.Teach.route) { CameraGate { TeachScreen(vm) } }
             composable(Tab.Transcript.route) { TranscriptScreen(vm) }
             composable(Tab.Settings.route) { SettingsScreen(vm) }
         }

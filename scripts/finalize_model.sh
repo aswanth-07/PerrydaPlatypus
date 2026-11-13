@@ -19,4 +19,5 @@ mkdir -p "$out"
 mkdir -p "src/models/$vocab"
 cp "$out/sign_int8.onnx" "$out/export.json" "$out/robustness.json" "$out/robustness_moderate.json" "src/models/$vocab/"
 [ -f "$out/labels.json" ] && cp "$out/labels.json" "src/models/$vocab/"
+[ -f "$out/sets.json" ] && cp "$out/sets.json" "src/models/$vocab/"   # same-sign set of each word (models exported with --set-rule)
 echo "shipped $vocab from $*"
