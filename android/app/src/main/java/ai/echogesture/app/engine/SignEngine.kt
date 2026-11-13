@@ -29,6 +29,10 @@ import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarker
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarkerResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.trySendBlocking
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,7 +43,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
 data class ModelInfo(
@@ -56,6 +59,7 @@ data class LiveState(
     val running: Boolean = false,
     val paused: Boolean = false,
     val handsVisible: Boolean = false,
+    val bodyVisible: Boolean = false,           // Holistic finds hands from the body: no body, no hands
     val top: List<Pair<String, Float>> = emptyList(),
     val caption: List<String> = emptyList(),
     val lastWord: String? = null,
@@ -70,10 +74,14 @@ data class LiveState(
     val imageWidth: Int = 0,
     val imageHeight: Int = 0,
     val gpu: Boolean = true,
+    val lanes: Int = 1,                         // live landmarkers taking turns on frames
     val error: String? = null,
 )
 
-data class TranscriptEntry(val word: String, val confidence: Float, val atMillis: Long)
+/** Who said a line of the conversation: the signer (recognised signs) or the hearing person (spoken reply). */
+enum class Who { SIGNER, VOICE }
+
+data class TranscriptEntry(val word: String, val confidence: Float, val atMillis: Long, val who: Who = Who.SIGNER)
 
 /** Teach-a-sign state: whether the loaded model can do it, and the signs taught so far. */
 data class TeachState(val supported: Boolean = false, val signs: List<TaughtSign> = emptyList(), val note: String? = null)
@@ -85,9 +93,10 @@ data class ClipResult(
     val name: String,
     val top5: List<Pair<String, Float>>,
     val frames: Int,
-    val landmarksMs: Double,
+    val landmarksMs: Double,          // hand tracking, summed over the frames
     val modelMs: Double,
     val totalMs: Double,
+    val decodeMs: Double = 0.0,       // reading the frames (runs alongside tracking)
     val atMillis: Long = System.currentTimeMillis(),
     val also: List<String> = emptyList(),
     val taught: Boolean = false,
@@ -104,20 +113,72 @@ class SignEngine(private val context: Context) : AutoCloseable {
     @Volatile private var model: SignModel? = null
     private val retired = java.util.concurrent.CopyOnWriteArrayList<SignModel>()
     private var spotter: Spotter? = null
-    private var live: HolisticLandmarker? = null
+    /**
+     * One live Holistic landmarker. Holistic costs about 65 ms a frame with a signer in view, so one landmarker
+     * tops out near 15 fps; several lanes take turns on camera frames, run at the same time, and their results
+     * are put back in frame order before the spotter sees them. Each lane still tracks (its own previous frame
+     * guides its next crop), and the landmarks are the same model's, so the classifier sees what it was trained on.
+     */
+    private class Lane(val gpu: Boolean) {
+        lateinit var landmarker: HolisticLandmarker
+        @Volatile var startedNs = 0L   // 0: idle
+    }
+
+    private fun newLane(gpu: Boolean): Lane = Lane(gpu).also { lane ->
+        lane.landmarker = createLandmarker(RunningMode.LIVE_STREAM, gpu) { r, img -> onLaneResult(lane, r, img) }
+    }
+    @Volatile private var lanes: List<Lane> = emptyList()
+    private val live: Any? get() = lanes.firstOrNull()
     private val worker = Executors.newSingleThreadExecutor()   // the spotter is used from this thread only
-    private val started = ConcurrentHashMap<Long, Long>()
+    private class Tracked(val frame: RawFrame, val w: Int, val h: Int, val landmarksMs: Double)
+    private val order = Any()                                  // guards the four fields below
+    private val inFlight = java.util.TreeMap<Long, Long>()     // frame timestamp -> nanoTime it was sent
+    private val ready = java.util.TreeMap<Long, Tracked>()     // results waiting for an earlier frame
     private var lastTs = 0L
     private var lastResultTs = 0L
+    private var nextLane = 0
     @Volatile private var useGpu = true
+    @Volatile private var laneCount = DEFAULT_LANES
+    @Volatile private var benchLanes: List<Boolean>? = null    // benchmark override: one delegate per lane
 
     /** Spoken captions: every word the spotter settles is said aloud by the phone's own installed voice. */
     val speaker = Speaker(context)
+
+    /** Spoken replies from the hearing person, recognised on the device and shown as text for the signer. */
+    val listener = Listener(
+        context,
+        onListening = { on -> speaker.hold = on; if (on) speaker.silence() },
+        onReply = { text -> _transcript.update { it + TranscriptEntry(text, 1f, System.currentTimeMillis(), Who.VOICE) } },
+    )
 
     fun setSpeech(on: Boolean, rate: Float) {
         speaker.enabled = on
         speaker.setRate(rate)
         if (!on) speaker.silence()
+    }
+
+    // ---------- benchmark hooks (engine/Bench.kt) ----------
+
+    /** Latency samples collected while a benchmark runs; null otherwise. */
+    class BenchStats {
+        val landmarks = ArrayList<Double>()
+        val model = ArrayList<Double>()
+        var results = 0L   // since the last report
+        var total = 0L     // since the start
+    }
+    @Volatile var bench: BenchStats? = null
+
+    /** Benchmark only: the delegate the Videos tab's landmarker uses. */
+    fun clipDelegateForBench(gpu: Boolean) { benchClipGpu = gpu }
+    @Volatile private var benchClipGpu: Boolean? = null
+
+    /** Benchmark only: the delegate of each live lane (true: GPU), fixed before the live landmarkers start. */
+    fun lanesForBench(plan: List<Boolean>) { benchLanes = plan }
+
+    /** The loaded classifier's bytes and labels, for the latency benchmark. */
+    fun modelAsset(): Pair<ByteArray, List<String>> {
+        val labels = JSONArray(context.assets.open("$vocabulary/labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
+        return context.assets.open("$vocabulary/sign_int8.onnx").readBytes() to labels
     }
 
     // ---------- same-sign names and signs taught on the phone ----------
@@ -151,7 +212,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
         private set
 
     private val loading = Mutex()
-    var vocabulary = "core"   // "core": 100 words, most accurate; "full": all 2,000 WLASL words; "union": 3,075 signs
+    var vocabulary = "full"   // "full": all 2,000 WLASL words (default); "core": 100 words, most accurate; "union": 3,075 signs
         private set
 
     /** Vocabulary folders packed into this build, in display order. */
@@ -261,6 +322,14 @@ class SignEngine(private val context: Context) : AutoCloseable {
         }
     }
 
+    /** Lanes the live tracker runs (1-3); see [Lane]. */
+    fun setLanes(n: Int) {
+        val k = n.coerceIn(1, 3)
+        if (k == laneCount) return
+        laneCount = k
+        synchronized(this) { if (live != null) { stopLive(); startLive() } }
+    }
+
     // ---------- live camera ----------
 
     // Live and Teach both use the camera; navigating between them may start the new screen before the old one
@@ -280,18 +349,26 @@ class SignEngine(private val context: Context) : AutoCloseable {
     }
 
     private fun startLive() {
-        if (live != null) return
-        var onGpu = useGpu
-        live = runCatching { createLandmarker(RunningMode.LIVE_STREAM, useGpu) }
-            .recoverCatching { Log.w(TAG, "GPU landmarker failed, using CPU", it); onGpu = false; createLandmarker(RunningMode.LIVE_STREAM, false) }
-            .onFailure { e -> _live.update { it.copy(error = "Could not start hand tracking: ${e.message}") } }
-            .getOrNull()
-        _live.update { it.copy(running = live != null, gpu = onGpu) }
+        if (lanes.isNotEmpty()) return
+        val plan = benchLanes ?: List(laneCount) { useGpu }
+        val made = ArrayList<Lane>()
+        for (gpu in plan) {
+            val lane = runCatching { newLane(gpu) }
+                .recoverCatching { Log.w(TAG, "GPU landmarker failed, using CPU", it); newLane(false) }
+                .onFailure { e -> if (made.isEmpty()) _live.update { it.copy(error = "Could not start hand tracking: ${e.message}") } }
+                .getOrNull() ?: break   // a phone short of memory runs fewer lanes
+            made += lane
+        }
+        synchronized(order) { inFlight.clear(); ready.clear(); lastResultTs = 0L }
+        lanes = made
+        _live.update { it.copy(running = made.isNotEmpty(), gpu = made.any { l -> l.gpu }, lanes = made.size) }
     }
 
     private fun stopLive() {
-        live?.close()
-        live = null
+        val old = lanes
+        lanes = emptyList()
+        old.forEach { it.landmarker.close() }
+        synchronized(order) { inFlight.clear(); ready.clear() }
         _live.update { it.copy(running = false) }
     }
 
@@ -306,25 +383,89 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     /** CameraX analyzer: upright, resized frame into the live landmarker. */
     fun analyze(proxy: ImageProxy) {
-        val landmarker = live
-        if (landmarker == null || model == null || _live.value.paused) {
+        // MediaPipe drops frames that arrive while it is busy; dropping them here, before the RGBA copy and the
+        // resize, saves that work too. A signer in view costs Holistic about 65 ms a frame on a 2026 flagship.
+        if (lanes.isEmpty() || model == null || _live.value.paused || busy() || !wantFrame(SystemClock.uptimeMillis())) {
             proxy.close()
             return
         }
         val bitmap = try { proxy.toBitmap().prepared(proxy.imageInfo.rotationDegrees) } finally { proxy.close() }
-        var ts = SystemClock.uptimeMillis()
-        if (ts <= lastTs) ts = lastTs + 1   // MediaPipe needs strictly increasing timestamps
-        lastTs = ts
-        started[ts] = System.nanoTime()
-        landmarker.detectAsync(BitmapImageBuilder(bitmap).build(), ts)
+        analyzeBitmap(bitmap)
     }
 
-    private fun onLiveResult(result: HolisticLandmarkerResult, image: MPImage) {
+    // Signing-gated rate (after MobileASL's variable frame rate): no sign starts without a hand in view, so while
+    // no hand has been seen for IDLE_AFTER_MS only one frame per IDLE_PERIOD_MS is tracked (about 8 fps, one lane);
+    // the first frame with a hand restores every frame on every lane.
+    @Volatile private var lastHandsAt = 0L
+    @Volatile private var lastFedAt = 0L
+    @Volatile var gateIdle = true
+
+    /** Whether the camera frame arriving at [now] (uptime ms) should be tracked. */
+    fun wantFrame(now: Long): Boolean {
+        if (gateIdle && recording == null && now - lastHandsAt > IDLE_AFTER_MS && now - lastFedAt < IDLE_PERIOD_MS) return false
+        lastFedAt = now
+        return true
+    }
+
+    private fun idle(lane: Lane, now: Long) = lane.startedNs == 0L || now - lane.startedNs > STALE_NS
+
+    /** Every lane is tracking a frame; a frame with no result after a second is forgotten, so tracking never stalls. */
+    fun busy(): Boolean {
+        val now = System.nanoTime()
+        return lanes.none { idle(it, now) }
+    }
+
+    /**
+     * One upright frame into the next idle lane (camera frames, or a replayed video in the benchmark).
+     * Returns false, and drops the frame, when every lane is busy.
+     */
+    fun analyzeBitmap(bitmap: Bitmap): Boolean {
+        val all = lanes
+        if (all.isEmpty()) return false
+        val lane: Lane
+        val ts: Long
+        synchronized(order) {
+            val now = System.nanoTime()
+            val k = (0 until all.size).map { (nextLane + it) % all.size }.firstOrNull { idle(all[it], now) } ?: return false
+            nextLane = (k + 1) % all.size
+            lane = all[k]
+            var t = SystemClock.uptimeMillis()
+            if (t <= lastTs) t = lastTs + 1   // MediaPipe needs strictly increasing timestamps
+            lastTs = t
+            ts = t
+            lane.startedNs = now
+            inFlight[t] = now
+        }
+        runCatching { lane.landmarker.detectAsync(BitmapImageBuilder(bitmap).build(), ts) }
+            .onFailure { Log.w(TAG, "detectAsync", it); synchronized(order) { inFlight.remove(ts) }; lane.startedNs = 0L }
+        return true
+    }
+
+    /** A lane finished a frame: hold it until every earlier frame is back, then pass them on in order. */
+    private fun onLaneResult(lane: Lane, result: HolisticLandmarkerResult, image: MPImage) {
         val ts = result.timestampMs()
-        val landmarksMs = started.remove(ts)?.let { (System.nanoTime() - it) / 1e6 } ?: 0.0
-        val frame = result.toRawFrame()
-        val w = image.width
-        val h = image.height
+        val frame = result.toRawFrame()   // on this lane's own thread, so lanes convert in parallel
+        val doneNs = System.nanoTime()
+        lane.startedNs = 0L
+        synchronized(order) {
+            val sent = inFlight.remove(ts) ?: return   // forgotten as stale, or the lanes were restarted
+            ready[ts] = Tracked(frame, image.width, image.height, (doneNs - sent) / 1e6)
+            inFlight.entries.removeIf { doneNs - it.value > STALE_NS }
+            while (ready.isNotEmpty()) {
+                val head = ready.firstKey()
+                if (inFlight.isNotEmpty() && inFlight.firstKey() < head) break
+                deliver(head, ready.remove(head)!!)   // queues on the worker, so frames reach the spotter in order
+            }
+        }
+    }
+
+    private fun deliver(ts: Long, t: Tracked) {
+        val frame = t.frame
+        val w = t.w
+        val h = t.h
+        val landmarksMs = t.landmarksMs
+        bench?.let { b -> synchronized(b) { b.landmarks += landmarksMs; b.results++; b.total++ } }
+        if (frame.hands.any { it != null }) lastHandsAt = SystemClock.uptimeMillis()
         val dt = if (lastResultTs > 0) (ts - lastResultTs).coerceAtLeast(1) else 0
         lastResultTs = ts
         worker.execute {
@@ -345,6 +486,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
                 }
             }
             val event = if (rec == null) s.push(ts, frame, w, h) else null
+            event?.prediction?.let { pr -> bench?.let { b -> synchronized(b) { b.model += pr.latencyMs } } }
             val word = event?.word
             val hit = event?.taught
             val taught = hit != null
@@ -358,6 +500,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
                 val fps = if (dt > 0) (if (st.fps == 0.0) 1000.0 / dt else 0.9 * st.fps + 0.1 * 1000.0 / dt) else st.fps
                 st.copy(
                     handsVisible = frame.hands.any { it != null },
+                    bodyVisible = frame.pose != null,
                     hands = frame.hands.toList(),
                     imageWidth = w, imageHeight = h,
                     fps = fps,
@@ -383,73 +526,129 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     // ---------- video clips: the same pipeline as the scored predict(video) ----------
 
-    // One VIDEO-mode landmarker kept across clips (as in src/main.py): rebuilt when the frame size or delegate
-    // changes, and fed a blank frame before each clip so tracking starts afresh.
+    // VIDEO-mode landmarkers kept across clips (as in src/main.py): rebuilt when the frame size or delegate changes,
+    // and fed a blank frame before each clip so tracking starts afresh. CLIP_LANES of them take the clip's frames in
+    // turn at the same time (src/main.py ECHO_LANES does the same, checked on 600 test clips against one lane).
     private val clipLock = Mutex()
-    private var clipLandmarker: HolisticLandmarker? = null
-    private var clipKey: Triple<Int, Int, Boolean>? = null
+    private val clipLandmarkers = arrayOfNulls<HolisticLandmarker>(CLIP_LANES)
+    private val clipKeys = arrayOfNulls<Triple<Int, Int, Boolean>>(CLIP_LANES)
     private var clipTs = 0L
 
-    private fun clipLandmarkerFor(w: Int, h: Int): HolisticLandmarker {
-        val key = Triple(w, h, useGpu)
-        clipLandmarker?.let { if (clipKey == key) return it; it.close() }
-        val lm = runCatching { createLandmarker(RunningMode.VIDEO, useGpu) }.getOrElse { createLandmarker(RunningMode.VIDEO, false) }
-        clipLandmarker = lm
-        clipKey = key
+    private fun clipLandmarkerFor(lane: Int, w: Int, h: Int): HolisticLandmarker {
+        val gpu = benchClipGpu ?: useGpu
+        val key = Triple(w, h, gpu)
+        clipLandmarkers[lane]?.let { if (clipKeys[lane] == key) return it; it.close() }
+        val lm = runCatching { createLandmarker(RunningMode.VIDEO, gpu) }.getOrElse { createLandmarker(RunningMode.VIDEO, false) }
+        clipLandmarkers[lane] = lm
+        clipKeys[lane] = key
         return lm
     }
 
     suspend fun recogniseClip(uri: Uri, name: String, progress: (Float, String) -> Unit): ClipResult = withContext(Dispatchers.Default) {
         val m = model ?: error("Model is still loading")
         val t0 = System.nanoTime()
-        val mmr = MediaMetadataRetriever()
-        try {
-            mmr.setDataSource(context, uri)
-            val count = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)?.toIntOrNull() ?: 0
-            val durationMs = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            require(count > 0) { "This video has no readable frames" }
-            val fps = if (durationMs > 0) count * 1000.0 / durationMs else 25.0
-            val n = minOf(count, MAX_CLIP_FRAMES)
-            val picks = (0 until n).map { if (n == 1) 0 else Math.round(it * (count - 1).toDouble() / (n - 1)).toInt() }
-            val frames = ArrayList<RawFrame>(n)
-            var w = 0
-            var h = 0
-            val tLandmarks = System.nanoTime()
-            clipLock.withLock {
-                var landmarker: HolisticLandmarker? = null
-                var start = 0L
-                for ((k, i) in picks.withIndex()) {
-                    val bmp = mmr.getFrameAtIndex(i)?.prepared() ?: continue
-                    if (landmarker == null) {
-                        landmarker = clipLandmarkerFor(bmp.width, bmp.height)
-                        val blank = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
-                        landmarker.detectForVideo(BitmapImageBuilder(blank).build(), clipTs)
-                        start = clipTs + 1000
-                        clipTs = start
-                    }
+        val tracked = arrayOfNulls<RawFrame>(MAX_CLIP_FRAMES)
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        var w = 0
+        var h = 0
+        var trackFirstNs = Long.MAX_VALUE
+        var trackLastNs = 0L
+        var maxTs = 0L
+        var decodeMs = 0.0
+        val timing = Any()
+        clipLock.withLock {
+            // Every lane counts timestamps from one base, later than anything used before; a lane's own frames
+            // arrive in order, so its timestamps strictly increase as MediaPipe requires.
+            val base = clipTs + 1000
+            val start = base + 1000
+            class LaneState(val lane: Int) { var lm: HolisticLandmarker? = null; var lastTs = -1L }
+            val laneStates = Array(CLIP_LANES) { LaneState(it) }
+            fun track(st: LaneState, f: PickedFrame, total: Int) {
+                val bmp = f.bitmap
+                val t = System.nanoTime()
+                if (st.lm == null) {
+                    st.lm = clipLandmarkerFor(st.lane, bmp.width, bmp.height)
+                    val blank = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+                    st.lm!!.detectForVideo(BitmapImageBuilder(blank).build(), base)
+                }
+                val ts = maxOf(start + f.timeMs, st.lastTs + 1)
+                st.lastTs = ts
+                val frame = st.lm!!.detectForVideo(BitmapImageBuilder(bmp).build(), ts).toRawFrame()
+                val e = System.nanoTime()
+                synchronized(timing) {
+                    tracked[f.k] = frame
                     w = bmp.width
                     h = bmp.height
-                    val ts = start + (k * 1000.0 / fps).toLong()
-                    clipTs = ts + 1000   // later than anything used so far, even if this clip stops part-way
-                    frames += landmarker.detectForVideo(BitmapImageBuilder(bmp).build(), ts).toRawFrame()
-                    progress(0.05f + 0.9f * (k + 1) / n, "Tracking hands and body · frame ${k + 1} of $n")
+                    trackFirstNs = minOf(trackFirstNs, t)
+                    trackLastNs = maxOf(trackLastNs, e)
+                    maxTs = maxOf(maxTs, ts)
+                }
+                val n = done.incrementAndGet()
+                progress(0.05f + 0.9f * n / total, "Tracking hands and body · frame $n of $total")
+            }
+
+            // One sequential decode on its own thread; each lane tracks its share of the frames as they arrive.
+            var decoded = false
+            try {
+                coroutineScope {
+                    val chs = Array(CLIP_LANES) { Channel<PickedFrame>(capacity = 4) }
+                    launch(Dispatchers.IO) {
+                        val td = System.nanoTime()
+                        try {
+                            decoded = VideoFrames.decode(context, uri, MAX_CLIP_FRAMES) { f -> chs[f.k % CLIP_LANES].trySendBlocking(f) }
+                        } finally {
+                            decodeMs = (System.nanoTime() - td) / 1e6
+                            chs.forEach { it.close() }
+                        }
+                    }
+                    for (k in 0 until CLIP_LANES) launch(Dispatchers.Default) { for (f in chs[k]) track(laneStates[k], f, MAX_CLIP_FRAMES) }
+                }
+            } finally {
+                clipTs = maxOf(start, maxTs) + 1000   // later than anything used so far, even if this clip failed
+            }
+
+            // Fallback for videos the decoder path cannot read: the retriever, one seek per frame.
+            if (!decoded && tracked.all { it == null }) {
+                val mmr = MediaMetadataRetriever()
+                try {
+                    val td = System.nanoTime()
+                    mmr.setDataSource(context, uri)
+                    val count = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)?.toIntOrNull() ?: 0
+                    val durationMs = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                    require(count > 0) { "This video has no readable frames" }
+                    val fps = if (durationMs > 0) count * 1000.0 / durationMs else 25.0
+                    val n = minOf(count, MAX_CLIP_FRAMES)
+                    // One lane, timestamps after the failed pass's: a fresh blank frame starts tracking again.
+                    val st = LaneState(0)
+                    val shift = clipTs - start + 1000
+                    for (k in 0 until n) {
+                        val i = if (n == 1) 0 else Math.round(k * (count - 1).toDouble() / (n - 1)).toInt()
+                        val bmp = mmr.getFrameAtIndex(i)?.prepared() ?: continue
+                        track(st, PickedFrame(k, (i * 1000.0 / fps).toLong() + shift, bmp), n)
+                    }
+                    clipTs = maxTs + 1000
+                    decodeMs = (System.nanoTime() - td) / 1e6 - (trackLastNs - trackFirstNs) / 1e6
+                } finally {
+                    mmr.release()
                 }
             }
-            require(frames.isNotEmpty()) { "Could not decode frames from this video" }
-            val landmarksMs = (System.nanoTime() - tLandmarks) / 1e6
-            progress(0.97f, "Recognising")
-            val pred = m.classifyFrames(frames, w, h, MAX_CLIP_FRAMES)
-            val hit = matcher?.match(pred.embedding)
-            val top5 = if (hit != null) listOf(hit.word to hit.cosine) + pred.topK(4) else pred.topK(5)
-            speaker.speak(top5.first().first)
-            ClipResult(name, top5, frames.size, landmarksMs, pred.latencyMs, (System.nanoTime() - t0) / 1e6,
-                also = if (hit == null) also(pred, pred.top) else emptyList(), taught = hit != null)
-        } finally {
-            mmr.release()
         }
+        val frames = tracked.filterNotNull()
+        val trackNs = if (trackLastNs > trackFirstNs) trackLastNs - trackFirstNs else 0L   // wall time; lanes overlap
+        require(frames.isNotEmpty()) { "Could not decode frames from this video" }
+        progress(0.97f, "Recognising")
+        val pred = m.classifyFrames(frames, w, h, MAX_CLIP_FRAMES)
+        val hit = matcher?.match(pred.embedding)
+        val top5 = if (hit != null) listOf(hit.word to hit.cosine) + pred.topK(4) else pred.topK(5)
+        speaker.speak(top5.first().first)
+        ClipResult(name, top5, frames.size, trackNs / 1e6, pred.latencyMs, (System.nanoTime() - t0) / 1e6,
+            decodeMs = decodeMs, also = if (hit == null) also(pred, pred.top) else emptyList(), taught = hit != null)
     }
 
-    private fun createLandmarker(mode: RunningMode, gpu: Boolean): HolisticLandmarker {
+    private fun createLandmarker(
+        mode: RunningMode, gpu: Boolean,
+        onResult: ((HolisticLandmarkerResult, MPImage) -> Unit)? = null,
+    ): HolisticLandmarker {
         val base = BaseOptions.builder()
             .setModelAssetPath("holistic_landmarker.task")
             .setDelegate(if (gpu) Delegate.GPU else Delegate.CPU)
@@ -464,7 +663,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
             .setMinFaceDetectionConfidence(0.3f)
             .setMinFacePresenceConfidence(0.3f)
         if (mode == RunningMode.LIVE_STREAM) {
-            b.setResultListener { result: HolisticLandmarkerResult, image: MPImage -> onLiveResult(result, image) }
+            b.setResultListener { result: HolisticLandmarkerResult, image: MPImage -> onResult?.invoke(result, image) }
             b.setErrorListener { e -> Log.e(TAG, "holistic", e) }
         }
         return HolisticLandmarker.createFromOptions(context, b.build())
@@ -473,7 +672,8 @@ class SignEngine(private val context: Context) : AutoCloseable {
     override fun close() {
         stopLive()
         speaker.close()
-        clipLandmarker?.close()
+        listener.close()
+        clipLandmarkers.forEach { it?.close() }
         worker.shutdown()
         model?.close()
         retired.forEach { it.close() }
@@ -483,5 +683,12 @@ class SignEngine(private val context: Context) : AutoCloseable {
         private const val TAG = "EchoGesture"
         // 24 evenly spaced frames scored the same as all frames on the WLASL100 test split (84.5 vs 84.5).
         const val MAX_CLIP_FRAMES = 24
+        /** Live lanes by default; see [Lane]. */
+        const val DEFAULT_LANES = 2
+        /** Video landmarkers taking a picked clip's frames in turn. */
+        const val CLIP_LANES = 2
+        private const val STALE_NS = 1_000_000_000L
+        private const val IDLE_AFTER_MS = 2_000L
+        private const val IDLE_PERIOD_MS = 120L
     }
 }

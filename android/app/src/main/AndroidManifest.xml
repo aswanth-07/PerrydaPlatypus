@@ -3,12 +3,18 @@
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- Deliberately no INTERNET permission: video and keypoints never leave the device. -->
+    <!-- Spoken replies from the hearing person, recognised on the device only. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Deliberately no INTERNET permission: video, audio and keypoints never leave the device. -->
 
-    <!-- Spoken captions use the phone's installed text-to-speech engine; this lets the app find it. -->
+    <!-- The phone's installed text-to-speech engine and speech recogniser; this lets the app find them. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
         </intent>
     </queries>
 

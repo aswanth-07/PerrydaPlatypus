@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,6 +51,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -134,9 +138,9 @@ fun TeachScreen(vm: MainViewModel) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
         // Camera, with the countdown and recording progress on top.
-        Box(Modifier.fillMaxWidth().weight(0.5f).background(Color.Black)) {
+        Box(Modifier.fillMaxWidth().weight(0.45f).padding(horizontal = 12.dp, vertical = 8.dp).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
             CameraPreview(backCamera = settings.backCamera, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
             if (settings.showLandmarks) HandOverlay(live, mirror = !settings.backCamera, modifier = Modifier.fillMaxSize())
             StatusPill(
@@ -144,7 +148,8 @@ fun TeachScreen(vm: MainViewModel) {
                     live.recording != null -> "Recording"
                     countdown != null -> "Get ready"
                     live.handsVisible -> "Hands in view"
-                    else -> "Show your hands"
+                    live.bodyVisible -> "Show your hands"
+                    else -> "Step back"
                 },
                 when {
                     live.recording != null -> Palette.Red
@@ -176,7 +181,7 @@ fun TeachScreen(vm: MainViewModel) {
             }
         }
 
-        Column(Modifier.fillMaxWidth().weight(0.5f).verticalScroll(rememberScrollState()).padding(20.dp)) {
+        Column(Modifier.fillMaxWidth().weight(0.55f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
             Text("Teach a sign", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(6.dp))
             if (!teach.supported) {
@@ -185,8 +190,7 @@ fun TeachScreen(vm: MainViewModel) {
                 return@Column
             }
             Text(
-                "Add a sign the app does not know, such as a name sign or a word from another sign language. " +
-                    "Type the word, then record it 3 to 5 times. Each recording is 2.5 seconds after a 3-2-1 countdown.",
+                "Add a sign it doesn't know, like a name sign. Type the word, then sign it 3 to 5 times.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(14.dp))
@@ -207,9 +211,21 @@ fun TeachScreen(vm: MainViewModel) {
                     Spacer(Modifier.width(8.dp))
                     Text(if (examples.isEmpty()) "Record example" else "Record example ${examples.size + 1}")
                 }
-                Spacer(Modifier.width(14.dp))
-                Text("${examples.size} of $MAX_EXAMPLES", style = MaterialTheme.typography.titleMedium,
-                    color = if (examples.size >= 3) Palette.Green else MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(16.dp))
+                // One dot per example: filled when recorded; three or more is green.
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = "${examples.size} of $MAX_EXAMPLES examples recorded"
+                }) {
+                    repeat(MAX_EXAMPLES) { i ->
+                        Box(Modifier.size(12.dp).clip(CircleShape).background(
+                            when {
+                                i >= examples.size -> MaterialTheme.colorScheme.surfaceContainerHighest
+                                examples.size >= 3 -> Palette.Green
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+                        ))
+                    }
+                }
             }
             message?.let {
                 Spacer(Modifier.height(10.dp))
@@ -277,8 +293,8 @@ fun TeachScreen(vm: MainViewModel) {
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Tested offline on 20 signs the model never learned, 5 examples each, recognised in other people's signing: " +
-                    "92.5% right. The match needed is set in Settings.",
+                "In offline tests on signs a recogniser had never seen, 3 examples were enough to be right about 9 times in 10. " +
+                    "If a taught sign shows up when it shouldn't, raise \"Taught-sign match\" in Settings > Advanced.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

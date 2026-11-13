@@ -27,6 +27,8 @@ object Palette {
     val Red = Color(0xFFFF6B6B)
     val Glass = Color(0xB30A0E13)       // panels over live video
     val GlassLight = Color(0x66121821)
+    val Reply = Color(0xFFFFD58F)       // the hearing person's words: warm, distinct from the signer's cyan
+    val ReplyDeep = Color(0xFF2E2210)
 }
 
 private val Scheme = darkColorScheme(
@@ -34,10 +36,11 @@ private val Scheme = darkColorScheme(
     onPrimary = Palette.CyanDeep,
     primaryContainer = Color(0xFF0E3A47),
     onPrimaryContainer = Color(0xFFBDEBFA),
-    secondary = Palette.Amber,
-    onSecondary = Color(0xFF3A2500),
-    secondaryContainer = Color(0xFF3B2C10),
-    onSecondaryContainer = Color(0xFFFFDDAA),
+    // Selections, slider tracks and chips use a quiet cyan tint; amber is kept for things that need attention.
+    secondary = Color(0xFF9CCFDD),
+    onSecondary = Color(0xFF00313D),
+    secondaryContainer = Color(0xFF173742),
+    onSecondaryContainer = Color(0xFFCDEFF8),
     tertiary = Palette.Green,
     background = Palette.Ink,
     onBackground = Palette.Text,
@@ -67,6 +70,9 @@ private val AppTypography = Typography().let { t ->
 
 /** Caption text over video: large, heavy, with generous line height for glanceable reading. */
 val CaptionStyle = TextStyle(fontSize = 30.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold)
+
+/** The hearing person's reply, shown for the signer to read: as large as a caption, one weight lighter. */
+val ReplyStyle = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold)
 
 @Composable
 fun EchoTheme(content: @Composable () -> Unit) {

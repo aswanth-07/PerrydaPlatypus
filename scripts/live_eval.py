@@ -12,8 +12,10 @@ emissions inside the word's own clip or the next one count.
 sets from train+val listings); --set-conf also thresholds the window on its top word's whole-set probability
 (Prediction.setConfidence in Kotlin) instead of the word's own.
 
+--rate-div k replays every k-th frame (a tracker at fps/k); --fixed scores given settings on test only.
+
 Usage: live_eval.py <index.json> <kp_dir> <ckpt.pt> [<ckpt.pt> ...] --subset 100 [--streams 60] [--words 6]
-       [--set-rule] [--set-conf] [--grid small|wide] [--out f.json]
+       [--set-rule] [--set-conf] [--grid small|wide] [--rate-div k] [--fixed window_s=1.5,stride=5,...] [--out f.json]
 """
 import argparse
 import itertools
@@ -114,7 +116,7 @@ def run_stream(frames, wh, fps, clf, labels, window_s=2.0, stride=5, threshold=0
     return caption
 
 
-def streams(entries, kp_dir, split, subset, n_streams, n_words, seed):
+def streams(entries, kp_dir, split, subset, n_streams, n_words, seed, rate_div=1):
     rng = np.random.default_rng(seed)
     pool = [(i["video_id"], e["gloss"].upper()) for e in entries[:subset] for i in e["instances"]
             if i["split"] == split and (pathlib.Path(kp_dir) / f"{i['video_id']}.npz").exists()]
@@ -124,6 +126,9 @@ def streams(entries, kp_dir, split, subset, n_streams, n_words, seed):
         frames, truth, bounds, fps, wh = [], [], [], None, None
         for vid, g in pick:
             raw, f, wh_ = load_raw(pathlib.Path(kp_dir) / f"{vid}.npz")
+            if rate_div > 1:   # a slower tracker: every rate_div-th frame
+                raw = {k: v[::rate_div] for k, v in raw.items()}
+                f = f / rate_div
             fps = fps or f
             wh = wh if wh is not None else wh_
             start = len(frames)
@@ -176,6 +181,8 @@ def main():
     ap.add_argument("--set-rule", action="store_true", help="apply the same-sign answer rule, as the shipped model does")
     ap.add_argument("--set-conf", action="store_true", help="threshold on the top word's whole-set probability")
     ap.add_argument("--grid", default="small", choices=["small", "wide"])
+    ap.add_argument("--rate-div", type=int, default=1, help="keep every k-th frame: tracking at fps/k")
+    ap.add_argument("--fixed", help="score only these settings on test, e.g. window_s=1.5,stride=5,threshold=0.35,agree=2")
     ap.add_argument("--out")
     a = ap.parse_args()
     entries = json.load(open(a.index, encoding="utf-8"))
@@ -185,9 +192,15 @@ def main():
         set_of, _ = signsets.same_sign_sets(entries, a.subset)
         rule = (set_of.cuda(), signsets.wlasl_counts(entries, a.subset).cuda())
     clf = Classifier(a.ckpts, rule=rule)
-    test = streams(entries, a.kp_dir, "test", a.subset, a.streams, a.words, 2)
+    test = streams(entries, a.kp_dir, "test", a.subset, a.streams, a.words, 2, a.rate_div)
     default = dict(window_s=2.0, stride=5, threshold=0.45, agree=2, set_conf=a.set_conf)
-    res = dict(ckpts=a.ckpts, subset=a.subset, set_rule=rule is not None, set_conf=a.set_conf,
+    if a.fixed:
+        default = dict(set_conf=a.set_conf)
+        for kv in a.fixed.split(","):
+            k, v = kv.split("=")
+            default[k] = int(v) if k in ("stride", "agree") else float(v)
+        a.no_tune = True
+    res = dict(ckpts=a.ckpts, subset=a.subset, set_rule=rule is not None, set_conf=a.set_conf, rate_div=a.rate_div,
                default_settings=default, test_default=score(clf, labels, test, **default))
     if not a.no_tune:
         val = streams(entries, a.kp_dir, "val", a.subset, a.streams // 2, a.words, 1)

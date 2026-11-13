@@ -30,6 +30,9 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")  // installable demo build
+            // `-PemulatorAbi` also packs x86_64, so the shrunk release build can be tried on an x86_64 emulator
+            // (arm64 ONNX Runtime crashes while loading under the emulator's ARM translation).
+            if (providers.gradleProperty("emulatorAbi").isPresent) ndk { abiFilters += listOf("x86_64") }
         }
     }
 

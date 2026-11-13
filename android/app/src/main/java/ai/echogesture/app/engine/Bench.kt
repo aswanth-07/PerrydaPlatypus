@@ -1,0 +1,223 @@
+package ai.echogesture.app.engine
+
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.BatteryManager
+import android.os.Build
+import android.os.Debug
+import android.os.PowerManager
+import android.os.SystemClock
+import android.util.Log
+import ai.echogesture.signcore.Clip
+import ai.echogesture.signcore.Layout
+import ai.echogesture.signcore.SignModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import java.util.Random
+
+/**
+ * On-device benchmarks for the brief's metrics, started from adb so they are repeatable:
+ *
+ *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench model --ei runs 400
+ *       classifier latency on the loaded vocabulary for 1, 2 and 4 threads (warm-up, then [runs] timed calls)
+ *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench live --ei seconds 600 --ei fps 30 --es lanes gpu,gpu
+ *       a signer video (files/bench.mp4 in the app's external files dir) replayed like a camera at [fps] through the
+ *       live pipeline: Holistic lanes (gpu or cpu each), the spotter, the classifier; every 10 s a line with
+ *       throughput, latency
+ *       percentiles, process CPU, battery current and voltage (power), battery temperature and thermal headroom
+ *
+ *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench clip --ei runs 10 --ez gpu false
+ *       the Videos tab's path on files/bench.mp4 (or --es file NAME): total, tracking, decode and model time
+ *
+ *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench power
+ *       on battery (unplug after starting): signing on 2 CPU lanes 150 s, nobody in view gated 90 s and ungated
+ *       90 s, signing on 1 GPU lane 90 s; files power_live_*.jsonl, power_mw averaged from 1 s current samples
+ *
+ * Results go to logcat (tag EchoBench) and to bench_<mode>.jsonl next to bench.mp4. The screen stays on at the
+ * brightness it had; the speaker is silent.
+ */
+class Bench(private val context: Context, private val engine: SignEngine) {
+    private val _status = MutableStateFlow("Starting benchmark")
+    val status: StateFlow<String> = _status.asStateFlow()
+    private val dir: File = context.getExternalFilesDir(null) ?: context.filesDir
+
+    private fun emit(out: File, o: JSONObject) {
+        Log.i(TAG, o.toString())
+        out.appendText(o.toString() + "\n")
+    }
+
+    suspend fun model(runs: Int) = withContext(Dispatchers.Default) {
+        val out = File(dir, "bench_model.jsonl").apply { writeText("") }
+        val (bytes, labels) = engine.modelAsset()
+        val rng = Random(7)
+        val t = 64
+        // A realistic input: random but finite points, both hands seen; latency does not depend on the values.
+        val clip = Clip(t, FloatArray(t * Layout.P * 3) { rng.nextGaussian().toFloat() * 0.5f },
+            FloatArray(t * 2 * 21 * 3) { rng.nextGaussian().toFloat() * 0.05f }, FloatArray(t * 4) { 1f })
+        for (threads in listOf(1, 2, 4)) {
+            _status.value = "Classifier latency, $threads thread(s)"
+            SignModel(bytes, labels, threads = threads).use { m ->
+                repeat(30) { m.classify(clip) }
+                val ms = DoubleArray(runs) { m.classify(clip).latencyMs }
+                emit(out, JSONObject().put("bench", "model").put("vocab", engine.vocabulary).put("threads", threads)
+                    .put("runs", runs).put("p50_ms", pct(ms, 50.0)).put("p95_ms", pct(ms, 95.0)).put("mean_ms", ms.average()))
+            }
+        }
+        _status.value = "Classifier latency done"
+    }
+
+    /**
+     * Recognising a picked video, as the Videos tab does: decode, track 24 frames, classify. [file] is in the app's
+     * external files dir (default bench.mp4); the first run is a warm-up and is not counted.
+     */
+    suspend fun clip(runs: Int, gpu: Boolean, file: String) {
+        val out = File(dir, "bench_clip_${if (gpu) "gpu" else "cpu"}.jsonl").apply { writeText("") }
+        engine.clipDelegateForBench(gpu)
+        val video = File(dir, file)
+        require(video.exists()) { "Push a video to ${video.absolutePath}" }
+        val total = ArrayList<Double>(); val track = ArrayList<Double>(); val decode = ArrayList<Double>(); val model = ArrayList<Double>()
+        var top = ""
+        for (i in 0..runs) {
+            _status.value = "Video recognition ${if (gpu) "GPU" else "CPU"}: run $i of $runs"
+            val r = engine.recogniseClip(Uri.fromFile(video), video.name) { _, _ -> }
+            top = "${r.top5.first().first} ${"%.2f".format(r.top5.first().second)}"
+            if (i == 0) continue
+            total += r.totalMs; track += r.landmarksMs; decode += r.decodeMs; model += r.modelMs
+        }
+        fun a(x: List<Double>) = x.toDoubleArray()
+        emit(out, JSONObject().put("bench", "clip").put("gpu", gpu).put("file", file).put("runs", runs).put("top1", top)
+            .put("total_p50_ms", pct(a(total), 50.0)).put("total_p95_ms", pct(a(total), 95.0))
+            .put("tracking_p50_ms", pct(a(track), 50.0)).put("decode_p50_ms", pct(a(decode), 50.0))
+            .put("model_p50_ms", pct(a(model), 50.0)).put("vocab", engine.vocabulary))
+        _status.value = "Video recognition done: $top"
+    }
+
+    /** [lanes]: one delegate per live landmarker, true for GPU (SignEngine.Lane). */
+    suspend fun live(seconds: Int, fps: Int, lanes: List<Boolean>, blank: Boolean = false, gate: Boolean = false, prefix: String = "bench") {
+        val tag = lanes.joinToString("+") { if (it) "gpu" else "cpu" } + (if (blank) "_blank" else "") + (if (gate) "_gated" else "")
+        val out = File(dir, "${prefix}_live_${fps}fps_$tag.jsonl").apply { writeText("") }
+        engine.lanesForBench(lanes)
+        val video = File(dir, "bench.mp4")
+        require(video.exists()) { "Push a signer video to ${video.absolutePath}" }
+        _status.value = "Decoding the replay video"
+        val frames = ArrayList<Bitmap>()
+        withContext(Dispatchers.IO) { VideoFrames.decode(context, Uri.fromFile(video), 1000) { f -> frames += f.bitmap } }
+        require(frames.isNotEmpty()) { "Could not decode ${video.name}" }
+        if (blank) {   // nobody in view: an empty grey room, for the idle cost
+            val g = Bitmap.createBitmap(frames[0].width, frames[0].height, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF6E6A64.toInt()) }
+            frames.clear(); frames += g
+        }
+        engine.gateIdle = gate
+
+        engine.speaker.enabled = false
+        engine.acquireLive()
+        val stats = SignEngine.BenchStats()
+        engine.bench = stats
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val period = 1000L / fps
+        val t0 = SystemClock.elapsedRealtime()
+        var sent = 0L
+        var lastCpu = cpuTicks()
+        var lastT = t0
+        var nextReport = t0 + 10_000
+        var nextSample = t0 + 1_000
+        var mwSum = 0.0
+        var uaSum = 0.0
+        var samples = 0
+        var nextFrame = t0
+        emit(out, JSONObject().put("bench", "live").put("event", "start").put("fps_target", fps).put("seconds", seconds)
+            .put("gpu", lanes.any { it }).put("lanes", tag).put("blank", blank).put("gate", gate).put("replay_frames", frames.size).put("frame_w", frames[0].width).put("frame_h", frames[0].height)
+            .put("vocab", engine.vocabulary).put("device", Build.MODEL).put("soc", Build.SOC_MODEL).put("android", Build.VERSION.RELEASE))
+        try {
+            while (true) {
+                val now = SystemClock.elapsedRealtime()
+                if (now - t0 >= seconds * 1000L) break
+                // A camera: frame k arrives at t0 + k / fps and is dropped if every lane is busy, as CameraX's
+                // keep-only-latest analyzer does; the video plays at its real speed either way.
+                if (now >= nextFrame) {
+                    val k = ((now - t0) / period).toInt()
+                    if ((!gate || engine.wantFrame(now)) && engine.analyzeBitmap(frames[k % frames.size])) sent++
+                    nextFrame = t0 + (k + 1) * period
+                } else {
+                    delay(1)
+                }
+                if (now >= nextSample) {   // battery current once a second, averaged per report
+                    val ua = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW).toDouble()
+                    val mv = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                        ?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
+                    uaSum += ua
+                    mwSum += Math.abs(ua) / 1e6 * mv   // uA x mV / 1e6 = mW
+                    samples++
+                    nextSample += 1_000
+                }
+                if (now >= nextReport) {
+                    val cpu = cpuTicks()
+                    val (lm, md, res) = synchronized(stats) {
+                        Triple(stats.landmarks.toDoubleArray(), stats.model.toDoubleArray(), stats.results).also {
+                            stats.landmarks.clear(); stats.model.clear(); stats.results = 0
+                        }
+                    }
+                    val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val mv = battery?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
+                    val ua = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                    val secs = (now - lastT) / 1000.0
+                    val mem = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
+                    emit(out, JSONObject().put("bench", "live").put("t_s", (now - t0) / 1000.0)
+                        .put("fps", res / secs)
+                        .put("landmarks_p50_ms", pct(lm, 50.0)).put("landmarks_p95_ms", pct(lm, 95.0))
+                        .put("model_p50_ms", pct(md, 50.0)).put("model_p95_ms", pct(md, 95.0)).put("windows", md.size)
+                        .put("cpu_pct_of_one_core", 100.0 * (cpu - lastCpu) / CLK_TCK / secs)
+                        .put("current_now", ua).put("voltage_mv", mv)
+                        .put("current_ua_mean", if (samples > 0) uaSum / samples else 0.0)
+                        .put("power_mw", if (samples > 0) mwSum / samples else 0.0)
+                        .put("plugged", battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1)
+                        .put("battery_c", (battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10.0)
+                        .put("level", battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1)
+                        .put("thermal_status", pm.currentThermalStatus)
+                        .put("thermal_headroom_10s", if (Build.VERSION.SDK_INT >= 30) pm.getThermalHeadroom(10).toDouble() else -1.0)
+                        .put("pss_mb", mem.totalPss / 1024.0))
+                    _status.value = "Live replay at $fps fps: %.0f of %d s, %.1f fps, tracking p95 %.0f ms"
+                        .format((now - t0) / 1000.0, seconds, res / secs, pct(lm, 95.0))
+                    lastCpu = cpu
+                    lastT = now
+                    mwSum = 0.0; uaSum = 0.0; samples = 0
+                    nextReport += 10_000
+                }
+            }
+        } finally {
+            engine.gateIdle = true
+            engine.bench = null
+            engine.releaseLive()
+            emit(out, JSONObject().put("bench", "live").put("event", "end"))
+            _status.value = "Live replay done"
+        }
+    }
+
+    companion object {
+        const val TAG = "EchoBench"
+        private const val CLK_TCK = 100.0
+
+        /** utime + stime of this process, in clock ticks. */
+        private fun cpuTicks(): Long = runCatching {
+            val f = File("/proc/self/stat").readText().substringAfterLast(") ").split(" ")
+            f[11].toLong() + f[12].toLong()   // fields 14 and 15 of /proc/<pid>/stat
+        }.getOrDefault(0L)
+
+        fun pct(a: DoubleArray, q: Double): Double {
+            if (a.isEmpty()) return 0.0
+            val s = a.sorted()
+            return s[((q / 100.0) * (s.size - 1)).toInt().coerceIn(0, s.size - 1)]
+        }
+    }
+}
+

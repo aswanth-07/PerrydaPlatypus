@@ -7,11 +7,11 @@ captions, entirely on the phone. The app has no internet permission: video and k
 
 | Tab | What it does |
 |---|---|
-| **Live** | Full-screen camera with the tracked hand skeleton, a caption band (newest word highlighted), the current top-3 guesses with confidence bars, tracking status, fps and per-stage latency; speak-aloud, flip camera, pause, clear, landmarks toggle. Under the newest word: its other names when WLASL lists the same signing under several words ("same sign: PHYSICIAN"), or "taught on this phone". Keeps the screen on. |
-| **Clips** | Pick a video (system photo picker). Runs the same pipeline as the scored `predict()` and shows the word, its other names, top-5 bars and timings for frames, landmarks, model and total. |
-| **Teach** | Teach a sign the model does not know (a name sign, a word from another sign language): type the word, record 1 to 5 examples of 2.5 s after a 3-2-1 countdown. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Live and Clips like any other word; rename and delete. Only keypoints are stored, never video. |
-| **Transcript** | Every word captioned on Live, grouped into lines at pauses of more than 4 s, with copy, share and clear. |
-| **Settings** | Vocabulary, confidence needed, stability (windows that must agree), listening window, how closely a taught sign must match, voice on/off and speed (with the measured frame-to-sound delay), which camera faces the signer, hand-tracking overlay, GPU tracking; model card (vocabulary, held-out accuracy, size); privacy note. |
+| **Live** | The camera fills the screen. One status chip ("Watching" / "Show your hands" · vocabulary size), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
+| **Chat** | Both sides of the conversation as chat bubbles: signed words (grouped at pauses of more than 4 s) and spoken replies, with copy, share and clear (with a confirmation). |
+| **Teach** | Teach a sign the model does not know (a name sign, a word from another sign language): type the word, record 1 to 5 examples of 2.5 s after a 3-2-1 countdown, with one progress dot per example. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Live and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
+| **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names, the five closest signs and timings for frames, landmarks, model and total. |
+| **Settings** | Signs it knows (Core 100 / Full 2,000 / Extended 3,075), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera faces the signer, hand-tracking overlay); **Advanced**, folded away: confidence needed, stability, listening window, taught-sign match, show details, track on the GPU (off by default: two CPU trackers are faster); About (vocabulary, held-out accuracy, size) and the privacy note. |
 
 First launch explains what the camera is for before asking for it; the Clips tab works without the camera.
 
@@ -20,6 +20,15 @@ First launch explains what the camera is for before asking for it; the Clips tab
 Each word the spotter settles is spoken by the phone's own text-to-speech voice (an installed voice, so it works
 offline; Settings warns when none is installed). The status line shows how long after the camera frame that
 settled the word the sound started, last and median.
+
+### Spoken replies (two-way conversation)
+
+Reply on the Live tab turns the hearing person's speech into large text for the signer, so the conversation runs
+both ways: signs to voice, voice to text. It uses Android's on-device recogniser only
+(`SpeechRecognizer.createOnDeviceSpeechRecognizer`, Android 12 and later) and asks for the microphone the first
+time; audio never leaves the phone and the app still has no internet permission. While it listens, the app's own
+voice pauses so it does not hear itself. If the phone lacks the offline English speech pack, Android 13+ offers to
+fetch it (the system downloads it, not the app); otherwise the app says how to add it. Replies join the Chat tab.
 
 ### Teach a sign
 
@@ -41,8 +50,11 @@ language. Vocabularies whose model has no embedding output show a one-line note 
 | Path | What it is |
 |---|---|
 | `signcore/` | Plain Kotlin shared with the desktop tests: point layout, normalisation (port of `scripts/data_v2.py`), resampling, the ONNX Runtime classifier wrapper, the live `Spotter`, same-sign sets and taught-sign matching (`Taught.kt`) |
-| `app/.../engine/SignEngine.kt` | MediaPipe `HolisticLandmarker` (live stream for the camera, video mode for clips), the spotter on a worker thread, recording of taught-sign examples, state flows for the UI |
+| `app/.../engine/SignEngine.kt` | MediaPipe `HolisticLandmarker` lanes (live stream for the camera, video mode for clips; see "Speed"), in-order reassembly, the signing-gated frame rate, the spotter on a worker thread, recording of taught-sign examples, state flows for the UI |
+| `app/.../engine/VideoFrames.kt` | Picked videos: one sequential MediaCodec decode, YUV to ARGB at most 480 px, frames handed to tracking as they arrive |
+| `app/.../engine/Bench.kt` | On-device benchmarks started from adb (see "Benchmarks on the phone") |
 | `app/.../engine/Speaker.kt` | On-device text-to-speech and its frame-to-sound timing |
+| `app/.../engine/Listener.kt` | Spoken replies: on-device speech recognition, partial results, error and language-pack handling |
 | `app/.../data/TaughtStore.kt` | Taught signs on the phone's private storage |
 | `app/.../engine/Landmarks.kt` | Holistic result → `RawFrame` (hands slotted by distance to the pose wrists), frame preparation (upright, ≤ 480 px like the training videos) |
 | `app/.../ui/` | Compose screens, theme and components |
@@ -58,6 +70,60 @@ python -I scripts/make_parity_fixture.py data/index/WLASL_v0.3.json data/kp_hol 
 gradle -p android :signcore:test
 ```
 
+## Speed
+
+Measured on a Samsung Galaxy S26 (SM-S942B, Exynos 2600, Android 17), release build, a signer video replayed like a
+30 fps camera (frames that arrive while every tracker is busy are dropped, as CameraX does):
+
+| Live tracking | Frames tracked | Holistic per frame p50 / p95 | App CPU |
+|---|---|---|---|
+| 1 tracker, GPU (the old default) | 10.2 fps | 80 / 100 ms | 0.6 cores |
+| 1 tracker, CPU | 15.2 fps | 53 / 60 ms | 1.4 cores |
+| 2 trackers, GPU | 20.9 fps | 76 / 90 ms | 1.1 cores |
+| **2 trackers, CPU (default)** | **29.9 fps**, every camera frame | **41 / 48 ms** | 2.1 cores |
+| 3 trackers, CPU, 60 fps feed (headroom) | 61 fps | 35 / 40 ms | 3.8 cores |
+
+- **CPU, not GPU.** Holistic is a chain of small models with CPU work between them; on this phone the GPU delegate
+  stays at 230–380 MHz of its 797 MHz and is slower per frame than XNNPACK on the CPU. The CPU is also the delegate
+  the training keypoints were extracted with (Python MediaPipe's default).
+- **Lanes.** Several `HolisticLandmarker`s take camera frames in turn (the next idle one gets the frame); results
+  wait in a buffer until every earlier frame is back, so the spotter sees frames in order. Each lane keeps tracking
+  across the frames it sees, and the landmarks come from the same model, so the classifier's input is unchanged.
+- **Why the full rate matters.** On chained test clips (`scripts/live_eval.py --rate-div 2`), tracking at half the
+  rate finds 46.7% of the words instead of 59.2% (word error rate 54.7 vs 48.9) and captions 280 ms later.
+- **Signing-gated rate.** While no hand has been seen for 2 s, only one frame per 120 ms is tracked (about 8 fps,
+  one lane); the first frame with a hand brings back every frame. No sign starts without a hand, so captions do not
+  change; idle seconds cost less.
+- **Ten minutes:** 29.9 fps in the first and in the last minute (no thermal drift), p95 49 ms, SoC 38.1 → 41.6 °C
+  (peak 43.2), skin +2.3 °C, no throttling (thermal status 0, headroom 0.77), PSS 458 MB.
+- **Videos tab:** 24 frames over two video-mode trackers at once: 0.57 s per clip p50 (1.69 s with one CPU tracker,
+  2.03 s with one GPU tracker). `src/main.py` has the same as an option (`ECHO_LANES=2`: on the first 600 test clips
+  78.8% vs 79.5% top-1, a difference within noise, at 1.8× the speed); the scored `predict()` keeps one tracker,
+  the configuration every published number was measured with.
+- **Classifier:** INT8, ONNX Runtime, p95 11.8 / 10.3 / 9.8 ms with 1 / 2 / 4 threads; 12 ms p95 while live
+  tracking runs beside it.
+
+## Benchmarks on the phone
+
+`engine/Bench.kt` runs repeatable benchmarks without the camera. Push a signer video first:
+`adb push clip.mp4 /sdcard/Android/data/ai.echogesture.app/files/bench.mp4`. Then:
+
+```bash
+adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench model --ei runs 400
+adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench live --ei seconds 600 --ei fps 30 --es lanes cpu,cpu
+adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench clip --ei runs 10
+adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench power --ei wait 90
+```
+
+`lanes` lists one delegate per tracker (`gpu`, `cpu,cpu`, `gpu,cpu`, ...); `--ez blank true` replays an empty room
+and `--ez gate true` turns on the signing-gated rate. `power` waits, so the cable can be pulled, then runs signing on
+two CPU lanes, an empty room gated and ungated, and signing on one GPU lane, on battery. Each run writes JSON lines
+(every 10 s: frames tracked per second, Holistic and classifier p50/p95, app CPU, battery current averaged from 1 s
+samples, voltage, temperatures, thermal headroom, memory) to the app's external files folder.
+`scripts/phone_sampler.sh` samples GPU load and clock and the SoC, skin and battery temperatures over adb alongside;
+`scripts/phone_bench_report.py` turns a run into the summary `scripts/results_csv.py --phone` reads. Power is taken
+only from rows on battery: a charger feeds the phone, so the battery current is not the load.
+
 ## Building
 
 The build uses Gradle, the standard Android build tool (Android Studio runs the same build).
@@ -70,6 +136,18 @@ The build uses Gradle, the standard Android build tool (Android Studio runs the 
    `holistic_landmarker.task`; the `copyModels` task puts them in the app's assets before every build.
 4. `gradle -p android :app:assembleRelease` → `app/build/outputs/apk/release/app-release.apk` (signed with the
    debug key so it installs directly; use a real key for distribution).
+
+Emulator: the debug build type adds the x86_64 ABI, so `gradle -p android :app:assembleDebug` installs on an
+x86_64 emulator image (tested on an Android 16 / API 36 Google APIs image: Live, Teach recording and its hand check,
+Videos with a DOCTOR test clip showing "same sign: PHYSICIAN", Chat, Settings, and the Reply permission and
+language-pack flow; the emulator has no microphone or signer, so a recognised reply and a saved taught sign need a
+phone). If `:app:mergeLibDexDebug` fails with a file "located outside the root directory", delete `android/.gradle`
+and `android/app/build/.transforms` (stale execution history from another checkout path).
+
+Release builds are minified by R8. `app/proguard-rules.pro` keeps `com.google.common.flogger`: MediaPipe's logger
+finds its caller by class name on the stack, and without the rule the release app crashes as soon as hand tracking
+starts. The arm64 ONNX Runtime library crashes under the emulator's ARM translation, so to try a release build on
+an x86_64 emulator add `-PemulatorAbi`.
 
 Windows notes: if Gradle fails with `Unable to establish loopback connection`, set
 `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=C:\Users\Public\xr2uds` (Java cannot bind Unix-domain sockets

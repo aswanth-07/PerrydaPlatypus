@@ -87,6 +87,10 @@ class Predictor:
         # ECHO_FRESH_LANDMARKER=1 builds one per clip instead (about 450 ms slower per clip).
         self.reuse = reuse_landmarker
         self._hol, self._size, self._ts = None, None, 0
+        # ECHO_LANES=k (default 1): k landmarkers take the clip's frames in turn, in parallel threads, as the phone's
+        # live mode does; 1 is the path every published number was measured with.
+        self.lanes = max(1, int(os.environ.get("ECHO_LANES", "1")))
+        self._extra = []
 
     def _keypoints(self, frames, fps):
         h, w = frames[0].shape[:2]
@@ -100,8 +104,30 @@ class Predictor:
         step = 1000.0 / max(fps, 1.0)
         blank_ts, start = self._ts, self._ts + 1000
         self._ts = start + int(len(frames) * step) + 1000   # reserved first, so a clip that fails never reuses one
+        if self.lanes > 1:
+            return self._keypoints_lanes(frames, step, blank_ts, start)
         hk.frame_keypoints(self._hol, np.zeros_like(frames[0]), blank_ts)
         return hk.stack_frames([hk.frame_keypoints(self._hol, f, start + int(i * step)) for i, f in enumerate(frames)])
+
+    def _keypoints_lanes(self, frames, step, blank_ts, start):
+        from concurrent.futures import ThreadPoolExecutor
+        size = frames[0].shape[:2]
+        if len(self._extra) != self.lanes - 1 or getattr(self, "_extra_size", None) != size:
+            for h in self._extra:
+                h.close()
+            self._extra = [hk.make_holistic(self.models_dir) for _ in range(self.lanes - 1)]
+            self._extra_size = size
+        hols = [self._hol] + self._extra
+        out: list = [None] * len(frames)
+
+        def lane(k):
+            hk.frame_keypoints(hols[k], np.zeros_like(frames[0]), blank_ts)
+            for i in range(k, len(frames), self.lanes):
+                out[i] = hk.frame_keypoints(hols[k], frames[i], start + int(i * step))
+
+        with ThreadPoolExecutor(self.lanes) as pool:
+            list(pool.map(lane, range(self.lanes)))
+        return hk.stack_frames(out)
 
     def __call__(self, video_path, transform=None):
         t0 = time.perf_counter()

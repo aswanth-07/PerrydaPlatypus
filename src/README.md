@@ -43,6 +43,7 @@ predict("clip.mp4")
 | `ECHO_FRAMES` | `24` | evenly spaced frames landmarked per clip (24 measured equal to all frames) |
 | `ECHO_SET_RULE` | `1` | `0` answers from the network's own probabilities instead of the same-sign answer rule (see the main README) |
 | `ECHO_FRESH_LANDMARKER` | unset | `1` builds a new Holistic landmarker per clip (same accuracy, slower) |
+| `ECHO_LANES` | `1` | `2`: two Holistic landmarkers take the clip's frames in turn, in parallel threads; 1.8x faster per clip, 78.8% vs 79.5% top-1 on the first 600 test clips (within noise). Published numbers use 1 |
 | `ECHO_MODELS` | `src/models` | another folder of model directories |
 
 ## Docker

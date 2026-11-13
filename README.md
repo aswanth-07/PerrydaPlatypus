@@ -12,10 +12,12 @@ examples. Nothing leaves the device; the Android app has no internet permission.
 | Brief requirement | Target | Measured (shipped `src/models/full`, 2,000 words) | |
 |---|---|---|---|
 | Top-1 accuracy | ≥ 70% | **64.42%** on the 2,878-clip WLASL2000 test split (91.97% top-5); 77.5% when a word WLASL lists for the same signing counts; 92.3% at 100 words | below target at 2,000 words, see below |
-| Inference latency p95 | ≤ 50 ms | **4.3 ms** classifier, one laptop CPU thread | pass |
+| Inference latency p95 | ≤ 50 ms | **4.3 ms** classifier, one laptop CPU thread; **10.3 ms** on a Galaxy S26 (2 threads), 12 ms while live tracking runs | pass |
 | Model size | ≤ 20 MB | **3.32 MB** classifier + 13.7 MB Holistic = 17.0 MB | pass |
 | Robustness (top-1 drop) | ≤ 5 points | all 2,878 test clips, moderate degradations: angled −0.5, moving head 0.3, low light 0.5, low resolution 2.3, occlusion 5.0, all combined 5.5 | five of six pass |
-| Power, thermal drift | | not measured: needs the phone | open |
+| Thermal drift (10 min) | ≤ 20% | **0.0%**: Galaxy S26, live pipeline at 29.9 fps in the first and the last minute, p95 tracking 49 ms; SoC 38.1 → 41.6 °C, no throttling | pass |
+| Power | ≤ 500 mW | not measured yet: needs a run on battery (`--es bench power`, cable pulled); a charger feeds the phone, so plugged-in battery current is not the load | open |
+| Real time on the phone | | **29.9 fps** live (every frame of a 30 fps camera), Holistic 41 / 49 ms p50 / p95, captions from the 2,000-word model; a picked video in **0.57 s** | |
 | `predict()` output | `clip_id, prediction, top5, confidence, latency_ms` | `src/main.py`, end to end on all 2,878 raw test videos: **63.45%** top-1, 91.45% top-5 | pass |
 
 `results/predictions.jsonl` and `results/results.csv` are the scored outputs; `results.csv` uses the brief's columns
@@ -31,7 +33,7 @@ official test split, including the 189 clips that share an overlapping source se
 | `full` (default) | 2,000 WLASL words | **64.42%** | 91.97% | 83.0% | 3.32 MB | 4.3 ms |
 | `core` (app live mode) | 100 WLASL words | **92.25%** | 98.45% | 96.0% | 4.15 MB | 10.7 ms |
 | `union` (app "Extended") | 3,075 (WLASL + ASL Citizen) | 60.88% | 90.62% | 83.2% / 77.4% | 3.28 MB | 5.7 ms |
-| MediaPipe Holistic | | | | | 13.7 MB | about 30 ms per frame |
+| MediaPipe Holistic | | | | | 13.7 MB | about 30 ms per frame (laptop); 41 ms on a Galaxy S26 CPU |
 
 - Top-1/top-5: the WLASL official test split (2,878 clips at 2,000 words, 258 at 100), never used for training.
   `union` is scored on the same 2,878 clips with all 3,075 words open. Model choices rest on the unseen-signer score
@@ -44,7 +46,10 @@ official test split, including the 189 clips that share an overlapping source se
 - End to end (`predict()` on the raw test videos, decoding + 24 Holistic frames + classifier, one thread per clip):
   63.45% top-1 and 91.45% top-5 on all 2,878 videos (the cached-keypoint score above is 64.42); 1,054 ms p50 / 1,267 ms
   p95 per clip with six clips processed side by side on a busy machine (turn 1, one process alone: 771 ms p50).
-  Holistic is about 30–40 ms per frame, so a live camera at 15–25 fps is limited by Holistic, not the classifier.
+  Holistic is about 30–40 ms per frame, so one tracker limits a live camera to 15–25 fps; the app runs two
+  trackers that take frames in turn and reaches the camera's 30 fps (see "On the phone"). `ECHO_LANES=2` does the
+  same for `predict()`: 383 vs 686 ms per clip alone on the laptop, 78.8% vs 79.5% top-1 on the first 600 test clips
+  (within noise); the scored path keeps one tracker.
 
 Robustness: every one of the 2,878 WLASL2000 test videos was degraded in pixels before MediaPipe (angled camera,
 moving head, low light, occlusion, low resolution, and low light + moving head + occlusion combined) at two
@@ -108,7 +113,7 @@ predict("clip.mp4")
 
 Everything `predict()` needs is in `src/` (code, `src/models/`, `src/requirements.txt`); see `src/README.md` for the
 options (`ECHO_VOCAB=full|core|union`, `ECHO_VOCAB_FILE` to restrict answers to a published word list,
-`ECHO_FRAMES`) and the `Dockerfile` for a container.
+`ECHO_FRAMES`, `ECHO_LANES=2` for two Holistic trackers per clip, 1.8x faster) and the `Dockerfile` for a container.
 
 ## Pipeline
 
@@ -167,11 +172,34 @@ scoring chains behind the shipped model are `scripts/chain_cons.sh` and `scripts
 teach-a-sign; `scripts/aslc_fetch.py`, `scripts/extract_aslc.py` and `scripts/include_prep.py` fetch and landmark
 ASL Citizen and INCLUDE.
 
+## On the phone
+
+Samsung Galaxy S26 (SM-S942B, Exynos 2600, Android 17), release APK, 2,000-word model, a signer video replayed like
+a 30 fps camera (`engine/Bench.kt`, `scripts/phone_bench_report.py`; `android/README.md` has the commands):
+
+| | Measured |
+|---|---|
+| Live frames tracked | **29.9 fps** (every camera frame), steady for 10 minutes |
+| Holistic per frame | 41 ms p50, 49 ms p95 (two CPU trackers; the old single GPU tracker: 80 / 100 ms, 10 fps) |
+| Classifier | 10.3 ms p95 alone (2 threads), 12 ms p95 beside live tracking |
+| Thermal drift, 10 min | 0.0% throughput, −0.9% latency; SoC 38.1 → 41.6 °C (peak 43.2), skin +2.3 °C, thermal status 0 |
+| App CPU, memory | 2.1 cores of 10, 458 MB PSS; GPU idle |
+| Power | not measured yet (needs a run on battery) |
+| Picked video (Videos tab) | 0.57 s p50 per clip, decode + 24 frames + classifier (2.73 s this morning) |
+
+What made it real time: on this phone MediaPipe's CPU path is faster than its GPU path (the GPU stays at a third of
+its clock for this chain of small models), and two Holistic trackers take frames in turn, their results put back
+in order before the caption logic. Both keep the landmarks the classifier was trained on: the training keypoints
+were extracted on the CPU too. The rate matters for accuracy, not just smoothness: on chained test clips, tracking
+at half the rate finds 46.7% of the words instead of 59.2% and captions 280 ms later (`scripts/live_eval.py
+--rate-div 2`). While no hand is in view for 2 s the app tracks about 8 frames a second on one tracker and goes back
+to every frame as soon as a hand appears.
+
 ## Android app
 
-`android/` — Kotlin, Jetpack Compose, Material 3. Tabs: Live (camera HUD: captions, top-3 confidence bars, tracking
-state, timings), Clips (pick a video: the same pipeline as `predict()`), Teach, Transcript, Settings (Core 100 /
-Full 2,000 / Extended 3,075 vocabulary, sensitivity, voice, camera, GPU). The build copies the models from
+`android/` — Kotlin, Jetpack Compose, Material 3. Tabs: Live (full-screen camera, caption card, Voice / Reply /
+Pause), Chat (both sides of the conversation), Teach, Videos (pick a video: the same pipeline as `predict()`),
+Settings (Core 100 / Full 2,000 / Extended 3,075 vocabulary, voice, camera; tuning folded under Advanced). The build copies the models from
 `src/models`. `signcore` is plain Kotlin with a parity test against Python on 40 test clips, running the shipped
 INT8 model: normaliser within 7e-6, top-1 identical on 40/40, probabilities within 0.025 (dynamic INT8 itself moves
 by up to 0.037 when its inputs move by 7e-6; the FP32 export does not move), and unit tests for the taught-sign
@@ -181,6 +209,9 @@ Beyond captions:
 
 - **Spoken captions.** Each settled word is said by the phone's own installed voice, offline; the HUD shows how
   many milliseconds after the camera frame that settled the word the sound started.
+- **Spoken replies.** The hearing person taps Reply and speaks; Android's on-device recogniser (Android 12+) turns
+  it into large text for the signer, and the line joins the Chat tab. Audio stays on the phone. Together with spoken
+  captions this is the two-way conversation the brief describes: signs to voice, voice to text.
 - **Same-sign captions.** "same sign: PHYSICIAN" under DOCTOR (see "One sign, several names").
 - **Teach a sign.** Type a word and record it 1 to 5 times; the app averages the examples' embeddings (the
   classifier's pooled 384 features) into a prototype and from then on captions and speaks that word when a window

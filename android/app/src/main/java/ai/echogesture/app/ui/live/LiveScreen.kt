@@ -1,7 +1,11 @@
 package ai.echogesture.app.ui.live
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.view.WindowManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -12,12 +16,19 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,58 +39,80 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.ClearAll
-import androidx.compose.material.icons.filled.FrontHand
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.VoiceOverOff
-import androidx.compose.material.icons.outlined.FrontHand
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.engine.HAND_EDGES
 import ai.echogesture.app.engine.LiveState
+import ai.echogesture.app.engine.ReplyState
 import ai.echogesture.app.engine.VoiceState
 import ai.echogesture.app.ui.components.ConfidenceRow
 import ai.echogesture.app.ui.components.StatusPill
 import ai.echogesture.app.ui.theme.CaptionStyle
 import ai.echogesture.app.ui.theme.Palette
+import ai.echogesture.app.ui.theme.ReplyStyle
+import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
 
+private val VOCAB_SHORT = mapOf("core" to "100 signs", "full" to "2,000 signs", "union" to "3,075 signs")
+
+/**
+ * The conversation screen: the camera fills the screen, the signer's words appear in the caption card at the
+ * bottom (and are spoken when Voice is on), and the hearing person taps Reply to speak back; their words appear
+ * large at the top for the signer to read. Timings and best guesses appear only when "Show details" is on.
+ */
 @Composable
 fun LiveScreen(vm: MainViewModel) {
     val state by vm.live.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val voice by vm.engine.speaker.state.collectAsStateWithLifecycle()
+    val reply by vm.engine.listener.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     DisposableEffect(Unit) {
@@ -92,30 +125,76 @@ fun LiveScreen(vm: MainViewModel) {
         }
     }
 
+    // Reply: ask for the microphone the first time, then listen; tapping again stops and keeps what was heard.
+    var note by remember { mutableStateOf<String?>(null) }
+    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) vm.engine.listener.start() else note = "Allow the microphone to hear spoken replies."
+    }
+    fun onReply() {
+        when {
+            reply.listening -> vm.engine.listener.stop()
+            !reply.available -> note = reply.note
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ->
+                vm.engine.listener.start()
+            else -> askMic.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    // Recogniser errors after an attempt; "unavailable" is explained only when Reply is tapped.
+    LaunchedEffect(reply.note) { if (reply.available) reply.note?.let { note = it } }
+    LaunchedEffect(note) { if (note != null) { delay(4500); note = null } }
+    LaunchedEffect(reply.lastAt) { if (reply.last != null) { delay(15_000); vm.engine.listener.dismiss() } }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         CameraPreview(backCamera = settings.backCamera, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
         if (settings.showLandmarks) HandOverlay(state, mirror = !settings.backCamera, modifier = Modifier.fillMaxSize())
 
-        StatusBar(state, if (settings.speak) voice else null, Modifier.align(Alignment.TopStart).padding(16.dp))
-        AnimatedVisibility(
-            visible = state.top.isNotEmpty() && !state.paused,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 16.dp),
-            enter = fadeIn(), exit = fadeOut(),
-        ) { Candidates(state.top) }
+        // Scrims keep text legible over any background without boxing the whole video in.
+        Box(Modifier.fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent))))
+        Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(320.dp)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
+        )
 
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            Controls(
-                paused = state.paused,
-                showLandmarks = settings.showLandmarks,
-                speak = settings.speak,
-                onSpeak = { vm.update { it.copy(speak = !it.speak) } },
-                onFlip = { vm.update { it.copy(backCamera = !it.backCamera) }; vm.engine.clearCaption() },
-                onPause = { vm.engine.setPaused(!state.paused) },
-                onClear = vm.engine::clearCaption,
-                onLandmarks = { vm.update { it.copy(showLandmarks = !it.showLandmarks) } },
-                modifier = Modifier.align(Alignment.End).padding(end = 16.dp, bottom = 12.dp),
-            )
-            CaptionBand(state)
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                val (text, colour) = status(state)
+                StatusPill(text + "  ·  " + (VOCAB_SHORT[settings.vocabulary] ?: settings.vocabulary), colour, Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(8.dp))
+                GlassIconButton(Icons.Filled.Cameraswitch, "Switch camera") {
+                    vm.update { it.copy(backCamera = !it.backCamera) }
+                    vm.engine.clearCaption()
+                }
+            }
+            if (settings.showDetails) {
+                Spacer(Modifier.height(8.dp))
+                Details(state, if (settings.speak) voice else null)
+            }
+            Spacer(Modifier.height(12.dp))
+            ReplyArea(reply, onDismiss = vm.engine.listener::dismiss)
+        }
+
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
+            AnimatedVisibility(note != null, enter = fadeIn(), exit = fadeOut()) {
+                Text(
+                    note.orEmpty(),
+                    Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Glass)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium, color = Palette.Text,
+                )
+            }
+            CaptionCard(state, onClear = vm.engine::clearCaption)
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
+                LabelledControl(
+                    if (settings.speak) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                    if (settings.speak) "Voice on" else "Voice off", active = settings.speak,
+                ) { vm.update { it.copy(speak = !it.speak) } }
+                MicControl(reply, onClick = ::onReply)
+                LabelledControl(
+                    if (state.paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                    if (state.paused) "Resume" else "Pause", active = state.paused,
+                ) { vm.engine.setPaused(!state.paused) }
+            }
         }
 
         if (!state.ready) {
@@ -128,13 +207,23 @@ fun LiveScreen(vm: MainViewModel) {
     }
 }
 
+private fun status(state: LiveState): Pair<String, Color> = when {
+    state.error != null -> "Hand tracking unavailable" to Palette.Red
+    !state.ready -> "Loading" to Palette.TextMuted
+    state.paused -> "Paused" to Palette.TextMuted
+    state.recording != null -> "Recording" to Palette.Red
+    state.handsVisible -> "Watching" to Palette.Green
+    state.bodyVisible -> "Show your hands" to Palette.Amber
+    else -> "Step back" to Palette.Amber
+}
+
 @Composable
 internal fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val previewView = remember {
         PreviewView(context).apply {
-            scaleType = PreviewView.ScaleType.FIT_CENTER   // the overlay maps landmarks with the same fit
+            scaleType = PreviewView.ScaleType.FILL_CENTER   // full-bleed; the overlay maps landmarks with the same crop
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         }
     }
@@ -157,20 +246,20 @@ internal fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, 
             analysis.setAnalyzer(executor) { proxy -> analyzer(proxy) }
             val lens = if (backCamera) CameraSelector.LENS_FACING_BACK else CameraSelector.LENS_FACING_FRONT
             provider.unbindAll()
-            provider.bindToLifecycle(owner, CameraSelector.Builder().requireLensFacing(lens).build(), preview, analysis)
+            runCatching { provider.bindToLifecycle(owner, CameraSelector.Builder().requireLensFacing(lens).build(), preview, analysis) }
         }, ContextCompat.getMainExecutor(context))
         onDispose { future.addListener({ future.get().unbindAll() }, ContextCompat.getMainExecutor(context)) }
     }
-    AndroidView(factory = { previewView }, modifier = modifier)
+    androidx.compose.ui.viewinterop.AndroidView(factory = { previewView }, modifier = modifier)
 }
 
-/** Hand skeletons drawn in the same letterboxed rectangle the preview uses. */
+/** Hand skeletons drawn with the same centre crop the full-bleed preview uses. */
 @Composable
 internal fun HandOverlay(state: LiveState, mirror: Boolean, modifier: Modifier) {
     val primary = MaterialTheme.colorScheme.primary
     Canvas(modifier) {
         if (state.imageWidth == 0 || state.imageHeight == 0) return@Canvas
-        val scale = minOf(size.width / state.imageWidth, size.height / state.imageHeight)
+        val scale = maxOf(size.width / state.imageWidth, size.height / state.imageHeight)
         val w = state.imageWidth * scale
         val h = state.imageHeight * scale
         val left = (size.width - w) / 2
@@ -188,117 +277,140 @@ internal fun HandOverlay(state: LiveState, mirror: Boolean, modifier: Modifier) 
     }
 }
 
+/** Timings, voice delay and the model's best guesses: for demos and debugging, off by default. */
 @Composable
-private fun StatusBar(state: LiveState, voice: VoiceState?, modifier: Modifier) {
-    Column(modifier) {
-        val (text, colour) = when {
-            state.error != null -> "Hand tracking unavailable" to Palette.Red
-            !state.ready -> "Loading" to Palette.TextMuted
-            state.paused -> "Paused" to Palette.TextMuted
-            state.handsVisible -> "Listening" to Palette.Green
-            else -> "Show your hands" to Palette.Amber
-        }
-        StatusPill(text, colour)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "%.0f fps  ·  landmarks %.0f ms  ·  model %.1f ms%s".format(state.fps, state.landmarksMs, state.modelMs, if (state.gpu) "  ·  GPU" else ""),
-            Modifier.clip(RoundedCornerShape(8.dp)).background(Palette.Glass).padding(horizontal = 10.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall, color = Palette.TextMuted,
-        )
-        if (voice != null) {
-            Spacer(Modifier.height(6.dp))
-            // Frame-to-sound: from the camera frame that settled the word to the first sound, median of the last words.
-            val text = when {
-                voice.error != null -> voice.error
-                !voice.ready -> "Voice starting"
-                voice.spoken == 0 -> "Voice on" + if (voice.onDevice) "  ·  on this phone" else ""
-                else -> "Voice %.0f ms after the frame  ·  median %.0f ms".format(voice.lastMs, voice.medianMs)
-            }
-            Text(
-                text,
-                Modifier.clip(RoundedCornerShape(8.dp)).background(Palette.Glass).padding(horizontal = 10.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall, color = if (voice.error != null) Palette.Red else Palette.TextMuted,
-            )
-        }
-    }
-}
-
-@Composable
-private fun Candidates(top: List<Pair<String, Float>>) {
+private fun Details(state: LiveState, voice: VoiceState?) {
     Column(
-        Modifier.widthIn(max = 280.dp).clip(RoundedCornerShape(20.dp)).background(Palette.Glass).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(16.dp)).background(Palette.Glass).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Best guesses", style = MaterialTheme.typography.labelMedium, color = Palette.TextMuted)
-        top.forEachIndexed { i, (word, p) -> ConfidenceRow(word, p, highlight = i == 0) }
+        Text(
+            "%.0f fps · tracking %.0f ms · model %.1f ms · %d %s tracker%s".format(state.fps, state.landmarksMs, state.modelMs, state.lanes, if (state.gpu) "GPU" else "CPU", if (state.lanes == 1) "" else "s"),
+            style = MaterialTheme.typography.labelMedium, color = Palette.TextMuted,
+        )
+        if (voice != null && voice.spoken > 0) {
+            Text("voice %.0f ms after the frame · median %.0f ms".format(voice.lastMs, voice.medianMs),
+                style = MaterialTheme.typography.labelMedium, color = Palette.TextMuted)
+        }
+        state.top.forEachIndexed { i, (word, p) -> ConfidenceRow(word, p, highlight = i == 0) }
+    }
+}
+
+/** The hearing person's side: "Listening…" with the words so far, then the finished reply, large. */
+@Composable
+private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit) {
+    AnimatedVisibility(
+        visible = reply.listening || reply.last != null,
+        enter = fadeIn() + slideInVertically { -it / 3 },
+        exit = fadeOut() + slideOutVertically { -it / 3 },
+    ) {
+        val listening = reply.listening
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.ReplyDeep.copy(alpha = 0.92f))
+                .clickable(enabled = !listening, onClickLabel = "Dismiss reply", onClick = onDismiss)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (listening) "Listening…" else "They said", style = MaterialTheme.typography.labelLarge, color = Palette.Reply,
+                    modifier = Modifier.weight(1f))
+                if (!listening) Icon(Icons.Filled.Close, "Dismiss", tint = Palette.Reply.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.height(6.dp))
+            val text = if (listening) reply.partial.ifEmpty { "Speak now" } else reply.last.orEmpty()
+            Text(text, style = ReplyStyle, color = if (listening && reply.partial.isEmpty()) Palette.Reply.copy(alpha = 0.6f) else Palette.Reply,
+                maxLines = 4, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
 @Composable
-private fun CaptionBand(state: LiveState) {
-    Box(
-        Modifier.fillMaxWidth()
-            .background(Palette.Glass, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            .padding(horizontal = 24.dp, vertical = 18.dp),
+private fun CaptionCard(state: LiveState, onClear: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Glass)
+            .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 16.dp),
     ) {
         if (state.caption.isEmpty()) {
             Text(
-                if (state.paused) "Paused" else "Sign in front of the camera — captions appear here",
+                when {
+                    state.paused -> "Paused"
+                    !state.bodyVisible -> "Hands are found from the body: keep your head, shoulders and both hands in view."
+                    else -> "Sign in front of the camera. Words appear here."
+                },
+                Modifier.padding(end = 12.dp, top = 4.dp),
                 style = MaterialTheme.typography.titleMedium, color = Palette.TextMuted,
             )
-        } else Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val older = state.caption.dropLast(1).takeLast(5).joinToString(" ")
+            return@Column
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val older = state.caption.dropLast(1).takeLast(4).joinToString(" ")
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 if (older.isNotEmpty()) {
-                    Text(older, style = CaptionStyle, color = Palette.Text.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false))
-                    Spacer(Modifier.width(12.dp))
+                    Text(older, style = CaptionStyle, color = Palette.Text.copy(alpha = 0.55f), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    Spacer(Modifier.width(10.dp))
                 }
                 AnimatedContent(
                     targetState = state.caption.last() to state.lastWordAt,
                     transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith fadeOut() },
                     label = "word",
                 ) { (word, _) ->
-                    Text(word, style = CaptionStyle, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold)
+                    Text(word, style = CaptionStyle, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 }
             }
-            // One sign, several names: WLASL lists the same signing under DOCTOR and PHYSICIAN, so show both.
-            val note = when {
-                state.lastTaught -> "taught on this phone"
-                state.lastAlso.isNotEmpty() -> "same sign: " + state.lastAlso.joinToString(" · ")
-                else -> null
-            }
-            if (note != null) {
-                Text(note, style = MaterialTheme.typography.titleSmall, color = Palette.Amber, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+            IconButton(onClick = onClear) { Icon(Icons.AutoMirrored.Outlined.Backspace, "Clear captions", tint = Palette.TextMuted) }
         }
+        // One sign, several names: WLASL lists the same signing under DOCTOR and PHYSICIAN, so show both.
+        val sub = when {
+            state.lastTaught -> "taught on this phone"
+            state.lastAlso.isNotEmpty() -> "same sign: " + state.lastAlso.joinToString(" · ")
+            else -> null
+        }
+        if (sub != null) Text(sub, style = MaterialTheme.typography.titleSmall, color = Palette.Amber, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun Controls(
-    paused: Boolean, showLandmarks: Boolean, speak: Boolean,
-    onSpeak: () -> Unit, onFlip: () -> Unit, onPause: () -> Unit, onClear: () -> Unit, onLandmarks: () -> Unit,
-    modifier: Modifier,
-) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        ControlButton(if (speak) Icons.Filled.RecordVoiceOver else Icons.Filled.VoiceOverOff,
-            if (speak) "Stop speaking captions" else "Speak captions aloud", onSpeak, active = speak)
-        ControlButton(if (showLandmarks) Icons.Filled.FrontHand else Icons.Outlined.FrontHand, "Show hand tracking", onLandmarks)
-        ControlButton(Icons.Filled.ClearAll, "Clear captions", onClear)
-        ControlButton(if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause, if (paused) "Resume" else "Pause", onPause)
-        ControlButton(Icons.Filled.Cameraswitch, "Switch camera", onFlip)
+private fun LabelledControl(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FilledIconButton(
+            onClick = onClick,
+            modifier = Modifier.size(56.dp).semantics { contentDescription = label },
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Palette.Glass,
+                contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else Palette.Text,
+            ),
+        ) { Icon(icon, contentDescription = null) }
+        Spacer(Modifier.height(6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Palette.Text)
+    }
+}
+
+/** The main control: tap to let the hearing person reply; it pulses while listening. */
+@Composable
+private fun MicControl(reply: ReplyState, onClick: () -> Unit) {
+    val pulse by rememberInfiniteTransition(label = "mic").animateFloat(
+        initialValue = 1f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "pulse",
+    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FilledIconButton(
+            onClick = onClick,
+            modifier = Modifier.size(72.dp).scale(if (reply.listening) pulse else 1f)
+                .semantics { contentDescription = if (reply.listening) "Stop listening" else "Reply by speaking" },
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = if (reply.listening) Palette.Reply else MaterialTheme.colorScheme.primary,
+                contentColor = if (reply.listening) Palette.ReplyDeep else MaterialTheme.colorScheme.onPrimary,
+            ),
+        ) { Icon(if (reply.listening) Icons.Filled.Stop else Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(32.dp)) }
+        Spacer(Modifier.height(6.dp))
+        Text(if (reply.listening) "Stop" else "Reply", style = MaterialTheme.typography.labelMedium, color = Palette.Text)
     }
 }
 
 @Composable
-private fun ControlButton(icon: ImageVector, label: String, onClick: () -> Unit, active: Boolean = false) {
-    FilledTonalIconButton(
-        onClick = onClick,
-        modifier = Modifier.size(52.dp),
-        colors = IconButtonDefaults.filledTonalIconButtonColors(
-            containerColor = if (active) MaterialTheme.colorScheme.primary else Palette.Glass,
-            contentColor = if (active) MaterialTheme.colorScheme.onPrimary else Palette.Text,
-        ),
+internal fun GlassIconButton(icon: ImageVector, label: String, size: Dp = 48.dp, onClick: () -> Unit) {
+    FilledIconButton(
+        onClick = onClick, modifier = Modifier.size(size),
+        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Palette.Glass, contentColor = Palette.Text),
     ) { Icon(icon, contentDescription = label) }
 }

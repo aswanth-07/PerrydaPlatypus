@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,7 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.FrontHand
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.School
@@ -63,9 +64,9 @@ import ai.echogesture.app.ui.transcript.TranscriptScreen
 
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     Live("live", "Live", Icons.Filled.Videocam),
-    Clips("clips", "Clips", Icons.Filled.VideoLibrary),
+    Chat("chat", "Chat", Icons.AutoMirrored.Filled.Chat),
     Teach("teach", "Teach", Icons.Filled.School),
-    Transcript("transcript", "Transcript", Icons.Filled.Description),
+    Clips("clips", "Videos", Icons.Filled.VideoLibrary),
     Settings("settings", "Settings", Icons.Filled.Tune),
 }
 
@@ -77,6 +78,7 @@ fun EchoApp(vm: MainViewModel = viewModel()) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),   // each screen handles the status bar; Live draws the camera under it
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Tab.entries.forEach { tab ->
@@ -105,7 +107,7 @@ fun EchoApp(vm: MainViewModel = viewModel()) {
             composable(Tab.Live.route) { CameraGate { LiveScreen(vm) } }
             composable(Tab.Clips.route) { ClipsScreen(vm) }
             composable(Tab.Teach.route) { CameraGate { TeachScreen(vm) } }
-            composable(Tab.Transcript.route) { TranscriptScreen(vm) }
+            composable(Tab.Chat.route) { TranscriptScreen(vm) }
             composable(Tab.Settings.route) { SettingsScreen(vm) }
         }
     }

@@ -36,6 +36,7 @@ class Speaker(context: Context) : AutoCloseable {
     val state: StateFlow<VoiceState> = _state.asStateFlow()
 
     @Volatile var enabled = false
+    @Volatile var hold = false     // true while the microphone listens, so the phone does not hear itself
     @Volatile private var ready = false
     private val settledAt = ConcurrentHashMap<String, Long>()   // utterance id -> uptime of the frame that settled the word
     private val waiting = AtomicInteger(0)
@@ -91,7 +92,7 @@ class Speaker(context: Context) : AutoCloseable {
 
     /** [frameAtMs]: SystemClock.uptimeMillis() of the camera frame whose result settled this word. */
     fun speak(word: String, frameAtMs: Long = SystemClock.uptimeMillis()) {
-        if (!ready || !enabled) return
+        if (!ready || !enabled || hold) return
         val id = "w${next++}"
         val mode = if (waiting.get() >= 2) {
             waiting.set(0)
