@@ -29,8 +29,8 @@ official test split, including the 189 clips that share an overlapping source se
 | `src/models/…` | Vocabulary | Top-1 | Top-5 | Unseen signers | Size | Classifier p95 |
 |---|---|---|---|---|---|---|
 | `full` (default) | 2,000 WLASL words | **64.42%** | 91.97% | 83.0% | 3.32 MB | 4.3 ms |
-| `core` (app live mode) | 100 WLASL words | **92.25%** | 98.45% | 96.0% | 4.17 MB | 9.1 ms |
-| `union` (app "Extended") | 3,075 (WLASL + ASL Citizen) | 60.88% | 90.62% | 83.2% / 77.4% | 3.30 MB | 7.8 ms |
+| `core` (app live mode) | 100 WLASL words | **92.25%** | 98.45% | 96.0% | 4.15 MB | 10.7 ms |
+| `union` (app "Extended") | 3,075 (WLASL + ASL Citizen) | 60.88% | 90.62% | 83.2% / 77.4% | 3.28 MB | 5.7 ms |
 | MediaPipe Holistic | | | | | 13.7 MB | about 30 ms per frame |
 
 - Top-1/top-5: the WLASL official test split (2,878 clips at 2,000 words, 258 at 100), never used for training.
@@ -188,7 +188,12 @@ Beyond captions:
   with a model trained on WLASL only, on 20 ASL Citizen signs it never saw, examples and test clips from different
   people: 79.3% right with 1 example, 90.3% with 3, 92.5% with 5; at 0.55, 2% of clips of known words trigger a
   taught sign and 80.5% of taught-sign clips are caught. A name sign, a regional sign or a word from another sign
-  language can be added this way without retraining.
+  language can be added this way without retraining. On Indian Sign Language (INCLUDE: 23 signs, 472 clips, 11
+  taught per episode) the shipped model is right 87.5% of the time with 1 example, 95.1% with 3 and 96.5% with 5.
+  INCLUDE does not label its signers, so examples and test clips may come from the same person and these numbers
+  are optimistic; and at the same 0.55 threshold, 35-39% of clips of ISL signs that were *not* taught match one
+  that was, because signs of one language sit closer to each other than to the ASL words the threshold was set on.
+  Someone teaching many signs of another language should raise the threshold in Settings.
 
 The release APK is attached to the GitHub release; `android/README.md` says how to build it.
 

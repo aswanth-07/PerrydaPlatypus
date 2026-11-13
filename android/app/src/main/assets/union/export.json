@@ -4,6 +4,11 @@
  ],
  "t_in": 64,
  "test_clips": 2878,
+ "int8_scheme": {
+  "dynamic": false,
+  "ops": "Conv,Gemm",
+  "fp32_nodes": []
+ },
  "torch": {
   "n": 2878,
   "top1": 61.12,
@@ -11,7 +16,7 @@
   "class_avg": 58.17
  },
  "fp32": {
-  "size_mb": 11.821,
+  "size_mb": 11.812,
   "test": {
    "n": 2878,
    "top1": 61.12,
@@ -20,12 +25,12 @@
    "agree_top1_with_torch": 100.0
   },
   "one_thread": {
-   "p50_ms": 6.042,
-   "p95_ms": 7.465
+   "p50_ms": 5.01,
+   "p95_ms": 5.648
   }
  },
  "int8": {
-  "size_mb": 3.301,
+  "size_mb": 3.284,
   "test": {
    "n": 2878,
    "top1": 60.88,
@@ -34,8 +39,8 @@
    "agree_top1_with_torch": 92.77
   },
   "one_thread": {
-   "p50_ms": 5.648,
-   "p95_ms": 7.817
+   "p50_ms": 4.415,
+   "p95_ms": 5.722
   }
  }
 }

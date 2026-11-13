@@ -23,7 +23,7 @@ settled the word the sound started, last and median.
 
 ### Teach a sign
 
-The 2,000-word model also returns its pooled 384-number embedding. A taught sign is the unit mean of its examples'
+Every shipped model (Core, Full, Extended) also returns its pooled 384-number embedding; re-exporting Core and Extended for it left their accuracy unchanged. A taught sign is the unit mean of its examples'
 unit embeddings (a prototype); a live window or a clip whose embedding is at least 0.55 cosine from a prototype
 (Settings, 0.45 to 0.65) is that word, the closest prototype winning; otherwise the classifier answers. The
 examples are stored as model inputs (`files/taught/<id>/ex_N.bin`, about 120 KB each), not prototypes, because each
@@ -31,7 +31,10 @@ vocabulary's model has its own embedding, so prototypes are rebuilt with whichev
 offline (`scripts/fewshot_eval.py`, a model trained on WLASL only, 20 ASL Citizen signs it never saw, examples and
 test clips from different signers, 300 episodes): 79.3% right with 1 example, 90.3% with 3, 92.5% with 5; at the
 0.55 threshold 2% of clips of known words trigger a taught sign and 80.5% of taught-sign clips are caught.
-Vocabularies whose model has no embedding output show a one-line note on the Teach tab instead.
+On Indian Sign Language (INCLUDE, 23 signs, 11 taught per episode, split by clip because the set does not label
+signers) the shipped 2,000-word model is right 87.5% / 95.1% / 96.5% with 1 / 3 / 5 examples, but at 0.55 about 37%
+of clips of untaught ISL signs also match a taught one: raise the threshold when teaching many signs of one other
+language. Vocabularies whose model has no embedding output show a one-line note on the Teach tab instead.
 
 ## Code
 
