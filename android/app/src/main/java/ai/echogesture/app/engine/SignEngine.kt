@@ -227,7 +227,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
         if (model != null && vocab == vocabulary) return@withContext
         _live.update { it.copy(ready = false) }
         val labels = JSONArray(context.assets.open("$vocab/labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
-        val m = SignModel(context.assets.open("$vocab/sign_int8.onnx").readBytes(), labels, threads = 2)
+        // One thread, workers sleeping between calls: as fast as two when paced like the spotter (6 a second), and
+        // no second core kept spinning (bench_model_spin*.jsonl, power_phase_*.jsonl).
+        val m = SignModel(context.assets.open("$vocab/sign_int8.onnx").readBytes(), labels, threads = 1, spin = false)
         val old = model
         val s = Spotter(m)
         spotter?.let { o -> s.threshold = o.threshold; s.agree = o.agree; s.windowMs = o.windowMs }

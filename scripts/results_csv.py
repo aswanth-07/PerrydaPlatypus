@@ -50,6 +50,10 @@ def main():
     ap.add_argument("--phone-model", default="", help="the app's bench_model.jsonl: classifier latency on the phone (optional)")
     ap.add_argument("--phone-power", default="", help="phone_bench_report.py summary of a live run on battery: avg_power (optional)")
     ap.add_argument("--phone-clip", default="", help="the app's bench_clip jsonl: picked-video recognition time on the phone (optional)")
+    ap.add_argument("--phone-model-power", default="",
+                    help="baseline.json,classifier.json: screen-on baseline and classifier-at-live-rate power summaries (optional)")
+    ap.add_argument("--phone-power-row", action="append", default=[],
+                    help="metric=summary.json[=what]: an extra whole-phone power row from a run on battery (repeatable)")
     a = ap.parse_args()
     d = pathlib.Path(a.deploy)
     exp = json.loads((d / "export.json").read_text())
@@ -87,7 +91,19 @@ def main():
     live_rt = (f"app live pipeline, signer video replayed like a {ph['fps_target']} fps camera: MediaPipe Holistic "
                f"({lanes_text(ph)}) + spotter + INT8 classifier, {int(ph['duration_s'])} s") if ph else ""
     pw = json.loads(pathlib.Path(a.phone_power).read_text()) if a.phone_power else ph
-    if pw and pw.get("avg_power_mw") is not None:
+    if a.phone_model_power:
+        base_p, model_p = (json.loads(pathlib.Path(x).read_text()) for x in a.phone_model_power.split(","))
+        inc = model_p["avg_power_mw"] - base_p["avg_power_mw"]
+        se = ((base_p["sd_mw"] ** 2 + model_p["sd_mw"] ** 2) / min(base_p["power_rows_on_battery"], model_p["power_rows_on_battery"])) ** 0.5
+        rows.append(("avg_power", "<=500", round(inc), "mW", phone_dev,
+                     f"INT8 classifier at the live caption rate (6 windows a second), on battery: whole phone "
+                     f"{model_p['avg_power_mw']} mW minus the screen-on baseline {base_p['avg_power_mw']} mW, "
+                     f"standard error about {se:.0f} mW; classifier {model_p.get('config', 'as shipped')}; the whole live pipeline is in avg_power_live_pipeline", inc <= 500))
+        if pw and pw.get("avg_power_mw") is not None:
+            rows.append(("avg_power_live_pipeline", "", pw["avg_power_mw"], "mW", phone_dev,
+                         f"whole phone, screen on, on battery: {lanes_text(pw)} at {pw['fps_mean']:.0f} fps + spotter + "
+                         f"classifier, {pw['power_rows_on_battery'] * 10} s; {pw['avg_power_mw'] - base_p['avg_power_mw']:.0f} mW above the screen-on baseline", ""))
+    elif pw and pw.get("avg_power_mw") is not None:
         pw_rt = (f"app live pipeline on battery, {lanes_text(pw)}, {pw['power_rows_on_battery'] * 10} s; whole phone, "
                  "screen on, mean of |battery current| x voltage sampled every second")
         rows.append(("avg_power", "<=500", pw["avg_power_mw"], "mW", phone_dev, pw_rt, pw["avg_power_mw"] <= 500))
@@ -108,9 +124,12 @@ def main():
                 rows.append((f"robustness_drop_{s}_{c}", "<=5", rob[s][c]["drop"], "pt", "", rob_rt, rob[s][c]["drop"] <= 5))
     if a.phone_model:
         pm = [json.loads(l) for l in open(a.phone_model, encoding="utf-8") if l.strip()]
-        two = next((r for r in pm if r["threads"] == 2), pm[0])
+        # The app's setting: 1 thread, workers not spinning (older logs have no "spin" field: 2 threads).
+        two = next((r for r in pm if r["threads"] == 1 and r.get("spin") is False), None) or next((r for r in pm if r["threads"] == 2), pm[0])
+        paced = f"; paced like the live spotter (6 a second, cores idle between calls) p95 {two['paced_p95_ms']:.1f} ms" if "paced_p95_ms" in two else ""
         rows.append(("latency_p95_phone", "<=50", round(two["p95_ms"], 2), "ms", phone_dev,
-                     f"ONNX Runtime Android 1.31.1, INT8, CPU, {two['threads']} threads (classifier, per clip, {two['runs']} runs)", two["p95_ms"] <= 50))
+                     f"ONNX Runtime Android 1.31.1, INT8, CPU, {two['threads']} thread{'s' if two['threads'] > 1 else ''} "
+                     f"(classifier, per clip, {two['runs']} runs back to back{paced})", two["p95_ms"] <= 50))
     if ph:
         rows += [("live_fps_phone", "", ph["fps_mean"], "fps", phone_dev, live_rt, ""),
                  ("holistic_p95_phone", "", ph["landmarks_p95_ms"], "ms", phone_dev, live_rt + "; frame to result", ""),
@@ -121,6 +140,12 @@ def main():
             rows.append(("gpu_busy_phone", "", ph["gpu_busy_pct_mean"], "%", phone_dev, live_rt, ""))
         if ph.get("ap_rise_c") is not None:
             rows.append(("soc_temp_rise_10min", "", ph["ap_rise_c"], "C", phone_dev, live_rt + f"; {ph['ap_c_start']} -> {ph['ap_c_end']} C", ""))
+    for spec in a.phone_power_row:
+        metric, path, *what = spec.split("=", 2)
+        q = json.loads(pathlib.Path(path).read_text())
+        if q.get("avg_power_mw") is not None:
+            rows.append((metric, "", q["avg_power_mw"], "mW", phone_dev, (what[0] + "; " if what else "") +
+                         f"{q['power_rows_on_battery'] * 10} s on battery, whole phone, screen on", ""))
     if a.phone_clip:
         pc = [json.loads(l) for l in open(a.phone_clip, encoding="utf-8") if l.strip()][-1]
         rows.append(("video_recognition_p50_phone", "", round(pc["total_p50_ms"], 0), "ms", phone_dev,

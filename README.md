@@ -12,11 +12,11 @@ examples. Nothing leaves the device; the Android app has no internet permission.
 | Brief requirement | Target | Measured (shipped `src/models/full`, 2,000 words) | |
 |---|---|---|---|
 | Top-1 accuracy | ≥ 70% | **64.42%** on the 2,878-clip WLASL2000 test split (91.97% top-5); 77.5% when a word WLASL lists for the same signing counts; 92.3% at 100 words | below target at 2,000 words, see below |
-| Inference latency p95 | ≤ 50 ms | **4.3 ms** classifier, one laptop CPU thread; **10.3 ms** on a Galaxy S26 (2 threads), 12 ms while live tracking runs | pass |
+| Inference latency p95 | ≤ 50 ms | **4.3 ms** classifier, one laptop CPU thread; **4.5 ms** on a Galaxy S26 (one thread; 15.5 ms when paced like live captions, cores idle between calls) | pass |
 | Model size | ≤ 20 MB | **3.32 MB** classifier + 13.7 MB Holistic = 17.0 MB | pass |
 | Robustness (top-1 drop) | ≤ 5 points | all 2,878 test clips, moderate degradations: angled −0.5, moving head 0.3, low light 0.5, low resolution 2.3, occlusion 5.0, all combined 5.5 | five of six pass |
 | Thermal drift (10 min) | ≤ 20% | **0.0%**: Galaxy S26, live pipeline at 29.9 fps in the first and the last minute, p95 tracking 49 ms; SoC 38.1 → 41.6 °C, no throttling | pass |
-| Power | ≤ 500 mW | not measured yet: needs a run on battery (`--es bench power`, cable pulled); a charger feeds the phone, so plugged-in battery current is not the load | open |
+| Power | ≤ 500 mW | **395 mW** (±113) for the INT8 classifier at the live caption rate, above a 712 mW screen-on baseline, on battery. The whole live pipeline at 30 fps draws **2.87 W** for the whole phone, 2.16 W above baseline, almost all of it hand tracking (see "On the phone") | classifier passes; the real-time pipeline does not |
 | Real time on the phone | | **29.9 fps** live (every frame of a 30 fps camera), Holistic 41 / 49 ms p50 / p95, captions from the 2,000-word model; a picked video in **0.57 s** | |
 | `predict()` output | `clip_id, prediction, top5, confidence, latency_ms` | `src/main.py`, end to end on all 2,878 raw test videos: **63.45%** top-1, 91.45% top-5 | pass |
 
@@ -181,10 +181,11 @@ a 30 fps camera (`engine/Bench.kt`, `scripts/phone_bench_report.py`; `android/RE
 |---|---|
 | Live frames tracked | **29.9 fps** (every camera frame), steady for 10 minutes |
 | Holistic per frame | 41 ms p50, 49 ms p95 (two CPU trackers; the old single GPU tracker: 80 / 100 ms, 10 fps) |
-| Classifier | 10.3 ms p95 alone (2 threads), 12 ms p95 beside live tracking |
+| Classifier | 4.5 ms p95 back to back (1 thread); 15.5 ms p95 paced like live captions with the phone otherwise idle; 12 ms p95 beside live tracking |
 | Thermal drift, 10 min | 0.0% throughput, −0.9% latency; SoC 38.1 → 41.6 °C (peak 43.2), skin +2.3 °C, thermal status 0 |
 | App CPU, memory | 2.1 cores of 10, 458 MB PSS; GPU idle |
-| Power | not measured yet (needs a run on battery) |
+| Power, whole phone, screen on, on battery | live at 30 fps **2,869 mW**; nobody in view 724 mW (signing-gated) vs 1,583 mW (gating off); the old single GPU tracker at 10 fps 1,180 mW; the app open with nothing tracked 712 mW |
+| Power of the classifier | 395 mW above that baseline at 6 windows a second (2 threads, spin-waiting; the app now uses 1 thread without spinning) |
 | Picked video (Videos tab) | 0.57 s p50 per clip, decode + 24 frames + classifier (2.73 s this morning) |
 
 What made it real time: on this phone MediaPipe's CPU path is faster than its GPU path (the GPU stays at a third of
@@ -194,6 +195,13 @@ were extracted on the CPU too. The rate matters for accuracy, not just smoothnes
 at half the rate finds 46.7% of the words instead of 59.2% and captions 280 ms later (`scripts/live_eval.py
 --rate-div 2`). While no hand is in view for 2 s the app tracks about 8 frames a second on one tracker and goes back
 to every frame as soon as a hand appears.
+
+Power follows the tracking rate: about 80 mJ per tracked frame on the CPU and on the GPU alike, so a real-time
+tracker cannot fit in 500 mW on this phone, and the brief's limit is met by the model, not the pipeline. Android
+measures only the whole phone (screen, radios, system and the app together); the 712 mW baseline is the phone
+with the screen on and the app open doing nothing, and the rows above it are what the app adds. The classifier's
+own share was inflated by ONNX Runtime's worker threads spin-waiting between calls; the app now runs it on one
+thread without spinning, which is as fast when paced like the live captions (15.5 vs 15.8 ms p95).
 
 ## Android app
 

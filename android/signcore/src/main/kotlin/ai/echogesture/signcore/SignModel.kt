@@ -30,7 +30,10 @@ class Prediction(
  * returns class probabilities; dominant-hand flip, features, the ensemble average and (when exported with it)
  * the same-sign answer rule are inside the graph. Newer exports also return set_probs and embedding by name.
  */
-class SignModel(modelBytes: ByteArray, val labels: List<String>, val tIn: Int = 64, threads: Int = 1) : AutoCloseable {
+class SignModel(
+    modelBytes: ByteArray, val labels: List<String>, val tIn: Int = 64, threads: Int = 1,
+    spin: Boolean = false,   // ONNX Runtime's workers busy-wait between calls by default; off saves power on a phone
+) : AutoCloseable {
     private val env = OrtEnvironment.getEnvironment()
     private val session: OrtSession
 
@@ -38,6 +41,8 @@ class SignModel(modelBytes: ByteArray, val labels: List<String>, val tIn: Int = 
         val opts = OrtSession.SessionOptions()
         opts.setIntraOpNumThreads(threads)
         opts.setInterOpNumThreads(1)
+        opts.addConfigEntry("session.intra_op.allow_spinning", if (spin) "1" else "0")
+        opts.addConfigEntry("session.inter_op.allow_spinning", if (spin) "1" else "0")
         session = env.createSession(modelBytes, opts)
     }
 

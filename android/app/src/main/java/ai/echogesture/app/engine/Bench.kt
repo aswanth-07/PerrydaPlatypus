@@ -63,13 +63,16 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         // A realistic input: random but finite points, both hands seen; latency does not depend on the values.
         val clip = Clip(t, FloatArray(t * Layout.P * 3) { rng.nextGaussian().toFloat() * 0.5f },
             FloatArray(t * 2 * 21 * 3) { rng.nextGaussian().toFloat() * 0.05f }, FloatArray(t * 4) { 1f })
-        for (threads in listOf(1, 2, 4)) {
-            _status.value = "Classifier latency, $threads thread(s)"
-            SignModel(bytes, labels, threads = threads).use { m ->
+        for (spin in listOf(false, true)) for (threads in listOf(1, 2, 4)) {
+            _status.value = "Classifier latency, $threads thread(s), spinning ${if (spin) "on" else "off"}"
+            SignModel(bytes, labels, threads = threads, spin = spin).use { m ->
                 repeat(30) { m.classify(clip) }
+                // Back to back, and paced like the live spotter (6 a second), where idle workers either spin or sleep.
                 val ms = DoubleArray(runs) { m.classify(clip).latencyMs }
-                emit(out, JSONObject().put("bench", "model").put("vocab", engine.vocabulary).put("threads", threads)
-                    .put("runs", runs).put("p50_ms", pct(ms, 50.0)).put("p95_ms", pct(ms, 95.0)).put("mean_ms", ms.average()))
+                val paced = DoubleArray(minOf(runs, 120)) { Thread.sleep(160); m.classify(clip).latencyMs }
+                emit(out, JSONObject().put("bench", "model").put("vocab", engine.vocabulary).put("threads", threads).put("spin", spin)
+                    .put("runs", runs).put("p50_ms", pct(ms, 50.0)).put("p95_ms", pct(ms, 95.0)).put("mean_ms", ms.average())
+                    .put("paced_p50_ms", pct(paced, 50.0)).put("paced_p95_ms", pct(paced, 95.0)))
             }
         }
         _status.value = "Classifier latency done"
@@ -201,6 +204,65 @@ class Bench(private val context: Context, private val engine: SignEngine) {
             emit(out, JSONObject().put("bench", "live").put("event", "end"))
             _status.value = "Live replay done"
         }
+    }
+
+    /**
+     * Power of one piece on its own, on battery: [perSecond] calls of [work] a second (none: the screen and the
+     * idle app only, the baseline), with battery current sampled every second; a row every 10 s.
+     */
+    suspend fun powerPhase(name: String, seconds: Int, perSecond: Int, work: (() -> Unit)?) = withContext(Dispatchers.Default) {
+        val out = File(dir, "power_phase_$name.jsonl").apply { writeText("") }
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val t0 = SystemClock.elapsedRealtime()
+        var nextSample = t0 + 1_000
+        var nextReport = t0 + 10_000
+        var nextWork = t0
+        var mwSum = 0.0
+        var samples = 0
+        var calls = 0
+        var lastCpu = cpuTicks()
+        var lastT = t0
+        emit(out, JSONObject().put("bench", "power_phase").put("event", "start").put("phase", name).put("per_second", perSecond))
+        while (true) {
+            val now = SystemClock.elapsedRealtime()
+            if (now - t0 >= seconds * 1000L) break
+            _status.value = "Power: $name, %.0f of %d s".format((now - t0) / 1000.0, seconds)
+            if (work != null && perSecond > 0 && now >= nextWork) { work(); calls++; nextWork += 1000L / perSecond }
+            if (now >= nextSample) {
+                val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val ua = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW).toDouble()
+                mwSum += Math.abs(ua) / 1e6 * (battery?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0)
+                samples++
+                nextSample += 1_000
+            }
+            if (now >= nextReport) {
+                val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val cpu = cpuTicks()
+                emit(out, JSONObject().put("bench", "power_phase").put("phase", name).put("t_s", (now - t0) / 1000.0)
+                    .put("power_mw", if (samples > 0) mwSum / samples else 0.0).put("calls", calls)
+                    .put("cpu_pct_of_one_core", 100.0 * (cpu - lastCpu) / CLK_TCK / ((now - lastT) / 1000.0))
+                    .put("plugged", battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1))
+                mwSum = 0.0; samples = 0; calls = 0; lastCpu = cpu; lastT = now
+                nextReport += 10_000
+            }
+            delay(5)
+        }
+        emit(out, JSONObject().put("bench", "power_phase").put("event", "end"))
+    }
+
+    /** Baseline (screen on, nothing running), then the classifier alone at the live caption rate. */
+    suspend fun powerSplit(seconds: Int, threads: Int = 2, spin: Boolean = false) {
+        engine.speaker.enabled = false
+        powerPhase("baseline", seconds, 0, null)
+        val (bytes, labels) = engine.modelAsset()
+        val rng = Random(7)
+        val t = 64
+        val clip = Clip(t, FloatArray(t * Layout.P * 3) { rng.nextGaussian().toFloat() * 0.5f },
+            FloatArray(t * 2 * 21 * 3) { rng.nextGaussian().toFloat() * 0.05f }, FloatArray(t * 4) { 1f })
+        // The spotter classifies every 5 frames: 6 windows a second at 30 fps.
+        val tag = "classifier_6hz_${threads}t" + if (spin) "_spin" else ""
+        SignModel(bytes, labels, threads = threads, spin = spin).use { m -> powerPhase(tag, seconds, 6) { m.classify(clip) } }
+        _status.value = "Power split done"
     }
 
     companion object {

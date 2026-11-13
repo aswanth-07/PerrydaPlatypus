@@ -100,8 +100,13 @@ Measured on a Samsung Galaxy S26 (SM-S942B, Exynos 2600, Android 17), release bu
   2.03 s with one GPU tracker). `src/main.py` has the same as an option (`ECHO_LANES=2`: on the first 600 test clips
   78.8% vs 79.5% top-1, a difference within noise, at 1.8× the speed); the scored `predict()` keeps one tracker,
   the configuration every published number was measured with.
-- **Classifier:** INT8, ONNX Runtime, p95 11.8 / 10.3 / 9.8 ms with 1 / 2 / 4 threads; 12 ms p95 while live
-  tracking runs beside it.
+- **Classifier:** INT8, ONNX Runtime, one thread with its workers sleeping between calls: 2.7 / 4.5 ms p50 / p95
+  back to back, 14.1 / 15.5 ms when paced like the spotter (6 a second; the cores clock down in between), 12 ms
+  p95 beside live tracking. Two threads with ONNX Runtime's default spin-waiting were no faster when paced and
+  kept a second core busy.
+- **Power, on battery, whole phone with the screen on:** live at 30 fps 2,869 mW; nobody in view 724 mW with the
+  signing-gated rate, 1,583 mW without; the app open with nothing tracked 712 mW; the classifier alone at 6 windows
+  a second 395 mW above that (measured with 2 spinning threads). About 80 mJ per tracked frame on CPU or GPU.
 
 ## Benchmarks on the phone
 
@@ -113,11 +118,14 @@ adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench model --ei 
 adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench live --ei seconds 600 --ei fps 30 --es lanes cpu,cpu
 adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench clip --ei runs 10
 adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench power --ei wait 90
+adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench power2 --ei wait 60 --ei threads 1
 ```
 
 `lanes` lists one delegate per tracker (`gpu`, `cpu,cpu`, `gpu,cpu`, ...); `--ez blank true` replays an empty room
 and `--ez gate true` turns on the signing-gated rate. `power` waits, so the cable can be pulled, then runs signing on
-two CPU lanes, an empty room gated and ungated, and signing on one GPU lane, on battery. Each run writes JSON lines
+two CPU lanes, an empty room gated and ungated, and signing on one GPU lane, on battery; `power2` measures the
+screen-on baseline (app open, nothing tracked) and then the classifier alone at 6 windows a second (`--ei threads`,
+`--ez spin`). Each run writes JSON lines
 (every 10 s: frames tracked per second, Holistic and classifier p50/p95, app CPU, battery current averaged from 1 s
 samples, voltage, temperatures, thermal headroom, memory) to the app's external files folder.
 `scripts/phone_sampler.sh` samples GPU load and clock and the SoC, skin and battery temperatures over adb alongside;

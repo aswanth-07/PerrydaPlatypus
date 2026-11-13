@@ -64,6 +64,10 @@ class MainActivity : ComponentActivity() {
                         bench.live(90, 30, listOf(false, false), blank = true, gate = false, prefix = "power")
                         bench.live(90, 30, listOf(true), prefix = "power")
                     }
+                    "power2" -> {
+                        delay(intent.getIntExtra("wait", 45) * 1000L)
+                        bench.powerSplit(intent.getIntExtra("seconds", 90), intent.getIntExtra("threads", 2), intent.getBooleanExtra("spin", false))
+                    }
                     "clip" -> bench.clip(intent.getIntExtra("runs", 10), intent.getBooleanExtra("gpu", false), intent.getStringExtra("file") ?: "bench.mp4")
                     "live" -> {
                         val gpu = intent.getBooleanExtra("gpu", false)

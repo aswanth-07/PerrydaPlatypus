@@ -3,7 +3,8 @@ top1_accuracy,>=70,64.42,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thre
 latency_p95,<=50,4.263,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider (classifier, per clip)",True
 model_size,<=20,3.32,MB,,INT8 ONNX classifier,True
 accuracy_drop_robustness,<=5,5.49,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition; worst moderate condition: combined",False
-avg_power,<=500,not measured,mW,"SM-S942B (s5e9965), Android 17",needs a run on battery (USB charging hides the load),needs phone
+avg_power,<=500,395,mW,"SM-S942B (s5e9965), Android 17","INT8 classifier at the live caption rate (6 windows a second), on battery: whole phone 1107 mW minus the screen-on baseline 712 mW, standard error about 113 mW; classifier 2 threads with ONNX Runtime spin-waiting (the app setting until 13 Nov 15:10 IST; it now runs 1 thread without spinning, not yet measured on battery); the whole live pipeline is in avg_power_live_pipeline",True
+avg_power_live_pipeline,,2869.0,mW,"SM-S942B (s5e9965), Android 17","whole phone, screen on, on battery: 2 lanes on the CPU at 30 fps + spotter + classifier, 140 s; 2157 mW above the screen-on baseline",
 thermal_drift_10min,<=20,0.0,%,"SM-S942B (s5e9965), Android 17","app live pipeline, signer video replayed like a 30 fps camera: MediaPipe Holistic (2 lanes on the CPU) + spotter + INT8 classifier, 590 s; larger of throughput drop and Holistic p95 latency rise, first vs last minute",True
 top5_accuracy,,91.97,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider",
 test_clips,,2878,clips,,"WLASL official test split, 2000-word vocabulary",
@@ -21,7 +22,7 @@ robustness_drop_harsh_low_light,<=5,5.8,pt,,"PyTorch FP32, the checkpoints the I
 robustness_drop_harsh_occlusion,<=5,8.37,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",False
 robustness_drop_harsh_low_res,<=5,9.63,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",False
 robustness_drop_harsh_combined,<=5,10.6,pt,,"PyTorch FP32, the checkpoints the INT8 model was exported from (accuracy, not timing), top-1 with the same-sign answer rule as shipped; 2878 WLASL2000 test clips per condition",False
-latency_p95_phone,<=50,10.35,ms,"SM-S942B (s5e9965), Android 17","ONNX Runtime Android 1.31.1, INT8, CPU, 2 threads (classifier, per clip, 400 runs)",True
+latency_p95_phone,<=50,4.45,ms,"SM-S942B (s5e9965), Android 17","ONNX Runtime Android 1.31.1, INT8, CPU, 1 thread (classifier, per clip, 400 runs back to back; paced like the live spotter (6 a second, cores idle between calls) p95 15.5 ms)",True
 live_fps_phone,,29.91,fps,"SM-S942B (s5e9965), Android 17","app live pipeline, signer video replayed like a 30 fps camera: MediaPipe Holistic (2 lanes on the CPU) + spotter + INT8 classifier, 590 s",
 holistic_p95_phone,,49.3,ms,"SM-S942B (s5e9965), Android 17","app live pipeline, signer video replayed like a 30 fps camera: MediaPipe Holistic (2 lanes on the CPU) + spotter + INT8 classifier, 590 s; frame to result",
 classifier_p95_phone_under_load,<=50,12.07,ms,"SM-S942B (s5e9965), Android 17","app live pipeline, signer video replayed like a 30 fps camera: MediaPipe Holistic (2 lanes on the CPU) + spotter + INT8 classifier, 590 s",True
@@ -29,6 +30,10 @@ cpu_load_phone,,211.7,% of one core,"SM-S942B (s5e9965), Android 17","app live p
 memory_pss_phone,,457.7,MB,"SM-S942B (s5e9965), Android 17","app live pipeline, signer video replayed like a 30 fps camera: MediaPipe Holistic (2 lanes on the CPU) + spotter + INT8 classifier, 590 s",
 gpu_busy_phone,,0.0,%,"SM-S942B (s5e9965), Android 17","app live pipeline, signer video replayed like a 30 fps camera: MediaPipe Holistic (2 lanes on the CPU) + spotter + INT8 classifier, 590 s",
 soc_temp_rise_10min,,3.5,C,"SM-S942B (s5e9965), Android 17","app live pipeline, signer video replayed like a 30 fps camera: MediaPipe Holistic (2 lanes on the CPU) + spotter + INT8 classifier, 590 s; 38.1 -> 41.6 C",
+power_idle_gated,,724.0,mW,"SM-S942B (s5e9965), Android 17","nobody in view, signing-gated rate (7.6 fps); 80 s on battery, whole phone, screen on",
+power_idle_ungated,,1583.0,mW,"SM-S942B (s5e9965), Android 17","nobody in view, gating off (30 fps); 80 s on battery, whole phone, screen on",
+power_live_one_gpu_tracker,,1180.0,mW,"SM-S942B (s5e9965), Android 17","the old setting: 1 Holistic tracker on the GPU (9.8 fps); 80 s on battery, whole phone, screen on",
+power_baseline_screen_on,,712,mW,"SM-S942B (s5e9965), Android 17","the app open on a static screen, nothing tracked; 80 s on battery, whole phone, screen on",
 video_recognition_p50_phone,,566.0,ms,"SM-S942B (s5e9965), Android 17","Videos tab on a picked clip: decode + 24 frames on 2 Holistic lanes (CPU) + classifier, 10 warm runs",
 top1_unseen_signers,>=70,82.99,%,,"PyTorch FP32, matched runs that held these signers out; ASL Citizen test split, signers in no training data",True
 top1_end_to_end,>=70,63.45,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",predict() on 2878 raw test videos,False
