@@ -11,14 +11,14 @@ examples. Nothing leaves the device; the Android app has no internet permission.
 
 | Brief requirement | Target | Measured (shipped `src/models/full`, 2,000 words) | |
 |---|---|---|---|
-| Top-1 accuracy | ≥ 70% | **64.42%** on the 2,878-clip WLASL2000 test split (91.97% top-5); 77.5% when a word WLASL lists for the same signing counts; 92.3% at 100 words | below target at 2,000 words, see below |
+| Top-1 accuracy | ≥ 70% | **64.42%** on the 2,878-clip WLASL2000 test split (91.97% top-5); the same model file answering from WLASL's 1,000 most common words: **77.7%**, from 300: 88.6%, from 100: 91.5%; 77.5% at 2,000 words when a word WLASL lists for the same signing counts | met up to 1,000 words; below target at 2,000, see below |
 | Inference latency p95 | ≤ 50 ms | **4.3 ms** classifier, one laptop CPU thread; **4.5 ms** on a Galaxy S26 (one thread; 15.5 ms when paced like live captions, cores idle between calls) | pass |
 | Model size | ≤ 20 MB | **3.32 MB** classifier + 13.7 MB Holistic = 17.0 MB | pass |
 | Robustness (top-1 drop) | ≤ 5 points | all 2,878 test clips, moderate degradations: angled −0.5, moving head 0.3, low light 0.5, low resolution 2.3, occlusion 5.0, all combined 5.5 | five of six pass |
 | Thermal drift (10 min) | ≤ 20% | **0.0%**: Galaxy S26, live pipeline at 29.9 fps in the first and the last minute, p95 tracking 49 ms; SoC 38.1 → 41.6 °C, no throttling | pass |
 | Power | ≤ 500 mW | **395 mW** (±113) for the INT8 classifier at the live caption rate, above a 712 mW screen-on baseline, on battery. The whole live pipeline at 30 fps draws **2.87 W** for the whole phone, 2.16 W above baseline, almost all of it hand tracking (see "On the phone") | classifier passes; the real-time pipeline does not |
 | Real time on the phone | | **29.9 fps** live (every frame of a 30 fps camera), Holistic 41 / 49 ms p50 / p95, captions from the 2,000-word model; a picked video in **0.57 s** | |
-| `predict()` output | `clip_id, prediction, top5, confidence, latency_ms` | `src/main.py`, end to end on all 2,878 raw test videos: **63.45%** top-1, 91.45% top-5 | pass |
+| `predict()` output | `clip_id, prediction, top5, confidence, latency_ms` | `src/main.py`, end to end on all 2,878 raw test videos: **64.63%** top-1, 92.01% top-5 | pass |
 
 `results/predictions.jsonl` and `results/results.csv` are the scored outputs; `results.csv` uses the brief's columns
 (metric, target, measured, unit, device, runtime, pass). WLASL2000 is a hard benchmark: the best published results
@@ -43,13 +43,33 @@ official test split, including the 189 clips that share an overlapping source se
   1,705 at 100, 32,941 at 3,075), scored on matched runs that held those people out. **Models are chosen by this
   number**, not by WLASL test accuracy.
 - Latency: ONNX Runtime 1.31.1, `CPUExecutionProvider`, one thread, Intel Core Ultra 9 275HX laptop.
-- End to end (`predict()` on the raw test videos, decoding + 24 Holistic frames + classifier, one thread per clip):
-  63.45% top-1 and 91.45% top-5 on all 2,878 videos (the cached-keypoint score above is 64.42); 1,054 ms p50 / 1,267 ms
-  p95 per clip with six clips processed side by side on a busy machine (turn 1, one process alone: 771 ms p50).
+- End to end (`predict()` on the raw test videos, decoding + Holistic on every frame + classifier, one thread per
+  clip): **64.63% top-1 and 92.01% top-5** on all 2,878 videos (the cached-keypoint score above is 64.42); 2.94 s
+  p50 / 5.24 s p95 per clip (56 frames at the median) with six clips processed side by side on a busy machine.
+  Tracking every frame is the default since 15 Nov: 24 evenly spaced frames (`ECHO_FRAMES=24`) score 63.45% /
+  91.45% at 1.05 s p50 / 1.27 s p95 under the same load (one process alone: 771 ms p50). Holistic follows the hands
+  across consecutive frames better than across wide gaps, which was the whole gap between the end-to-end and the
+  cached-keypoint score; the classifier's own latency is unchanged.
   Holistic is about 30–40 ms per frame, so one tracker limits a live camera to 15–25 fps; the app runs two
   trackers that take frames in turn and reaches the camera's 30 fps (see "On the phone"). `ECHO_LANES=2` does the
-  same for `predict()`: 383 vs 686 ms per clip alone on the laptop, 78.8% vs 79.5% top-1 on the first 600 test clips
-  (within noise); the scored path keeps one tracker.
+  same for `predict()`: at 24 frames, 383 vs 686 ms per clip alone on the laptop, 78.8% vs 79.5% top-1 on the
+  first 600 test clips (within noise); the scored path keeps one tracker.
+
+One model, smaller word lists. WLASL is published at four sizes (its 100, 300, 1,000 and 2,000 most common
+words). The shipped 2,000-word INT8 file, answering only from the list (`ECHO_VOCAB_FILE`, which drops the other
+words and renormalises), scores on the test clips of those words (`scripts/vocab_subsets.py`):
+
+| Word list | Test clips | Top-1 | Top-5 |
+|---|---|---|---|
+| WLASL100 | 258 | 91.47% | 96.90% |
+| WLASL300 | 668 | 88.62% | 96.86% |
+| WLASL1000 | 1,876 | **77.72%** | 95.15% |
+| WLASL2000 | 2,878 | 64.42% | 91.97% |
+
+So the brief's 70% is met by this one file for any list up to about 1,000 words, and a published scoring
+vocabulary needs no retraining, only its word list. Random lists of the same sizes (20 draws each) give 93.9%,
+87.1% and 75.0%. Moving a same-sign set's probability onto whichever of its names are in the list was tried and
+is 0.3 to 0.8 points worse on random lists, so the plain restriction stays.
 
 Robustness: every one of the 2,878 WLASL2000 test videos was degraded in pixels before MediaPipe (angled camera,
 moving head, low light, occlusion, low resolution, and low light + moving head + occlusion combined) at two
@@ -69,9 +89,27 @@ is 0.39 points, had made low light and low resolution look like 5-point drops; o
 occlusion; union ≤ 4.3 on all six. Training on extra occlusion-only degraded copies helped the core model (about
 2 points under moderate occlusion in a paired test), which ships with it.
 
-Live captions (60 chained streams of 6 held-out signs each, the app's spotter rules): 16.9% word error rate, 86.7%
-of words found, 5.6 false words per 100 with the core model; with all 2,000 words open, 53.1%, 50.0% and 25.6, which
-is why the app's live mode starts in the core vocabulary.
+Live captions, all 2,000 words open (`scripts/live_eval.py`: held-out test clips chained into streams of six
+signs, scored by word error rate against the true sequence). The classifier was trained on whole signs, and a
+sliding window usually holds the end of one sign and the start of the next. The app now answers once per sign: a
+stretch opens when a wrist rises above a rest line under the shoulders and closes when both have been back below
+it for 200 ms, and the whole stretch is classified like a clip; signing that does not rest for 4 s falls back to
+the sliding window. Settings were chosen on validation streams and then scored on test:
+
+| Spotter (2,000 words) | Word error rate | Words found | False words per 100 | Caption, relative to the clip's last frame |
+|---|---|---|---|---|
+| Sliding window, 45% confidence (the app until 15 Nov) | 52.5% | 49.7% | 18.6 | 840 ms before |
+| Sliding window, 35% confidence (its best on validation streams) | 48.9% | 59.2% | 29.7 | 840 ms before |
+| One answer per sign, at rest (now) | **42.8%** | 58.9% | 27.8 | 180 ms before |
+
+Against the sliding window at its best setting the gain is 6.1 points on these 60 test streams (paired 95%
+interval 2.5 to 10.0) and 6.7 points on 240 further test streams (52.2% → 45.6%; 4.9 to 8.5). The caption comes
+about 0.7 s later than a mid-sign guess would, because it waits for the hands to drop, and it is right more
+often. Chained clips are harsher than a person signing word by word: 30% of WLASL clips are cut with the hands
+still raised, so two signs share one stretch there and the sliding window has to split them. With the 100-word
+vocabulary the same spotter gives 13.6%, level with the sliding window there (12.8% at its validation-tuned
+setting, 16.9% at the older default), so the change is aimed at, and measured on, the 2,000-word model. The Kotlin
+spotter is checked against the Python one word for word and frame for frame on six test streams (`SpotterTest`).
 
 ## One sign, several names
 
@@ -186,7 +224,7 @@ a 30 fps camera (`engine/Bench.kt`, `scripts/phone_bench_report.py`; `android/RE
 | App CPU, memory | 2.1 cores of 10, 458 MB PSS; GPU idle |
 | Power, whole phone, screen on, on battery | live at 30 fps **2,869 mW**; nobody in view 724 mW (signing-gated) vs 1,583 mW (gating off); the old single GPU tracker at 10 fps 1,180 mW; the app open with nothing tracked 712 mW |
 | Power of the classifier | 395 mW above that baseline at 6 windows a second (2 threads, spin-waiting; the app now uses 1 thread without spinning) |
-| Picked video (Videos tab) | 0.57 s p50 per clip, decode + 24 frames + classifier (2.73 s this morning) |
+| Picked video (Videos tab) | 0.57 s p50 per clip, decode + 24 frames + classifier (2.73 s before the 13 Nov rework) |
 
 What made it real time: on this phone MediaPipe's CPU path is faster than its GPU path (the GPU stays at a third of
 its clock for this chain of small models), and two Holistic trackers take frames in turn, their results put back

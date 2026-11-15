@@ -182,7 +182,7 @@ fun LiveScreen(vm: MainViewModel) {
                     style = MaterialTheme.typography.bodyMedium, color = Palette.Text,
                 )
             }
-            CaptionCard(state, onClear = vm.engine::clearCaption)
+            CaptionCard(state, atRest = settings.boundary, onClear = vm.engine::clearCaption)
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
                 LabelledControl(
@@ -212,6 +212,7 @@ private fun status(state: LiveState): Pair<String, Color> = when {
     !state.ready -> "Loading" to Palette.TextMuted
     state.paused -> "Paused" to Palette.TextMuted
     state.recording != null -> "Recording" to Palette.Red
+    state.signing -> "Signing" to Palette.Green
     state.handsVisible -> "Watching" to Palette.Green
     state.bodyVisible -> "Show your hands" to Palette.Amber
     else -> "Step back" to Palette.Amber
@@ -324,7 +325,7 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun CaptionCard(state: LiveState, onClear: () -> Unit) {
+private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Glass)
             .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 16.dp),
@@ -334,6 +335,7 @@ private fun CaptionCard(state: LiveState, onClear: () -> Unit) {
                 when {
                     state.paused -> "Paused"
                     !state.bodyVisible -> "Hands are found from the body: keep your head, shoulders and both hands in view."
+                    atRest -> "Sign, then lower your hands. The word appears as they come to rest."
                     else -> "Sign in front of the camera. Words appear here."
                 },
                 Modifier.padding(end = 12.dp, top = 4.dp),

@@ -12,9 +12,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 data class Settings(
-    val threshold: Float = 0.45f,      // a word must reach this confidence
-    val agree: Int = 2,                // ... and win this many windows in a row
-    val windowSec: Float = 1.5f,       // seconds of signing looked at each time (1.5 s won on val streams for both vocabularies)
+    val threshold: Float = 0.15f,      // a sign's word must reach this confidence (0.15 won on val streams, 15 Nov)
+    val boundary: Boolean = true,      // one answer per sign, when the hands rest; off: the sliding window alone
+    val agree: Int = 2,                // continuous signing: a word must win this many windows in a row
+    val windowSec: Float = 1.5f,       // ... each covering this many seconds (1.5 s won on val streams)
     val showLandmarks: Boolean = true,
     val backCamera: Boolean = true,    // exocentric: the camera faces the signer
     val gpu: Boolean = false,          // MediaPipe on the GPU delegate; CPU lanes are faster (bench, 13 Nov)
@@ -29,7 +30,8 @@ private val Context.store by preferencesDataStore(name = "settings")
 
 class SettingsRepository(private val context: Context) {
     private object K {
-        val threshold = floatPreferencesKey("threshold")
+        val threshold = floatPreferencesKey("caption_confidence")   // new key: the old one held the sliding window's 0.45
+        val boundary = booleanPreferencesKey("caption_at_rest")
         val agree = intPreferencesKey("agree")
         val window = floatPreferencesKey("window_sec")
         val landmarks = booleanPreferencesKey("show_landmarks")
@@ -44,6 +46,7 @@ class SettingsRepository(private val context: Context) {
 
     private fun read(p: Preferences) = Settings(
         threshold = p[K.threshold] ?: Settings().threshold,
+        boundary = p[K.boundary] ?: Settings().boundary,
         agree = p[K.agree] ?: Settings().agree,
         windowSec = p[K.window] ?: Settings().windowSec,
         showLandmarks = p[K.landmarks] ?: Settings().showLandmarks,
@@ -62,6 +65,7 @@ class SettingsRepository(private val context: Context) {
         context.store.edit { p ->
             val s = change(read(p))
             p[K.threshold] = s.threshold
+            p[K.boundary] = s.boundary
             p[K.agree] = s.agree
             p[K.window] = s.windowSec
             p[K.landmarks] = s.showLandmarks

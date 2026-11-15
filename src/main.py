@@ -32,9 +32,11 @@ import holistic_kp as hk  # noqa: E402
 # ECHO_VOCAB=core|full|union picks one; ECHO_MODELS points at another folder of model directories.
 MODELS = pathlib.Path(os.environ.get("ECHO_MODELS", SRC / "models"))
 DEFAULT_MODEL_DIR = MODELS / os.environ.get("ECHO_VOCAB", "full")
-# Landmarking 24 evenly spaced frames scored the same as all frames on the WLASL100 test split (84.5 vs 84.5,
-# real extraction; 16 frames: 83.7), so a clip costs about 24 Holistic calls instead of ~58.
-CLIP_FRAMES = int(os.environ.get("ECHO_FRAMES", "24"))
+# Every frame is landmarked, up to 96 (the cap the training keypoints were extracted with). On all 2,878 raw
+# WLASL2000 test videos that scores 64.63% top-1 against 63.45% for 24 evenly spaced frames: Holistic follows the
+# hands across every frame better than across wide gaps. A clip then costs about 57 Holistic calls instead of 24;
+# ECHO_FRAMES=24 is the faster setting, and what the phone's Videos tab uses.
+CLIP_FRAMES = int(os.environ.get("ECHO_FRAMES", "96"))
 # Some WLASL words are one sign under several names (DOCTOR / PHYSICIAN): WLASL's own index lists the same video
 # segment under both. A model exported with the same-sign answer rule adds up the probability of such a set and
 # answers with the name WLASL uses most (scripts/signsets.py). ECHO_SET_RULE=0 answers from the network's own

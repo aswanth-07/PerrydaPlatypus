@@ -7,13 +7,28 @@ captions, entirely on the phone. The app has no internet permission: video and k
 
 | Tab | What it does |
 |---|---|
-| **Live** | The camera fills the screen. One status chip ("Watching" / "Show your hands" · vocabulary size), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
+| **Live** | The camera fills the screen. One status chip ("Signing" while the hands are up / "Watching" / "Show your hands" · vocabulary size), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
 | **Chat** | Both sides of the conversation as chat bubbles: signed words (grouped at pauses of more than 4 s) and spoken replies, with copy, share and clear (with a confirmation). |
 | **Teach** | Teach a sign the model does not know (a name sign, a word from another sign language): type the word, record 1 to 5 examples of 2.5 s after a 3-2-1 countdown, with one progress dot per example. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Live and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
 | **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names, the five closest signs and timings for frames, landmarks, model and total. |
-| **Settings** | Signs it knows (Core 100 / Full 2,000 / Extended 3,075), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera faces the signer, hand-tracking overlay); **Advanced**, folded away: confidence needed, stability, listening window, taught-sign match, show details, track on the GPU (off by default: two CPU trackers are faster); About (vocabulary, held-out accuracy, size) and the privacy note. |
+| **Settings** | Signs it knows (Core 100 / Full 2,000 / Extended 3,075), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera faces the signer, hand-tracking overlay); **Advanced**, folded away: caption each sign when the hands rest (on by default), confidence needed, stability and listening window (for signing without rests), taught-sign match, show details, track on the GPU (off by default: two CPU trackers are faster); About (vocabulary, held-out accuracy, size) and the privacy note. |
 
 First launch explains what the camera is for before asking for it; the Clips tab works without the camera.
+
+### One answer per sign
+
+The live spotter (`signcore/Spotter.kt`) answers once per sign. A stretch opens when a wrist rises above a rest
+line (the higher wrist one shoulder width under the shoulders) and closes when both wrists have been back below
+it for 200 ms; the whole stretch, with 300 ms of lead-in, is classified the way a clip is, and its word is shown
+and spoken if it reaches the confidence in Settings (15% by default: one look at a whole sign needs no agreement
+between looks). Signing that does not rest for 4 s is captioned by a sliding window instead (1.5 s every 5
+frames, two looks in a row above 35%), and the same windows give a fallback word when a closed stretch is below
+the confidence. On chained held-out test clips with all 2,000 words open this lowers the word error rate from
+48.9% to 42.8% against the sliding window alone (`scripts/live_eval.py --compare`; settings chosen on validation
+streams); the caption comes as the hands drop rather than mid-sign. `SpotterTest` replays six such streams through
+the Kotlin spotter with the shipped INT8 model and requires the same words at the same frames as Python
+(`scripts/make_stream_fixture.py` writes `parity/streams.json`). Settings > Advanced > "Caption each sign when the
+hands rest" turns it off, which leaves the sliding window alone.
 
 ### Spoken captions
 
@@ -49,7 +64,7 @@ language. Vocabularies whose model has no embedding output show a one-line note 
 
 | Path | What it is |
 |---|---|
-| `signcore/` | Plain Kotlin shared with the desktop tests: point layout, normalisation (port of `scripts/data_v2.py`), resampling, the ONNX Runtime classifier wrapper, the live `Spotter`, same-sign sets and taught-sign matching (`Taught.kt`) |
+| `signcore/` | Plain Kotlin shared with the desktop tests: point layout, normalisation (port of `scripts/data_v2.py`), resampling, the ONNX Runtime classifier wrapper, the live `Spotter` (one answer per sign at rest, sliding window for signing without rests; port of `scripts/live_eval.py`), same-sign sets and taught-sign matching (`Taught.kt`) |
 | `app/.../engine/SignEngine.kt` | MediaPipe `HolisticLandmarker` lanes (live stream for the camera, video mode for clips; see "Speed"), in-order reassembly, the signing-gated frame rate, the spotter on a worker thread, recording of taught-sign examples, state flows for the UI |
 | `app/.../engine/VideoFrames.kt` | Picked videos: one sequential MediaCodec decode, YUV to ARGB at most 480 px, frames handed to tracking as they arrive |
 | `app/.../engine/Bench.kt` | On-device benchmarks started from adb (see "Benchmarks on the phone") |
@@ -122,7 +137,10 @@ adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench power2 --ei
 ```
 
 `lanes` lists one delegate per tracker (`gpu`, `cpu,cpu`, `gpu,cpu`, ...); `--ez blank true` replays an empty room
-and `--ez gate true` turns on the signing-gated rate. `power` waits, so the cable can be pulled, then runs signing on
+and `--ez gate true` turns on the signing-gated rate. `--es file NAME` replays another video from the same folder
+(for instance several test clips chained into one), `--ez boundary false` captions with the sliding window alone,
+and every caption word is written to logcat (`adb logcat -s EchoBench`), so the captions of a replayed stream can
+be read back from the phone. `power` waits, so the cable can be pulled, then runs signing on
 two CPU lanes, an empty room gated and ungated, and signing on one GPU lane, on battery; `power2` measures the
 screen-on baseline (app open, nothing tracked) and then the classifier alone at 6 windows a second (`--ei threads`,
 `--ez spin`). Each run writes JSON lines

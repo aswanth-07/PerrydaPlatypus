@@ -1,0 +1,239 @@
+{
+ "fps": 25.0,
+ "streams": [
+  {
+   "clips": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "truth": [
+    "BOOK",
+    "BOOK",
+    "BOOK",
+    "BOOK",
+    "DRINK",
+    "DRINK"
+   ],
+   "rest_frames": 12,
+   "caption": [
+    [
+     "BIBLE",
+     75
+    ],
+    [
+     "BOOK",
+     158
+    ],
+    [
+     "BOOK",
+     247
+    ],
+    [
+     "BOOK",
+     272
+    ],
+    [
+     "DRINK",
+     333
+    ],
+    [
+     "DRINK",
+     405
+    ]
+   ]
+  },
+  {
+   "clips": [
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ],
+   "truth": [
+    "DRINK",
+    "DRINK",
+    "COMPUTER",
+    "COMPUTER",
+    "COMPUTER",
+    "COMPUTER"
+   ],
+   "rest_frames": 12,
+   "caption": [
+    [
+     "COMPUTER",
+     235
+    ],
+    [
+     "COMPUTER",
+     310
+    ],
+    [
+     "COMPUTER",
+     399
+    ]
+   ]
+  },
+  {
+   "clips": [
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+   ],
+   "truth": [
+    "COMPUTER",
+    "BEFORE",
+    "BEFORE",
+    "BEFORE",
+    "BEFORE",
+    "CHAIR"
+   ],
+   "rest_frames": 12,
+   "caption": [
+    [
+     "COMPUTER",
+     96
+    ],
+    [
+     "BEFORE",
+     152
+    ],
+    [
+     "SALT",
+     280
+    ]
+   ]
+  },
+  {
+   "clips": [
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+   ],
+   "truth": [
+    "CHAIR",
+    "CHAIR",
+    "GO",
+    "GO",
+    "GO",
+    "CLOTHES"
+   ],
+   "rest_frames": 12,
+   "caption": [
+    [
+     "CHAIR",
+     88
+    ],
+    [
+     "CHAIR",
+     172
+    ],
+    [
+     "GO",
+     266
+    ],
+    [
+     "CLOTHES",
+     357
+    ]
+   ]
+  },
+  {
+   "clips": [
+    24,
+    25,
+    26,
+    27,
+    28,
+    29
+   ],
+   "truth": [
+    "CLOTHES",
+    "CLOTHES",
+    "WHO",
+    "WHO",
+    "WHO",
+    "CANDY"
+   ],
+   "rest_frames": 12,
+   "caption": [
+    [
+     "CLOTHES",
+     67
+    ],
+    [
+     "CLOTHES",
+     172
+    ],
+    [
+     "WHO",
+     246
+    ],
+    [
+     "WHO",
+     285
+    ],
+    [
+     "WHO",
+     359
+    ],
+    [
+     "CANDY",
+     411
+    ]
+   ]
+  },
+  {
+   "clips": [
+    30,
+    31,
+    32,
+    33,
+    34,
+    35
+   ],
+   "truth": [
+    "CANDY",
+    "CANDY",
+    "COUSIN",
+    "COUSIN",
+    "COUSIN",
+    "DEAF"
+   ],
+   "rest_frames": 12,
+   "caption": [
+    [
+     "JEALOUS",
+     48
+    ],
+    [
+     "CANDY",
+     121
+    ],
+    [
+     "COUSIN",
+     170
+    ],
+    [
+     "COUSIN",
+     268
+    ],
+    [
+     "COUSIN",
+     378
+    ]
+   ]
+  }
+ ]
+}

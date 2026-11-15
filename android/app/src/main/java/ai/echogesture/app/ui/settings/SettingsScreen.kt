@@ -126,19 +126,24 @@ fun SettingsScreen(vm: MainViewModel) {
         }
         AnimatedVisibility(advanced) {
             Column {
+                SwitchSetting(
+                    "Caption each sign when the hands rest",
+                    "One answer per sign, given as the hands drop: fewer wrong words. Off: guess while the hands are still moving.",
+                    s.boundary,
+                ) { v -> vm.update { it.copy(boundary = v) } }
                 SliderSetting(
-                    "Confidence needed", "%d%%".format((100 * s.threshold).toInt()),
+                    "Confidence needed", "%d%%".format(Math.round(100 * s.threshold)),
                     "Lower shows more words, including wrong ones; higher shows fewer, surer words.",
-                    s.threshold, 0.3f..0.8f, 9,
+                    s.threshold, 0f..0.6f, 11,
                 ) { v -> vm.update { it.copy(threshold = v) } }
                 SliderSetting(
                     "Stability", if (s.agree == 1) "1 look" else "${s.agree} looks in a row",
-                    "How many consecutive looks must agree before a word is shown.",
+                    "Signing without rests: how many consecutive looks must agree before a word is shown.",
                     s.agree.toFloat(), 1f..4f, 2,
                 ) { v -> vm.update { it.copy(agree = Math.round(v)) } }
                 SliderSetting(
                     "Listening window", "%.1f s".format(s.windowSec),
-                    "How much signing each look covers. Slow signers may want longer.",
+                    "Signing without rests: how much signing each look covers. Slow signers may want longer.",
                     s.windowSec, 1f..3f, 7,
                 ) { v -> vm.update { it.copy(windowSec = v) } }
                 SliderSetting(

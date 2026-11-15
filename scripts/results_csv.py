@@ -15,8 +15,11 @@ all 2,878 WLASL2000 test clips degraded at both strengths, top-1 with the same-s
 answers, instead of the 258-clip sets in the model folder.
 With --phone (scripts/phone_bench_report.py output) and --phone-model (bench_model.jsonl from the app's benchmark),
 the power, thermal and on-device latency rows come from the phone instead of saying "not measured".
+With --vocab-subsets (scripts/vocab_subsets.py output) the same model's top-1 on WLASL's smaller standard word
+lists is listed, and with --live (scripts/live_eval.py --compare output) the live-caption word error rate of the
+app's spotter and of the sliding window it replaced. scripts/make_results.sh holds the whole command.
 Usage: results_csv.py <model_dir> <out.csv> [--unseen unseen.json] [--e2e predictions.summary.json] [--suite suite.json]
-       [--phone phone_summary.json] [--phone-model bench_model.jsonl]
+       [--phone phone_summary.json] [--phone-model bench_model.jsonl] [--vocab-subsets f.json] [--live f.json]
 """
 import argparse
 import csv
@@ -54,6 +57,8 @@ def main():
                     help="baseline.json,classifier.json: screen-on baseline and classifier-at-live-rate power summaries (optional)")
     ap.add_argument("--phone-power-row", action="append", default=[],
                     help="metric=summary.json[=what]: an extra whole-phone power row from a run on battery (repeatable)")
+    ap.add_argument("--vocab-subsets", default="", help="vocab_subsets.py JSON: top-1 on WLASL100/300/1000 with answers restricted (optional)")
+    ap.add_argument("--live", default="", help="live_eval.py --compare JSON: live-caption word error rate (optional)")
     a = ap.parse_args()
     d = pathlib.Path(a.deploy)
     exp = json.loads((d / "export.json").read_text())
@@ -157,9 +162,27 @@ def main():
     if a.e2e:
         e = json.loads(pathlib.Path(a.e2e).read_text())
         shared = f"; {e['shards']} processes sharing the CPU" if e.get("shards", 1) > 1 else ""
-        rows += [("top1_end_to_end", ">=70", e["top1"], "%", dev, f"predict() on {e['clips']} raw test videos", e["top1"] >= 70),
+        rows += [("top1_end_to_end", ">=70", e["top1"], "%", dev,
+                  f"predict() on {e['clips']} raw test videos, {int(e['frames_p50'])} frames landmarked per clip (median)", e["top1"] >= 70),
+                 ("top5_end_to_end", "", e["top5"], "%", dev, f"predict() on {e['clips']} raw test videos", ""),
                  ("pipeline_p95_per_clip", "", e["whole_clip_ms"]["p95"], "ms", dev, "decode + MediaPipe Holistic + classifier" + shared, ""),
                  ("keypoints_per_frame_p50", "", e["keypoints_per_frame_ms_p50"], "ms", dev, "MediaPipe Holistic, per landmarked frame" + shared, "")]
+    if a.vocab_subsets:
+        vs = json.loads(pathlib.Path(a.vocab_subsets).read_text())
+        for size in (1000, 300, 100):
+            r = vs[f"wlasl{size}"]["mask"]
+            rows.append((f"top1_accuracy_wlasl{size}", ">=70", r["top1"], "%", dev,
+                         f"{rt}; the same model file answering only from WLASL's {size:,} most common words (ECHO_VOCAB_FILE), "
+                         f"{r['clips']} test clips of those words; top-5 {r['top5']}", r["top1"] >= 70))
+    if a.live:
+        lv = json.loads(pathlib.Path(a.live).read_text())
+        what = (f"{lv['streams']} streams of {lv['words']} chained held-out test clips, {lv['subset']} words open, PyTorch FP32 with the "
+                "answer rule; settings chosen on validation streams")
+        rows += [("live_caption_word_error_rate", "", lv["boundary"]["wer"], "%", "", f"the app's spotter (one answer per sign, at rest): {what}; "
+                  f"words found {lv['boundary']['words_found']}%, false words per 100: {lv['boundary']['false_per_100_words']}", ""),
+                 ("live_caption_word_error_rate_sliding_window", "", lv["sliding"]["wer"], "%", "", f"the sliding window alone at its best validation setting ({lv['sliding_settings']['window_s']} s, "
+                  f"confidence {lv['sliding_settings']['threshold']}; the app until 15 Nov used 0.45): {what}; "
+                  f"paired gain {lv['wer_gain_points']} points, 95% interval {lv['wer_gain_ci95'][0]} to {lv['wer_gain_ci95'][1]}", "")]
     with open(a.out, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["metric", "target", "measured", "unit", "device", "runtime", "pass"])

@@ -59,6 +59,7 @@ data class LiveState(
     val running: Boolean = false,
     val paused: Boolean = false,
     val handsVisible: Boolean = false,
+    val signing: Boolean = false,               // a sign is under way: the hands are up, its word comes when they rest
     val bodyVisible: Boolean = false,           // Holistic finds hands from the body: no body, no hands
     val top: List<Pair<String, Float>> = emptyList(),
     val caption: List<String> = emptyList(),
@@ -175,6 +176,13 @@ class SignEngine(private val context: Context) : AutoCloseable {
     /** Benchmark only: the delegate of each live lane (true: GPU), fixed before the live landmarkers start. */
     fun lanesForBench(plan: List<Boolean>) { benchLanes = plan }
 
+    /** Benchmark only: the spotter's caption mode, whatever Settings says (true: one answer per sign at rest). */
+    fun boundaryForBench(on: Boolean) {
+        benchBoundary = on
+        worker.submit { spotter?.boundary = on }.get()
+    }
+    @Volatile private var benchBoundary: Boolean? = null
+
     /** The loaded classifier's bytes and labels, for the latency benchmark. */
     fun modelAsset(): Pair<ByteArray, List<String>> {
         val labels = JSONArray(context.assets.open("$vocabulary/labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
@@ -232,7 +240,10 @@ class SignEngine(private val context: Context) : AutoCloseable {
         val m = SignModel(context.assets.open("$vocab/sign_int8.onnx").readBytes(), labels, threads = 1, spin = false)
         val old = model
         val s = Spotter(m)
-        spotter?.let { o -> s.threshold = o.threshold; s.agree = o.agree; s.windowMs = o.windowMs }
+        spotter?.let { o ->
+            s.threshold = o.threshold; s.slideThreshold = o.slideThreshold; s.agree = o.agree; s.windowMs = o.windowMs
+            s.boundary = o.boundary
+        }
         // sets.json: one set id per label; only exports made with the same-sign rule have it.
         val sets = runCatching {
             val a = JSONArray(context.assets.open("$vocab/sets.json").bufferedReader().readText())
@@ -314,9 +325,14 @@ class SignEngine(private val context: Context) : AutoCloseable {
         loading.withLock { model?.let(::rebuildTaught) }
     }
 
-    fun configure(threshold: Float, agree: Int, windowMs: Long, gpu: Boolean) {
+    fun configure(threshold: Float, agree: Int, windowMs: Long, gpu: Boolean, boundary: Boolean = true) {
         worker.execute {
-            spotter?.let { s -> s.threshold = threshold; s.agree = agree; s.windowMs = windowMs }
+            spotter?.let { s ->
+                // One slider: a sign's own answer needs [threshold]; a sliding window, which sees part of a sign,
+                // never less than the 0.35 that won on val streams.
+                s.threshold = threshold; s.slideThreshold = maxOf(threshold, SLIDE_THRESHOLD)
+                s.agree = agree; s.windowMs = windowMs; s.boundary = benchBoundary ?: boundary
+            }
         }
         if (gpu != useGpu) {
             useGpu = gpu
@@ -493,15 +509,17 @@ class SignEngine(private val context: Context) : AutoCloseable {
             val hit = event?.taught
             val taught = hit != null
             val alsoNames = if (word != null && !taught) event.prediction?.let { also(it, word) }.orEmpty() else emptyList()
-            if (word != null) {
-                speaker.speak(word, ts)   // ts is the uptime of the camera frame that settled the word
-                val conf = hit?.cosine ?: event.prediction?.confidence ?: 0f
-                _transcript.update { it + TranscriptEntry(word, conf, System.currentTimeMillis()) }
+            for (w in event?.words.orEmpty()) {
+                speaker.speak(w, ts)   // ts is the uptime of the camera frame that settled the word
+                val conf = hit?.cosine ?: event?.prediction?.confidence ?: 0f
+                _transcript.update { it + TranscriptEntry(w, conf, System.currentTimeMillis()) }
+                if (bench != null) Log.i(Bench.TAG, "caption " + w + " conf " + conf + " at " + ts)
             }
             _live.update { st ->
                 val fps = if (dt > 0) (if (st.fps == 0.0) 1000.0 / dt else 0.9 * st.fps + 0.1 * 1000.0 / dt) else st.fps
                 st.copy(
                     handsVisible = frame.hands.any { it != null },
+                    signing = s.signing,
                     bodyVisible = frame.pose != null,
                     hands = frame.hands.toList(),
                     imageWidth = w, imageHeight = h,
@@ -511,9 +529,10 @@ class SignEngine(private val context: Context) : AutoCloseable {
                     top = when {
                         rec != null -> emptyList()
                         event == null -> st.top
-                        !event.active -> emptyList()
                         hit != null -> listOf(hit.word to hit.cosine) + (event.prediction?.topK(2) ?: emptyList())
-                        else -> event.prediction?.topK(3) ?: st.top
+                        event.prediction != null -> event.prediction!!.topK(3)
+                        s.boundary && !event.signing -> st.top   // at rest: the last sign's guesses stay until the next
+                        else -> emptyList()
                     },
                     caption = s.caption.toList(),
                     lastWord = word ?: st.lastWord,
@@ -683,7 +702,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     companion object {
         private const val TAG = "EchoGesture"
-        // 24 evenly spaced frames scored the same as all frames on the WLASL100 test split (84.5 vs 84.5).
+        // 24 evenly spaced frames: 0.57 s a picked clip on the phone. Tracking every frame scores 1.2 points
+        // higher on the WLASL2000 test videos (64.63 vs 63.45, predict() on the laptop) at 2.8x the time, so
+        // the scored predict() tracks every frame and the Videos tab keeps 24.
         const val MAX_CLIP_FRAMES = 24
         /** Live lanes by default; see [Lane]. */
         const val DEFAULT_LANES = 2
@@ -692,5 +713,6 @@ class SignEngine(private val context: Context) : AutoCloseable {
         private const val STALE_NS = 1_000_000_000L
         private const val IDLE_AFTER_MS = 2_000L
         private const val IDLE_PERIOD_MS = 120L
+        private const val SLIDE_THRESHOLD = 0.35f
     }
 }

@@ -33,7 +33,9 @@ import java.util.Random
  *       a signer video (files/bench.mp4 in the app's external files dir) replayed like a camera at [fps] through the
  *       live pipeline: Holistic lanes (gpu or cpu each), the spotter, the classifier; every 10 s a line with
  *       throughput, latency
- *       percentiles, process CPU, battery current and voltage (power), battery temperature and thermal headroom
+ *       percentiles, process CPU, battery current and voltage (power), battery temperature and thermal headroom;
+ *       --es file NAME replays another video from that folder, --ez boundary false captions with the sliding
+ *       window alone; every caption word goes to logcat ("caption WORD conf C at UPTIME_MS")
  *
  *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench clip --ei runs 10 --ez gpu false
  *       the Videos tab's path on files/bench.mp4 (or --es file NAME): total, tracking, decode and model time
@@ -105,11 +107,12 @@ class Bench(private val context: Context, private val engine: SignEngine) {
     }
 
     /** [lanes]: one delegate per live landmarker, true for GPU (SignEngine.Lane). */
-    suspend fun live(seconds: Int, fps: Int, lanes: List<Boolean>, blank: Boolean = false, gate: Boolean = false, prefix: String = "bench") {
+    suspend fun live(seconds: Int, fps: Int, lanes: List<Boolean>, blank: Boolean = false, gate: Boolean = false, prefix: String = "bench",
+                     file: String = "bench.mp4") {
         val tag = lanes.joinToString("+") { if (it) "gpu" else "cpu" } + (if (blank) "_blank" else "") + (if (gate) "_gated" else "")
         val out = File(dir, "${prefix}_live_${fps}fps_$tag.jsonl").apply { writeText("") }
         engine.lanesForBench(lanes)
-        val video = File(dir, "bench.mp4")
+        val video = File(dir, file)
         require(video.exists()) { "Push a signer video to ${video.absolutePath}" }
         _status.value = "Decoding the replay video"
         val frames = ArrayList<Bitmap>()

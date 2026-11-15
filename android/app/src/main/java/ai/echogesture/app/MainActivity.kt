@@ -73,8 +73,10 @@ class MainActivity : ComponentActivity() {
                         val gpu = intent.getBooleanExtra("gpu", false)
                         val lanes = intent.getStringExtra("lanes")?.split(",")?.map { it.trim() == "gpu" }
                             ?: List(SignEngine.DEFAULT_LANES) { gpu }
+                        if (intent.hasExtra("boundary")) vm.engine.boundaryForBench(intent.getBooleanExtra("boundary", true))
                         bench.live(intent.getIntExtra("seconds", 600), intent.getIntExtra("fps", 30), lanes,
-                            blank = intent.getBooleanExtra("blank", false), gate = intent.getBooleanExtra("gate", false))
+                            blank = intent.getBooleanExtra("blank", false), gate = intent.getBooleanExtra("gate", false),
+                            file = intent.getStringExtra("file") ?: "bench.mp4")
                     }
                 }
             }.onFailure { android.util.Log.e(Bench.TAG, "benchmark failed", it) }

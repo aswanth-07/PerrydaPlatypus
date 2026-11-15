@@ -36,6 +36,12 @@ power_live_one_gpu_tracker,,1180.0,mW,"SM-S942B (s5e9965), Android 17","the old 
 power_baseline_screen_on,,712,mW,"SM-S942B (s5e9965), Android 17","the app open on a static screen, nothing tracked; 80 s on battery, whole phone, screen on",
 video_recognition_p50_phone,,566.0,ms,"SM-S942B (s5e9965), Android 17","Videos tab on a picked clip: decode + 24 frames on 2 Holistic lanes (CPU) + classifier, 10 warm runs",
 top1_unseen_signers,>=70,82.99,%,,"PyTorch FP32, matched runs that held these signers out; ASL Citizen test split, signers in no training data",True
-top1_end_to_end,>=70,63.45,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",predict() on 2878 raw test videos,False
-pipeline_p95_per_clip,,1267.19,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",decode + MediaPipe Holistic + classifier; 6 processes sharing the CPU,
-keypoints_per_frame_p50,,42.95,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","MediaPipe Holistic, per landmarked frame; 6 processes sharing the CPU",
+top1_end_to_end,>=70,64.63,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","predict() on 2878 raw test videos, 56 frames landmarked per clip (median)",False
+top5_end_to_end,,92.01,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",predict() on 2878 raw test videos,
+pipeline_p95_per_clip,,5244.43,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread",decode + MediaPipe Holistic + classifier; 6 processes sharing the CPU,
+keypoints_per_frame_p50,,52.92,ms,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","MediaPipe Holistic, per landmarked frame; 6 processes sharing the CPU",
+top1_accuracy_wlasl1000,>=70,77.72,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider; the same model file answering only from WLASL's 1,000 most common words (ECHO_VOCAB_FILE), 1876 test clips of those words; top-5 95.15",True
+top1_accuracy_wlasl300,>=70,88.62,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider; the same model file answering only from WLASL's 300 most common words (ECHO_VOCAB_FILE), 668 test clips of those words; top-5 96.86",True
+top1_accuracy_wlasl100,>=70,91.47,%,"Laptop CPU (Intel(R) Core(TM) Ultra 9 275HX), 1 thread","ONNX Runtime 1.31.1, INT8, CPUExecutionProvider; the same model file answering only from WLASL's 100 most common words (ECHO_VOCAB_FILE), 258 test clips of those words; top-5 96.9",True
+live_caption_word_error_rate,,42.8,%,,"the app's spotter (one answer per sign, at rest): 60 streams of 6 chained held-out test clips, 2000 words open, PyTorch FP32 with the answer rule; settings chosen on validation streams; words found 58.9%, false words per 100: 27.8",
+live_caption_word_error_rate_sliding_window,,48.9,%,,"the sliding window alone at its best validation setting (1.5 s, confidence 0.35; the app until 15 Nov used 0.45): 60 streams of 6 chained held-out test clips, 2000 words open, PyTorch FP32 with the answer rule; settings chosen on validation streams; paired gain 6.1 points, 95% interval 2.5 to 10.0",
