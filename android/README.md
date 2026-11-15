@@ -7,7 +7,7 @@ captions, entirely on the phone. The app has no internet permission: video and k
 
 | Tab | What it does |
 |---|---|
-| **Live** | The camera fills the screen. One status chip ("Signing" while the hands are up / "Watching" / "Show your hands" · vocabulary size), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
+| **Live** | The camera fills the screen. One status chip ("Signing" while the hands are up / "Watching" / "Show your hands" · vocabulary size), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; when the model was not sure, two other signs it could have been ("or BIBLE · WALLET") as buttons for 8 s: a tap swaps the word on screen and in Chat and speaks it; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
 | **Chat** | Both sides of the conversation as chat bubbles: signed words (grouped at pauses of more than 4 s) and spoken replies, with copy, share and clear (with a confirmation). |
 | **Teach** | Teach a sign the model does not know (a name sign, a word from another sign language): type the word, record 1 to 5 examples of 2.5 s after a 3-2-1 countdown, with one progress dot per example. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Live and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
 | **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names, the five closest signs and timings for frames, landmarks, model and total. |
@@ -30,11 +30,27 @@ the Kotlin spotter with the shipped INT8 model and requires the same words at th
 (`scripts/make_stream_fixture.py` writes `parity/streams.json`). Settings > Advanced > "Caption each sign when the
 hands rest" turns it off, which leaves the sliding window alone.
 
+### Tap to correct
+
+With 2,000 words open the top word is the sign that was made for 76.8% of test clips, and the right sign is usually
+the next guess. When the model's confidence in the shown sign is under 80% (`SignEngine.ALT_BELOW`), the caption
+card offers the best word of each of the next two signs in the ranking (`SameSignSets.alternatives`; names of the
+shown sign are already listed as "same sign"). A tap replaces the newest word in the caption and in Chat
+(`SignEngine.correctLast`, `Spotter.replaceLast`: only while that word is still the newest) and speaks the
+correction. `scripts/alternatives_eval.py` scores the same rule on the WLASL2000 test clips: sign on screen 89.9%
+with offers under 67% of captions (90.8% if always offered); captions shown without offers are right 95.1% of the
+time. `--es bench live --ez ui true` replays a video through the real screens with the camera off, to look at it.
+
 ### Spoken captions
 
 Each word the spotter settles is spoken by the phone's own text-to-speech voice (an installed voice, so it works
 offline; Settings warns when none is installed). The status line shows how long after the camera frame that
-settled the word the sound started, last and median.
+settled the word the sound started, last and median. Measured on a Galaxy S26 with the 2,000-word model
+(`--es bench live --es file stream.mp4 --ez voice true`, a stream of ten chained test signs replayed at 25 fps, 26
+words spoken): the text-to-speech engine starts 70 ms (median) after the frame that settled the word, 368 ms at
+p90 and 770 ms at worst, the slow ones being words that waited for the one before them to finish. The word itself
+settles 200 ms after the hands come to rest, so speech begins about 0.3 s after a sign ends. The engine's start is
+what is timed; the speaker's own output delay is not included.
 
 ### Spoken replies (two-way conversation)
 
@@ -140,7 +156,8 @@ adb shell am start -S -n ai.echogesture.app/.MainActivity --es bench power2 --ei
 and `--ez gate true` turns on the signing-gated rate. `--es file NAME` replays another video from the same folder
 (for instance several test clips chained into one), `--ez boundary false` captions with the sliding window alone,
 and every caption word is written to logcat (`adb logcat -s EchoBench`), so the captions of a replayed stream can
-be read back from the phone. `power` waits, so the cable can be pulled, then runs signing on
+be read back from the phone; `--ez voice true` speaks them as the app does and times each word from the frame that
+settled it to the first sound. `power` waits, so the cable can be pulled, then runs signing on
 two CPU lanes, an empty room gated and ungated, and signing on one GPU lane, on battery; `power2` measures the
 screen-on baseline (app open, nothing tracked) and then the classifier alone at 6 windows a second (`--ei threads`,
 `--ez spin`). Each run writes JSON lines

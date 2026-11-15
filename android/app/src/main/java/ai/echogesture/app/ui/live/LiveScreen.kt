@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -145,7 +146,10 @@ fun LiveScreen(vm: MainViewModel) {
     LaunchedEffect(reply.lastAt) { if (reply.last != null) { delay(15_000); vm.engine.listener.dismiss() } }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        CameraPreview(backCamera = settings.backCamera, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
+        // A benchmark replaying a video through this screen (--ez ui true) needs no camera.
+        if (!vm.engine.replayOnly) {
+            CameraPreview(backCamera = settings.backCamera, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
+        }
         if (settings.showLandmarks) HandOverlay(state, mirror = !settings.backCamera, modifier = Modifier.fillMaxSize())
 
         // Scrims keep text legible over any background without boxing the whole video in.
@@ -182,7 +186,7 @@ fun LiveScreen(vm: MainViewModel) {
                     style = MaterialTheme.typography.bodyMedium, color = Palette.Text,
                 )
             }
-            CaptionCard(state, atRest = settings.boundary, onClear = vm.engine::clearCaption)
+            CaptionCard(state, atRest = settings.boundary, onClear = vm.engine::clearCaption, onCorrect = vm.engine::correctLast)
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
                 LabelledControl(
@@ -325,7 +329,7 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit) {
+private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit, onCorrect: (String) -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Glass)
             .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 16.dp),
@@ -368,8 +372,29 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit) 
             else -> null
         }
         if (sub != null) Text(sub, style = MaterialTheme.typography.titleSmall, color = Palette.Amber, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Other signs it could have been, offered when the model was not sure: one tap swaps the word, here, in the
+        // conversation and aloud. They leave with the next word, or after a few seconds.
+        var offer by remember { mutableStateOf(true) }
+        LaunchedEffect(state.lastWordAt) { offer = true; delay(ALTERNATIVES_SHOWN_MS); offer = false }
+        AnimatedVisibility(offer && state.lastAlternatives.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
+            Row(Modifier.padding(top = 8.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("or", style = MaterialTheme.typography.titleSmall, color = Palette.TextMuted)
+                for (w in state.lastAlternatives) {
+                    Box(
+                        Modifier.weight(1f, fill = false).clip(RoundedCornerShape(50)).background(Palette.PanelHigh)
+                            .clickable(onClickLabel = "Change the last word to $w") { onCorrect(w) }
+                            .heightIn(min = 44.dp).padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(w, style = MaterialTheme.typography.titleSmall, color = Palette.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
     }
 }
+
+private const val ALTERNATIVES_SHOWN_MS = 8_000L
 
 @Composable
 private fun LabelledControl(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {

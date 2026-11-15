@@ -17,7 +17,9 @@ With --phone (scripts/phone_bench_report.py output) and --phone-model (bench_mod
 the power, thermal and on-device latency rows come from the phone instead of saying "not measured".
 With --vocab-subsets (scripts/vocab_subsets.py output) the same model's top-1 on WLASL's smaller standard word
 lists is listed, and with --live (scripts/live_eval.py --compare output) the live-caption word error rate of the
-app's spotter and of the sliding window it replaced. scripts/make_results.sh holds the whole command.
+app's spotter and of the sliding window it replaced; with --phone-voice (the app's live benchmark run with
+--ez voice true) the delay from the camera frame that settles a word to the phone starting to speak it.
+scripts/make_results.sh holds the whole command.
 Usage: results_csv.py <model_dir> <out.csv> [--unseen unseen.json] [--e2e predictions.summary.json] [--suite suite.json]
        [--phone phone_summary.json] [--phone-model bench_model.jsonl] [--vocab-subsets f.json] [--live f.json]
 """
@@ -53,11 +55,13 @@ def main():
     ap.add_argument("--phone-model", default="", help="the app's bench_model.jsonl: classifier latency on the phone (optional)")
     ap.add_argument("--phone-power", default="", help="phone_bench_report.py summary of a live run on battery: avg_power (optional)")
     ap.add_argument("--phone-clip", default="", help="the app's bench_clip jsonl: picked-video recognition time on the phone (optional)")
+    ap.add_argument("--phone-voice", default="", help="the app's live benchmark jsonl run with --ez voice true: frame-to-speech delay (optional)")
     ap.add_argument("--phone-model-power", default="",
                     help="baseline.json,classifier.json: screen-on baseline and classifier-at-live-rate power summaries (optional)")
     ap.add_argument("--phone-power-row", action="append", default=[],
                     help="metric=summary.json[=what]: an extra whole-phone power row from a run on battery (repeatable)")
     ap.add_argument("--vocab-subsets", default="", help="vocab_subsets.py JSON: top-1 on WLASL100/300/1000 with answers restricted (optional)")
+    ap.add_argument("--alternatives", default="", help="alternatives_eval.py JSON: sign on screen with the caption's offered words (optional)")
     ap.add_argument("--live", default="", help="live_eval.py --compare JSON: live-caption word error rate (optional)")
     a = ap.parse_args()
     d = pathlib.Path(a.deploy)
@@ -155,6 +159,16 @@ def main():
         pc = [json.loads(l) for l in open(a.phone_clip, encoding="utf-8") if l.strip()][-1]
         rows.append(("video_recognition_p50_phone", "", round(pc["total_p50_ms"], 0), "ms", phone_dev,
                      f"Videos tab on a picked clip: decode + 24 frames on 2 Holistic lanes ({'GPU' if pc['gpu'] else 'CPU'}) + classifier, {pc['runs']} warm runs", ""))
+    if a.phone_voice:
+        pv = [json.loads(l) for l in open(a.phone_voice, encoding="utf-8") if l.strip()]
+        st = next(r for r in pv if r.get("event") == "start")
+        v = next(r for r in pv if r.get("event") == "voice")
+        rows.append(("voice_delay_p50_phone", "", v["voice_p50_ms"], "ms", phone_dev,
+                     f"spoken captions: from the camera frame that settles a word to the phone's text-to-speech engine starting to speak it "
+                     f"({'an installed voice, no network' if v['on_device'] else 'the default voice'}); {v['words_spoken']} words of a stream of chained "
+                     f"test signs replayed like a {st['fps_target']} fps camera, {st['vocab']} vocabulary; p90 {v['voice_p90_ms']} ms (a word waiting for "
+                     f"the one before it to finish), worst {v['voice_max_ms']} ms; the word settles 200 ms after the hands come to rest; the "
+                     "speaker's own output delay is not included", ""))
     if a.unseen:
         u = json.loads(pathlib.Path(a.unseen).read_text())
         rows.append(("top1_unseen_signers", ">=70", u["top1"], "%", "", "PyTorch FP32, matched runs that held these signers out; "
@@ -174,6 +188,13 @@ def main():
             rows.append((f"top1_accuracy_wlasl{size}", ">=70", r["top1"], "%", dev,
                          f"{rt}; the same model file answering only from WLASL's {size:,} most common words (ECHO_VOCAB_FILE), "
                          f"{r['clips']} test clips of those words; top-5 {r['top5']}", r["top1"] >= 70))
+    if a.alternatives:
+        al = json.loads(pathlib.Path(a.alternatives).read_text())
+        g = al["gated"]["0.8"]
+        rows.append(("sign_on_screen_with_alternatives", "", g["sign_on_screen_3_shown"], "%", dev,
+                     f"{rt}; the app's tap-to-correct: the caption's word plus two offered words (best word of each further same-sign set), "
+                     f"offered when confidence in the shown sign is under 0.8 ({g['captions_with_chips_pct']}% of captions); the clip's sign is among "
+                     f"the words on screen; top word alone {al['top1_sign']}%, always offered {al['sign_among_3_shown']}%; {al['clips']} whole test clips", ""))
     if a.live:
         lv = json.loads(pathlib.Path(a.live).read_text())
         what = (f"{lv['streams']} streams of {lv['words']} chained held-out test clips, {lv['subset']} words open, PyTorch FP32 with the "

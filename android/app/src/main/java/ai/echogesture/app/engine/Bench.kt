@@ -45,7 +45,8 @@ import java.util.Random
  *       90 s, signing on 1 GPU lane 90 s; files power_live_*.jsonl, power_mw averaged from 1 s current samples
  *
  * Results go to logcat (tag EchoBench) and to bench_<mode>.jsonl next to bench.mp4. The screen stays on at the
- * brightness it had; the speaker is silent.
+ * brightness it had; the speaker is silent unless a live run is started with --ez voice true, which speaks the
+ * captions as the app does and times each word from the frame that settled it to the first sound.
  */
 class Bench(private val context: Context, private val engine: SignEngine) {
     private val _status = MutableStateFlow("Starting benchmark")
@@ -108,7 +109,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
 
     /** [lanes]: one delegate per live landmarker, true for GPU (SignEngine.Lane). */
     suspend fun live(seconds: Int, fps: Int, lanes: List<Boolean>, blank: Boolean = false, gate: Boolean = false, prefix: String = "bench",
-                     file: String = "bench.mp4") {
+                     file: String = "bench.mp4", voice: Boolean = false) {
         val tag = lanes.joinToString("+") { if (it) "gpu" else "cpu" } + (if (blank) "_blank" else "") + (if (gate) "_gated" else "")
         val out = File(dir, "${prefix}_live_${fps}fps_$tag.jsonl").apply { writeText("") }
         engine.lanesForBench(lanes)
@@ -124,7 +125,11 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         }
         engine.gateIdle = gate
 
-        engine.speaker.enabled = false
+        // voice: the captions are spoken as in the app, and each word is timed from the frame that settled it
+        // to the moment the text-to-speech engine starts to sound.
+        val voiceMs = ArrayList<Double>()
+        engine.speaker.onDelay = if (voice) { ms -> synchronized(voiceMs) { voiceMs += ms }; Log.i(TAG, "voice " + ms + " ms after the frame") } else null
+        engine.speaker.enabled = voice
         engine.acquireLive()
         val stats = SignEngine.BenchStats()
         engine.bench = stats
@@ -204,6 +209,15 @@ class Bench(private val context: Context, private val engine: SignEngine) {
             engine.gateIdle = true
             engine.bench = null
             engine.releaseLive()
+            if (voice) {
+                delay(1500)   // the last word may still be on its way to the speaker
+                engine.speaker.enabled = false
+                engine.speaker.onDelay = null
+                val v = synchronized(voiceMs) { voiceMs.toDoubleArray() }
+                emit(out, JSONObject().put("bench", "live").put("event", "voice").put("words_spoken", v.size)
+                    .put("voice_p50_ms", pct(v, 50.0)).put("voice_p90_ms", pct(v, 90.0)).put("voice_max_ms", v.maxOrNull() ?: 0.0)
+                    .put("voice", engine.speaker.state.value.voice ?: "").put("on_device", engine.speaker.state.value.onDevice))
+            }
             emit(out, JSONObject().put("bench", "live").put("event", "end"))
             _status.value = "Live replay done"
         }

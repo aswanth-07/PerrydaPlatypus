@@ -20,6 +20,21 @@ class TaughtTest {
     }
 
     @Test
+    fun alternativesAreTheBestWordOfEachOtherSign() {
+        // labels 0 and 3 are one sign, 1 is alone, 2 and 4 and 5 are one sign
+        val sets = SameSignSets(intArrayOf(0, 1, 2, 0, 2, 2))
+        // the caption shows 0: its twin 3 is skipped, then 4 stands for its sign, so 2 and 5 are skipped, then 1
+        assertEquals(listOf(4, 1), sets.alternatives(listOf(0, 3, 4, 2, 1, 5), shown = 0, k = 2))
+        assertEquals(listOf(4), sets.alternatives(listOf(0, 3, 4, 2, 1, 5), shown = 0, k = 1))
+        // the caption shows a word that is not the model's first choice: the first choice is offered
+        assertEquals(listOf(0, 4), sets.alternatives(listOf(0, 3, 4, 2, 1, 5), shown = 1, k = 2))
+        assertEquals(emptyList(), sets.alternatives(listOf(0, 3), shown = 0, k = 2), "only names of the shown sign: nothing to offer")
+        assertEquals(emptyList(), sets.alternatives(listOf(0, 1), shown = 99, k = 2))
+        // every label its own sign (a vocabulary without sets): the next best words
+        assertEquals(listOf(2, 0), SameSignSets(intArrayOf(0, 1, 2)).alternatives(listOf(1, 2, 0), shown = 1, k = 2))
+    }
+
+    @Test
     fun prototypeIsTheUnitMeanOfUnitExamples() {
         // scale must not matter: a long and a short vector pointing the same way count equally
         val p = Embeddings.prototype(listOf(floatArrayOf(10f, 0f), floatArrayOf(0f, 0.1f)))

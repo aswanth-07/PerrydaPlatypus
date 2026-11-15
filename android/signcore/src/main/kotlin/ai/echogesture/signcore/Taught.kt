@@ -15,6 +15,24 @@ class SameSignSets(private val setOf: IntArray) {
 
     /** The other names of label i, in label order; empty when the sign has one name. */
     fun others(i: Int): List<Int> = if (i in setOf.indices) members[setOf[i]].orEmpty().filter { it != i } else emptyList()
+
+    /**
+     * What a caption can offer beside the word it shows: walking the model's ranking `order` (best first), the best
+     * label of each further sign, `k` of them. Names of the shown word's own sign are skipped (the caption already
+     * lists them as "same sign"), and so is every later name of a sign already offered. scripts/alternatives_eval.py
+     * measures the same rule.
+     */
+    fun alternatives(order: List<Int>, shown: Int, k: Int): List<Int> {
+        if (shown !in setOf.indices || k <= 0) return emptyList()
+        val seen = hashSetOf(setOf[shown])
+        val out = ArrayList<Int>(k)
+        for (j in order) {
+            if (j !in setOf.indices || !seen.add(setOf[j])) continue
+            out += j
+            if (out.size == k) break
+        }
+        return out
+    }
 }
 
 /** Pooled clip embeddings (the model's `embedding` output) compared by cosine. */

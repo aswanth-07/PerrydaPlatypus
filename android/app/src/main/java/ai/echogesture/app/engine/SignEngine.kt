@@ -67,6 +67,7 @@ data class LiveState(
     val lastWordAt: Long = 0,
     val lastAlso: List<String> = emptyList(),   // other names of the same sign (DOCTOR · PHYSICIAN)
     val lastTaught: Boolean = false,            // the last word is a sign taught on this phone
+    val lastAlternatives: List<String> = emptyList(),   // other signs it could have been; a tap swaps one in
     val recording: Float? = null,               // 0..1 while an example for a taught sign is being recorded
     val fps: Double = 0.0,
     val landmarksMs: Double = 0.0,
@@ -210,6 +211,20 @@ class SignEngine(private val context: Context) : AutoCloseable {
         val i = p.order[0]
         if (p.labels[i] != word) return emptyList()
         return sameSign?.others(i)?.map { p.labels[it] }.orEmpty()
+    }
+
+    /**
+     * Other signs the caption offers beside [word]: the best word of each further sign in the model's ranking
+     * (SameSignSets.alternatives). Offered only while the model's confidence in the shown sign is under ALT_BELOW,
+     * so a caption it is sure of stays clean. On the WLASL2000 test clips the sign that was made is then on screen
+     * for 89.9% of clips against 76.8% for the top word alone, with words offered under 67% of captions
+     * (scripts/alternatives_eval.py).
+     */
+    private fun alternatives(p: Prediction, word: String): List<String> {
+        val i = if (p.top == word) p.order[0] else p.labels.indexOf(word)
+        if (i < 0 || p.setProbs[i] >= ALT_BELOW) return emptyList()
+        val sets = sameSign ?: SameSignSets(IntArray(p.labels.size) { it })   // no sets: every word its own sign
+        return sets.alternatives(p.order, i, ALTERNATIVES).map { p.labels[it] }
     }
 
     private val _live = MutableStateFlow(LiveState())
@@ -394,8 +409,37 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     fun clearCaption() {
         worker.execute { spotter?.reset() }
-        _live.update { it.copy(caption = emptyList(), lastWord = null, top = emptyList(), lastAlso = emptyList(), lastTaught = false) }
+        _live.update {
+            it.copy(caption = emptyList(), lastWord = null, top = emptyList(), lastAlso = emptyList(), lastTaught = false,
+                lastAlternatives = emptyList())
+        }
     }
+
+    /**
+     * The person tapped one of the offered words: it replaces the newest caption word on screen and in the
+     * conversation, and is spoken, so the hearing person hears the correction. Runs on the spotter's thread, after
+     * the frames already queued, and does nothing if the caption has moved on by then.
+     */
+    fun correctLast(to: String) {
+        worker.execute {
+            val from = _live.value.lastWord ?: return@execute
+            if (spotter?.replaceLast(from, to) != true) return@execute
+            val labels = model?.labels.orEmpty()
+            val names = sameSign?.others(labels.indexOf(to))?.map { labels[it] }.orEmpty()
+            _live.update {
+                it.copy(caption = it.caption.dropLast(1) + to, lastWord = to, lastWordAt = SystemClock.uptimeMillis(),
+                    lastAlso = names, lastTaught = false, lastAlternatives = emptyList())
+            }
+            _transcript.update { t ->
+                val k = t.indexOfLast { it.who == Who.SIGNER && it.word == from }
+                if (k < 0) t else t.toMutableList().also { m -> m[k] = m[k].copy(word = to) }
+            }
+            speaker.speak(to)
+        }
+    }
+
+    /** A benchmark replays a video through the live screen (--ez ui true): camera frames are ignored meanwhile. */
+    @Volatile var replayOnly = false
 
     fun clearTranscript() = _transcript.update { emptyList() }
 
@@ -403,7 +447,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
     fun analyze(proxy: ImageProxy) {
         // MediaPipe drops frames that arrive while it is busy; dropping them here, before the RGBA copy and the
         // resize, saves that work too. A signer in view costs Holistic about 65 ms a frame on a 2026 flagship.
-        if (lanes.isEmpty() || model == null || _live.value.paused || busy() || !wantFrame(SystemClock.uptimeMillis())) {
+        if (replayOnly || lanes.isEmpty() || model == null || _live.value.paused || busy() || !wantFrame(SystemClock.uptimeMillis())) {
             proxy.close()
             return
         }
@@ -509,6 +553,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
             val hit = event?.taught
             val taught = hit != null
             val alsoNames = if (word != null && !taught) event.prediction?.let { also(it, word) }.orEmpty() else emptyList()
+            val others = if (word != null && !taught) event.prediction?.let { alternatives(it, word) }.orEmpty() else emptyList()
             for (w in event?.words.orEmpty()) {
                 speaker.speak(w, ts)   // ts is the uptime of the camera frame that settled the word
                 val conf = hit?.cosine ?: event?.prediction?.confidence ?: 0f
@@ -539,6 +584,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
                     lastWordAt = if (word != null) SystemClock.uptimeMillis() else st.lastWordAt,
                     lastAlso = if (word != null) alsoNames else st.lastAlso,
                     lastTaught = if (word != null) taught else st.lastTaught,
+                    lastAlternatives = if (word != null) others else st.lastAlternatives,
                     recording = progress,
                 )
             }
@@ -706,6 +752,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
         // higher on the WLASL2000 test videos (64.63 vs 63.45, predict() on the laptop) at 2.8x the time, so
         // the scored predict() tracks every frame and the Videos tab keeps 24.
         const val MAX_CLIP_FRAMES = 24
+        /** Words offered beside the caption's newest word, and the confidence in the shown sign under which they are. */
+        const val ALTERNATIVES = 2
+        const val ALT_BELOW = 0.8f
         /** Live lanes by default; see [Lane]. */
         const val DEFAULT_LANES = 2
         /** Video landmarkers taking a picked clip's frames in turn. */

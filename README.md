@@ -224,6 +224,7 @@ a 30 fps camera (`engine/Bench.kt`, `scripts/phone_bench_report.py`; `android/RE
 | App CPU, memory | 2.1 cores of 10, 458 MB PSS; GPU idle |
 | Power, whole phone, screen on, on battery | live at 30 fps **2,869 mW**; nobody in view 724 mW (signing-gated) vs 1,583 mW (gating off); the old single GPU tracker at 10 fps 1,180 mW; the app open with nothing tracked 712 mW |
 | Power of the classifier | 395 mW above that baseline at 6 windows a second (2 threads, spin-waiting; the app now uses 1 thread without spinning) |
+| Sign to voice | the word settles 200 ms after the hands come to rest; the phone starts to speak it **70 ms** (median) after the camera frame that settled it, with an installed voice and no network. 368 ms at p90, when a word waits for the one before it to finish (26 words of a replayed stream of test signs; the speaker's own output delay is not included) |
 | Picked video (Videos tab) | 0.57 s p50 per clip, decode + 24 frames + classifier (2.73 s before the 13 Nov rework) |
 
 What made it real time: on this phone MediaPipe's CPU path is faster than its GPU path (the GPU stays at a third of
@@ -259,6 +260,14 @@ Beyond captions:
   it into large text for the signer, and the line joins the Chat tab. Audio stays on the phone. Together with spoken
   captions this is the two-way conversation the brief describes: signs to voice, voice to text.
 - **Same-sign captions.** "same sign: PHYSICIAN" under DOCTOR (see "One sign, several names").
+- **Tap to correct.** When the model is not sure of a live word, the caption offers two other signs it could have
+  been ("or BIBLE · WALLET": the best word of each further same-sign set in its ranking). One tap swaps the word on
+  screen and in the conversation, and the phone speaks the correction. On the 2,878 WLASL2000 test clips the top
+  word is the sign that was made for 76.8% of clips (64.4% by exact word); with the two offers always shown the
+  sign is on screen for 90.8%. The app offers them only when its confidence in the shown sign is under 80%, which
+  is 67% of captions: the sign is then on screen for 89.9%, and a caption shown without offers is right 95.1% of
+  the time (`scripts/alternatives_eval.py`; measured on whole test clips, not on live streams). No extra model,
+  size or latency: it reads the ranking the classifier already returns.
 - **Teach a sign.** Type a word and record it 1 to 5 times; the app averages the examples' embeddings (the
   classifier's pooled 384 features) into a prototype and from then on captions and speaks that word when a window
   matches it (cosine ≥ 0.55, adjustable). Only keypoints are stored. Measured offline (`scripts/fewshot_eval.py`)

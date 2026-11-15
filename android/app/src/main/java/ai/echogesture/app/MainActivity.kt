@@ -42,12 +42,18 @@ class MainActivity : ComponentActivity() {
         // Benchmark mode (engine/Bench.kt): started from adb, no camera, screen kept on.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val bench = Bench(this, vm.engine)
+        // --ez ui true: the real screens over the replayed video, so captions can be looked at and tapped; the
+        // camera stays off and only the replay feeds the engine.
+        val ui = mode == "live" && intent.getBooleanExtra("ui", false)
+        vm.engine.replayOnly = ui
         setContent {
             EchoTheme {
-                val status by bench.status.collectAsStateWithLifecycle()
-                Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center) {
-                    Text("EchoGesture benchmark", style = MaterialTheme.typography.headlineSmall)
-                    Text(status, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 12.dp))
+                if (ui) EchoApp(vm) else {
+                    val status by bench.status.collectAsStateWithLifecycle()
+                    Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center) {
+                        Text("EchoGesture benchmark", style = MaterialTheme.typography.headlineSmall)
+                        Text(status, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 12.dp))
+                    }
                 }
             }
         }
@@ -76,7 +82,7 @@ class MainActivity : ComponentActivity() {
                         if (intent.hasExtra("boundary")) vm.engine.boundaryForBench(intent.getBooleanExtra("boundary", true))
                         bench.live(intent.getIntExtra("seconds", 600), intent.getIntExtra("fps", 30), lanes,
                             blank = intent.getBooleanExtra("blank", false), gate = intent.getBooleanExtra("gate", false),
-                            file = intent.getStringExtra("file") ?: "bench.mp4")
+                            file = intent.getStringExtra("file") ?: "bench.mp4", voice = intent.getBooleanExtra("voice", false))
                     }
                 }
             }.onFailure { android.util.Log.e(Bench.TAG, "benchmark failed", it) }

@@ -244,6 +244,17 @@ class Spotter(
         sinceLast = 0
     }
 
+    /**
+     * The person corrected the newest caption word: `from` becomes `to`. False when the caption has moved on (its
+     * last word is no longer `from`), so a late tap never rewrites a different word.
+     */
+    fun replaceLast(from: String, to: String): Boolean {
+        if (caption.lastOrNull() != from) return false
+        caption.removeLast()
+        caption.addLast(to)
+        return true
+    }
+
     fun reset() {
         frames.clear()
         caption.clear()

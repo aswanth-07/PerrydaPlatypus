@@ -37,6 +37,8 @@ class Speaker(context: Context) : AutoCloseable {
 
     @Volatile var enabled = false
     @Volatile var hold = false     // true while the microphone listens, so the phone does not hear itself
+    /** Called with every measured delay (frame that settled the word -> first sound); the benchmark listens. */
+    @Volatile var onDelay: ((Double) -> Unit)? = null
     @Volatile private var ready = false
     private val settledAt = ConcurrentHashMap<String, Long>()   // utterance id -> uptime of the frame that settled the word
     private val waiting = AtomicInteger(0)
@@ -78,6 +80,7 @@ class Speaker(context: Context) : AutoCloseable {
     }
 
     private fun record(ms: Double) {
+        onDelay?.invoke(ms)
         synchronized(delays) {
             delays.addLast(ms)
             while (delays.size > 25) delays.removeFirst()

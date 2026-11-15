@@ -89,4 +89,20 @@ class SpotterTest {
         assertTrue(!spotter.signing, "an open stretch survived the switch to the sliding window")
         model.close()
     }
+
+    /** A tap on an offered word rewrites the newest caption word, and only while it still is the newest. */
+    @Test
+    fun correctionReplacesOnlyTheNewestWord() {
+        val la = JSONArray(File(dir, "labels.json").readText())
+        val model = SignModel(File(dir, "sign_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
+        val spotter = Spotter(model)
+        assertTrue(!spotter.replaceLast("BOOK", "BIBLE"), "nothing captioned yet")
+        spotter.caption.addLast("DRINK")
+        spotter.caption.addLast("BOOK")
+        assertTrue(spotter.replaceLast("BOOK", "BIBLE"))
+        assertEquals(listOf("DRINK", "BIBLE"), spotter.caption.toList())
+        assertTrue(!spotter.replaceLast("BOOK", "WALLET"), "the caption moved on: a late tap changes nothing")
+        assertEquals(listOf("DRINK", "BIBLE"), spotter.caption.toList())
+        model.close()
+    }
 }
