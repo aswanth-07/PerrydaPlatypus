@@ -1,7 +1,7 @@
 package ai.echogesture.signcore
 
 /**
- * Point layout and normalisation, a line-for-line port of scripts/data_v2.py and holistic_kp.py.
+ * Point layout and normalisation, a line-for-line port of src/normalise.py and holistic_kp.py.
  * The exported model expects exactly these numbers; ParityTest checks them against Python.
  *
  * Layout per frame (P = 119 points, x y z):
@@ -185,7 +185,7 @@ object Normaliser {
 }
 
 object Resampler {
-    /** Linear resampling of a clip to tIn steps, as train_v2.sample_time does at test time. */
+    /** Linear resampling of a clip to tIn steps, as train.sample_time does at test time. */
     fun resample(clip: Clip, tIn: Int): Clip {
         val t = clip.t
         fun lerp(src: FloatArray, stride: Int): FloatArray {

@@ -35,7 +35,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             settings.collect { s ->
-                engine.load(s.vocabulary)   // first call loads; later calls reload only when the vocabulary changed
+                engine.load()   // the first call loads the model; later calls return at once
                 engine.configure(s.threshold, s.agree, (s.windowSec * 1000).toLong(), s.gpu, s.continuous, s.caution)
                 engine.setSpeech(s.speak, s.speechRate)
                 engine.setTeachThreshold(s.teachThreshold)
@@ -53,7 +53,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _clipProgress.value = ClipProgress(0f, "Opening $name")
         viewModelScope.launch {
             try {
-                engine.load(settings.value.vocabulary)
+                engine.load()
                 val r = engine.recogniseClip(uri, name) { f, stage -> _clipProgress.value = ClipProgress(f, stage) }
                 _clips.update { listOf(r) + it }
                 _clipProgress.value = null

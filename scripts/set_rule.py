@@ -15,8 +15,9 @@ import torch
 
 repo = pathlib.Path(sys.argv[1])
 sys.path.insert(0, str(repo / "scripts"))
-import model_v2 as mv  # noqa: E402
-import train_v2 as tv  # noqa: E402
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import model as mv  # noqa: E402
+import train as tv  # noqa: E402
 
 N = 2000
 dev = "cuda"

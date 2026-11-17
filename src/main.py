@@ -1,13 +1,13 @@
 """Track 2 entry point: predict(video_path) -> dict, as the brief specifies.
 
-Pipeline (identical on the phone, see android/signcore): MediaPipe Holistic keypoints -> data_v2.normalise
--> linear resample to the model's T steps -> INT8 ONNX classifier (dominant-hand flip, features and the
-ensemble average are inside the graph).
+Pipeline (identical on the phone, see android/signcore): MediaPipe Holistic keypoints -> normalise.normalise
+-> linear resample to the model's T steps -> the EchoGesture INT8 ONNX model (2,000 ASL words; dominant-hand
+flip, features and the same-sign answer rule are inside the graph).
 
-Usage: python src/main.py <video or folder> [--out predictions.jsonl] [--model-dir src/models/full] [--models-dir DIR]
+Usage: python src/main.py <video or folder> [--out predictions.jsonl] [--model-dir src/models]
 
-Everything predict() needs lives in src/: this file, data_v2.py, extract_v2.py, holistic_kp.py and src/models/
-(INT8 classifiers and the MediaPipe Holistic task file).
+Everything predict() needs lives in src/: this file, normalise.py, extract.py, holistic_kp.py and src/models/
+(echogesture_int8.onnx, its labels and same-sign sets, and the MediaPipe Holistic task file).
 """
 import argparse
 import json
@@ -23,15 +23,13 @@ sys.path.insert(0, str(SRC))
 import numpy as np  # noqa: E402
 import onnxruntime as ort  # noqa: E402
 
-import data_v2 as dv  # noqa: E402
-import extract_v2 as ev  # noqa: E402
+import normalise as dv  # noqa: E402
+import extract as ev  # noqa: E402
 import holistic_kp as hk  # noqa: E402
 
-# src/models/full: all 2,000 WLASL words (default, since the scored vocabulary is not published);
-# src/models/core: the 100 most common words, most accurate; src/models/union: 3,075 words (WLASL + ASL Citizen).
-# ECHO_VOCAB=core|full|union picks one; ECHO_MODELS points at another folder of model directories.
-MODELS = pathlib.Path(os.environ.get("ECHO_MODELS", SRC / "models"))
-DEFAULT_MODEL_DIR = MODELS / os.environ.get("ECHO_VOCAB", "full")
+# The EchoGesture model: all 2,000 WLASL words. ECHO_VOCAB_FILE restricts its answers to a published word list.
+DEFAULT_MODEL_DIR = SRC / "models"
+MODEL_FILE = "echogesture_int8.onnx"
 # Every frame is landmarked, up to 96 (the cap the training keypoints were extracted with). On all 2,878 raw
 # WLASL2000 test videos that scores 64.63% top-1 against 63.45% for 24 evenly spaced frames: Holistic follows the
 # hands across every frame better than across wide gaps. A clip then costs about 57 Holistic calls instead of 24;
@@ -45,7 +43,7 @@ SET_RULE = os.environ.get("ECHO_SET_RULE", "1") != "0"
 
 
 def resample(a, t_in):
-    """Linear resampling along time, the same as train_v2.sample_time at test time."""
+    """Linear resampling along time, the same as train.sample_time at test time."""
     n = len(a)
     pos = np.linspace(0, 1, t_in) * max(n - 1, 0)
     lo = np.floor(pos).astype(int)
@@ -67,18 +65,16 @@ def load_vocab_filter(labels, path):
 
 
 class Predictor:
-    def __init__(self, model_dir=DEFAULT_MODEL_DIR, models_dir=None, threads=1, vocab_file=os.environ.get("ECHO_VOCAB_FILE"),
+    def __init__(self, model_dir=DEFAULT_MODEL_DIR, threads=1, vocab_file=os.environ.get("ECHO_VOCAB_FILE"),
                  reuse_landmarker=os.environ.get("ECHO_FRESH_LANDMARKER") != "1"):
         model_dir = pathlib.Path(model_dir)
-        if models_dir is None:  # holistic_landmarker.task sits beside the vocabulary folders
-            models_dir = model_dir if (model_dir / "holistic_landmarker.task").exists() else model_dir.parent
-        self.models_dir = pathlib.Path(models_dir)
+        self.models_dir = model_dir   # holistic_landmarker.task sits beside the model
         self.labels = json.loads((model_dir / "labels.json").read_text(encoding="utf-8"))
         self.t_in = json.loads((model_dir / "export.json").read_text())["t_in"]
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = 1
-        self.session = ort.InferenceSession(str(model_dir / "sign_int8.onnx"), so, providers=["CPUExecutionProvider"])
+        self.session = ort.InferenceSession(str(model_dir / MODEL_FILE), so, providers=["CPUExecutionProvider"])
         outputs = [o.name for o in self.session.get_outputs()]
         self.output = "raw_probs" if not SET_RULE and "raw_probs" in outputs else outputs[0]
         # ECHO_VOCAB_FILE: when the scored vocabulary is published, answer only from those words.
@@ -180,11 +176,10 @@ def main():
     ap.add_argument("path")
     ap.add_argument("--out", default="predictions.jsonl")
     ap.add_argument("--model-dir", default=str(DEFAULT_MODEL_DIR))
-    ap.add_argument("--models-dir", default=None, help="folder holding holistic_landmarker.task (default: beside the model)")
     a = ap.parse_args()
     p = pathlib.Path(a.path)
     videos = sorted(p.glob("*.mp4")) if p.is_dir() else [p]
-    pred = Predictor(a.model_dir, a.models_dir)
+    pred = Predictor(a.model_dir)
     with open(a.out, "w", encoding="utf-8") as f:
         for v in videos:
             r = pred(v)

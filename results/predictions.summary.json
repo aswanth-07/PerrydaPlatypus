@@ -1,5 +1,5 @@
 {
- "model_dir": "src/models/full",
+ "model_dir": "src/models",
  "shards": 6,
  "landmarker": "reused",
  "clips": 2878,

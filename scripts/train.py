@@ -3,7 +3,7 @@
 Everything after loading the cache runs on the GPU: temporal sampling, augmentation, features, model.
 The checkpoint (an EMA of the weights) is chosen on validation top-1; test is read only at the end.
 
-Usage: train_v2.py <index.json> <cache.pt> <out_dir> --subset 100 [--epochs 300] [--dim 192] [--seed 7] ...
+Usage: train.py <index.json> <cache.pt> <out_dir> --subset 100 [--epochs 300] [--dim 192] [--seed 7] ...
 """
 import argparse
 import copy
@@ -17,9 +17,10 @@ import torch
 import torch.nn.functional as F
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
 import contsign
-import data_v2 as dv
-import model_v2 as mv
+import normalise as dv
+import model as mv
 
 POSE_WRIST = (dv.POSE_KEEP.index(15), dv.POSE_KEEP.index(16))
 FINGERS = [list(range(1 + 4 * f, 5 + 4 * f)) for f in range(5)]

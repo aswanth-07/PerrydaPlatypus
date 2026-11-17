@@ -7,12 +7,12 @@ captions, entirely on the phone. The app has no internet permission: video and k
 
 | Tab | What it does |
 |---|---|
-| **Live** | The camera fills the screen. One status chip ("Signing" while the hands are up / "Watching" / "Show your hands" · vocabulary size), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; when the model was not sure, two other signs it could have been ("or BIBLE · WALLET") as buttons for 8 s: a tap swaps the word on screen and in Chat and speaks it; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
+| **Live** | The camera fills the screen. One status chip ("Signing" while the hands are up / "Watching" / "Show your hands" · 2,000 signs), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; when the model was not sure, two other signs it could have been ("or BIBLE · WALLET") as buttons for 8 s: a tap swaps the word on screen and in Chat and speaks it; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
 | **Chat** | Both sides of the conversation as chat bubbles: signed words (grouped at pauses of more than 4 s) and spoken replies, with copy, share and clear (with a confirmation). |
 | **Signs** | Two modes. **Learn a sign**: a stick figure (left) loops one of 300 common signs, at full or half speed ("Slow"), mirrored to match the front-camera preview beside it (right); the learner copies it and the card under them says "Yes, that was DRINK" or what it looked like instead; Skip / Next sign and Choose (search the 300). Practice is not spoken or kept in Chat. **Teach the app**: as below. |
 | ↳ **Teach the app** | Teach a sign the model does not know (a name sign, a word from another sign language): type the word, record 1 to 5 examples of 2.5 s after a 3-2-1 countdown, with one progress dot per example. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Live and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
 | **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names, the five closest signs and timings for frames, landmarks, model and total. |
-| **Settings** | Signs it knows (Core 100 / Full 2,000 / Extended 3,075), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera faces the signer, hand-tracking overlay); **Advanced**, folded away: caption each sign when the hands rest (on by default), confidence needed, stability and listening window (for signing without rests), taught-sign match, show details, track on the GPU (off by default: two CPU trackers are faster); About (vocabulary, held-out accuracy, size) and the privacy note. |
+| **Settings** | Captions (Eager / Balanced / Careful), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera faces the signer, hand-tracking overlay); **Advanced**, folded away: caption each sign when the hands rest (on by default), confidence needed, stability and listening window (for signing without rests), taught-sign match, show details, track on the GPU (off by default: two CPU trackers are faster); About (2,000 signs, held-out accuracy, size) and the privacy note. |
 
 First launch explains what the camera is for before asking for it; the Clips tab works without the camera.
 
@@ -20,18 +20,18 @@ First launch explains what the camera is for before asking for it; the Clips tab
 
 The live spotter (`signcore/Spotter.kt`, continuous mode) captions each sign as it is made; the signer does not
 lower the hands between words. While a wrist is above a rest line (one shoulder width under the shoulders), and
-for 600 ms after both have dropped, the last 1.2 s are classified every 160 ms by the vocabulary's live model
-(`models/<vocab>/live_int8.onnx`, packed into the app's assets beside `live.json`, its measured decoder
-settings). That model was trained on windows of continuous signing and answers with the sign at the window's
+for 600 ms after both have dropped, the last 1.2 s are classified every 160 ms by the live-caption copy of the
+EchoGesture model (`android/models/echogesture_live_int8.onnx`, packed into the app's assets beside `live.json`,
+its measured decoder settings). That model was trained on windows of continuous signing and answers with the sign at the window's
 centre or with "no sign" between two. A run of windows that name a sign is one sign: each window adds its five
 best answers' probabilities as evidence, and the sign with the most evidence is captioned when the run ends, or
 at once when the evidence is already enough. The leading word is shown muted until then. Settings > Captions
-(Eager / Balanced / Careful) scales the evidence a caption needs. A vocabulary packed without a live model uses
-its clip model for the windows.
+(Eager / Balanced / Careful) scales the evidence a caption needs. A build packed without the live model uses
+the clip model for the windows.
 
-With all 2,000 words open, on held-out test clips joined without rests, the word error rate is
-47.5% against 57.2% for the app as it was (44.4% against 47.1% when the signer does rest; `scripts/live_cont.py`,
-settings cross-fitted on halves of the test clips; the table is in the main README). `SpotterTest` replays six
+With all 2,000 words open, on held-out test clips joined without rests, the INT8 live model's word error rate
+is 46.8% (45.3% when the signer rests after most signs; `scripts/live_cont.py --onnx`, settings cross-fitted on
+halves of the test clips; the table is in the main README). `SpotterTest` replays six
 streams through the Kotlin spotter with the shipped INT8 models and requires the same words at the same frames
 as Python, in both modes (`scripts/make_stream_fixture.py --live` writes `parity/streams.json`).
 
@@ -74,18 +74,18 @@ fetch it (the system downloads it, not the app); otherwise the app says how to a
 
 ### Teach a sign
 
-Every shipped model (Core, Full, Extended) also returns its pooled 384-number embedding; re-exporting Core and Extended for it left their accuracy unchanged. A taught sign is the unit mean of its examples'
+The EchoGesture model also returns its pooled 384-number embedding. A taught sign is the unit mean of its examples'
 unit embeddings (a prototype); a live window or a clip whose embedding is at least 0.55 cosine from a prototype
 (Settings, 0.45 to 0.65) is that word, the closest prototype winning; otherwise the classifier answers. The
-examples are stored as model inputs (`files/taught/<id>/ex_N.bin`, about 120 KB each), not prototypes, because each
-vocabulary's model has its own embedding, so prototypes are rebuilt with whichever model is loaded. Measured
+examples are stored as model inputs (`files/taught/<id>/ex_N.bin`, about 120 KB each), not prototypes, because the
+clip model and the live-caption model each have their own embedding, so prototypes are rebuilt with each. Measured
 offline (`scripts/fewshot_eval.py`, a model trained on WLASL only, 20 ASL Citizen signs it never saw, examples and
 test clips from different signers, 300 episodes): 79.3% right with 1 example, 90.3% with 3, 92.5% with 5; at the
 0.55 threshold 2% of clips of known words trigger a taught sign and 80.5% of taught-sign clips are caught.
 On Indian Sign Language (INCLUDE, 23 signs, 11 taught per episode, split by clip because the set does not label
-signers) the shipped 2,000-word model is right 87.5% / 95.1% / 96.5% with 1 / 3 / 5 examples, but at 0.55 about 37%
+signers) the EchoGesture model is right 87.5% / 95.1% / 96.5% with 1 / 3 / 5 examples, but at 0.55 about 37%
 of clips of untaught ISL signs also match a taught one: raise the threshold when teaching many signs of one other
-language. Vocabularies whose model has no embedding output show a one-line note on the Teach tab instead.
+language.
 
 End to end on the emulator without a camera: `adb shell am start -n ai.echogesture.app/.MainActivity --es bench
 teach --es words AXE,TWINS --ei examples 3 --es file teach_test.mp4` replays `files/teach_<word>_<n>.mp4` as the
@@ -96,8 +96,8 @@ as the taught word and none of the other 6.
 
 ### Learn a sign
 
-`app/.../data/Demos.kt` reads `assets/full/demos.bin` (from `scripts/make_demos.py`): for each of the 300 most
-frequent WLASL words, one train or val clip (the one the shipped classifier is surest of, with a hand seen in most
+`app/.../data/Demos.kt` reads `assets/demos.bin` (`android/models/demos.bin`, from `scripts/make_demos.py`): for each of the 300 most
+frequent WLASL words, one train or val clip (the one the EchoGesture model is surest of, with a hand seen in most
 of the sign, never a test clip), cut to the sign with a short lead-in, 24 steps of 51 points (pose, both hands) as
 bytes; 737 KB in all. The figure is scaled to each sign's own extent. While a word is practised,
 `SignEngine.practiceTarget` makes the spotter report, for each settled sign, the practised word's same-sign set's
@@ -109,7 +109,7 @@ own clip and failed on the 9 others).
 
 | Path | What it is |
 |---|---|
-| `signcore/` | Plain Kotlin shared with the desktop tests: point layout, normalisation (port of `scripts/data_v2.py`), resampling, the ONNX Runtime classifier wrapper, the live `Spotter` (one answer per sign at rest, sliding window for signing without rests; port of `scripts/live_eval.py`), same-sign sets and taught-sign matching (`Taught.kt`) |
+| `signcore/` | Plain Kotlin shared with the desktop tests: point layout, normalisation (port of `src/normalise.py`), resampling, the ONNX Runtime classifier wrapper, the live `Spotter` (one answer per sign at rest, sliding window for signing without rests; port of `scripts/live_eval.py`), same-sign sets and taught-sign matching (`Taught.kt`) |
 | `app/.../engine/SignEngine.kt` | MediaPipe `HolisticLandmarker` lanes (live stream for the camera, video mode for clips; see "Speed"), in-order reassembly, the signing-gated frame rate, the spotter on a worker thread, recording of taught-sign examples, state flows for the UI |
 | `app/.../engine/VideoFrames.kt` | Picked videos: one sequential MediaCodec decode, YUV to ARGB at most 480 px, frames handed to tracking as they arrive |
 | `app/.../engine/Bench.kt` | On-device benchmarks started from adb (see "Benchmarks on the phone") |
@@ -122,11 +122,11 @@ own clip and failed on the 9 others).
 
 `signcore` has unit tests for the taught-sign logic (`TaughtTest`) and a parity test that runs the real INT8 model on the desktop JVM and checks that the Kotlin
 normaliser and the model's probabilities match Python on recorded test clips (normaliser within 7e-6,
-probabilities within 0.02, top-1 identical except where Python itself scores a near-tie; with the shipped 2,000-word
+probabilities within 0.05, top-1 identical except where Python itself scores a near-tie; with the EchoGesture
 model, 39/40 identical and the other clip a 0.0671 vs 0.0668 tie):
 
 ```bash
-python -I scripts/make_parity_fixture.py data/index/WLASL_v0.3.json data/kp_hol src/models/full android/parity --subset 2000
+python -I scripts/make_parity_fixture.py data/index/WLASL_v0.3.json data/kp_hol src/models android/parity --subset 2000
 gradle -p android :signcore:test
 ```
 
@@ -203,14 +203,14 @@ The build uses Gradle, the standard Android build tool (Android Studio runs the 
 1. Install the Android SDK (Android Studio, or the command-line tools) with platform 36 and build-tools 36.1.0,
    and accept its licence.
 2. `android/local.properties`: `sdk.dir=C:\\path\\to\\Android\\Sdk` (Android Studio writes this for you).
-3. `src/models/` (in the repository) holds `sign_int8.onnx`, `labels.json`, `export.json`, and for the 2,000-word model
-   `sets.json` (from `scripts/export_v2.py`) and
-   `holistic_landmarker.task`; the `copyModels` task puts them in the app's assets before every build.
+3. Nothing to copy by hand: the `copyModels` task fills the app's assets before every build from `src/models/`
+   (`echogesture_int8.onnx`, `labels.json`, `sets.json`, `export.json`, `holistic_landmarker.task`) and
+   `android/models/` (`echogesture_live_int8.onnx`, `live.json`, `demos.bin`). The assets folder is not kept in Git.
 4. `gradle -p android :app:assembleRelease` → `app/build/outputs/apk/release/app-release.apk` (signed with the
    debug key so it installs directly; use a real key for distribution).
 
 Emulator: the debug build type adds the x86_64 ABI, so `gradle -p android :app:assembleDebug` installs on an
-x86_64 emulator image (tested on an Android 16 / API 36 Google APIs image: Live, Teach recording and its hand check,
+x86_64 emulator image (tested on an Android 16 / API 36 Google APIs image: Live, Signs (Learn and Teach),
 Videos with a DOCTOR test clip showing "same sign: PHYSICIAN", Chat, Settings, and the Reply permission and
 language-pack flow; the emulator has no microphone or signer, so a recognised reply needs a phone; taught signs and Learn are checked
 there with the replayed-video benches above). If `:app:mergeLibDexDebug` fails with a file "located outside the root directory", delete `android/.gradle`

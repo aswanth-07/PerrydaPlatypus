@@ -9,7 +9,7 @@ the isolated clips, in two places:
                  (the part between the rise and the drop) joined to the next by an interpolated movement, with
                  pauses in the air for some joins and real rests for others. Every clip is first moved into one
                  common body frame, so the stream looks like one signer standing still.
-  windows        training windows for the live model (train_v2.py --cont): a window of the width the phone
+  windows        training windows for the live model (train.py --cont): a window of the width the phone
                  classifies, centred somewhere in such a stream. Centred on a sign, the label is that sign
                  whatever else the window holds; centred between two signs, the label is "no sign".
 
@@ -21,13 +21,12 @@ is the same logic).
 The core of a clip is found from the wrists' height alone (`core_span`): the stretch above the rest line, less
 the rise at its start and the drop at its end.
 """
-import collections
 import math
 
 import numpy as np
 import torch
 
-import data_v2 as dv
+import normalise as dv
 
 REST_H = -1.0        # rest line: the higher wrist, in shoulder widths above the shoulder line (as Spotter.kt)
 CORE_FRAC = 0.65     # the core starts once the wrist has covered this share of its rise (and ends likewise)
@@ -268,7 +267,7 @@ def windows(data, spans, left, perm, c, pool, t_in, flip_fn, none_share=0.25, re
 
     data: X, W, S, L on the GPU; spans: clip_spans(); left: per clip, whether the left hand is the dominant one
     (the model was trained with every clip flipped so that the right hand is); c: the batch's clip rows;
-    pool: rows neighbours are drawn from; flip_fn: train_v2.apply_flip.
+    pool: rows neighbours are drawn from; flip_fn: train.apply_flip.
     Returns x, w, s (B x t_in ...) and is_none (B bools): the window is centred between two signs.
 
     Time is measured in the centre clip's frames and every length is a share of the window, which on the phone is
@@ -363,7 +362,7 @@ def windows(data, spans, left, perm, c, pool, t_in, flip_fn, none_share=0.25, re
     def mix(parts, weights, present):
         """Weighted mean over the sources that have the group at all. Steps where none of the sources in play
         has it (a hand the centre sign never shows) are filled from the nearest steps that do, the way
-        data_v2.fill_group fills a hand the tracker lost; all zero when no source has it."""
+        normalise.fill_group fills a hand the tracker lost; all zero when no source has it."""
         num, den = 0, 0
         for v, wt, pr in zip(parts, weights, present):
             k = (wt * pr).view(b, t_in, *([1] * (v.dim() - 2)))

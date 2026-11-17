@@ -1,12 +1,13 @@
 """Write the fixture the Kotlin ParityTest checks against: raw Holistic frames of some test clips, the
 normalised and resampled model inputs Python computes from them, and the INT8 model's probabilities.
 
-Usage: make_parity_fixture.py <index.json> <kp_dir> <export_dir> <out_dir> [--subset 100] [--clips 40]
+Usage: make_parity_fixture.py <index.json> <kp_dir> src/models android/parity [--subset 2000] [--clips 40]
+
+The Kotlin tests read the model and labels from src/models; only fixture.json is written here.
 """
 import argparse
 import json
 import pathlib
-import shutil
 import sys
 
 import numpy as np
@@ -14,8 +15,9 @@ import onnxruntime as ort
 import torch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import data_v2 as dv
-import train_v2 as tv
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import normalise as dv
+import train as tv
 
 
 def or_null(a):
@@ -29,14 +31,14 @@ def main():
     ap.add_argument("kp_dir")
     ap.add_argument("export_dir")
     ap.add_argument("out")
-    ap.add_argument("--subset", type=int, default=100)
+    ap.add_argument("--subset", type=int, default=2000)
     ap.add_argument("--clips", type=int, default=40)
     a = ap.parse_args()
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     exp = pathlib.Path(a.export_dir)
     t_in = json.loads((exp / "export.json").read_text())["t_in"]
-    sess = ort.InferenceSession(str(exp / "sign_int8.onnx"), providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(str(exp / "echogesture_int8.onnx"), providers=["CPUExecutionProvider"])
     entries = json.load(open(a.index, encoding="utf-8"))[:a.subset]
     tests = [(i["video_id"], e["gloss"].upper()) for e in entries for i in e["instances"]
              if i["split"] == "test" and (pathlib.Path(a.kp_dir) / f"{i['video_id']}.npz").exists()]
@@ -64,8 +66,6 @@ def main():
                           probs=[float(v) for v in probs],
                           **({} if raw is None else dict(raw_probs=[float(v) for v in raw[0]]))))
     (out / "fixture.json").write_text(json.dumps(dict(t_in=t_in, clips=clips)), encoding="utf-8")
-    shutil.copy(exp / "sign_int8.onnx", out / "sign_int8.onnx")
-    shutil.copy(exp / "labels.json", out / "labels.json")
     print(f"{len(clips)} clips -> {out / 'fixture.json'} ({(out / 'fixture.json').stat().st_size / 1e6:.1f} MB)")
 
 

@@ -16,11 +16,10 @@ import json
 import pathlib
 import sys
 
-import numpy as np
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-import extract_v2 as ev  # noqa: E402
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import extract as ev  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("echo_main", ROOT / "src" / "main.py")
 echo = importlib.util.module_from_spec(spec)

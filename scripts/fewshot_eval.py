@@ -30,8 +30,9 @@ import torch
 import torch.nn.functional as F
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import model_v2 as mv  # noqa: E402
-import train_v2 as tv  # noqa: E402
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import model as mv  # noqa: E402
+import train as tv  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 

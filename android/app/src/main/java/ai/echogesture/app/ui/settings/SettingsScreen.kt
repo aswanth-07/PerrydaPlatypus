@@ -42,8 +42,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.ui.components.SectionTitle
 
-private val VOCAB_NAMES = mapOf("core" to ("Core" to "100 signs"), "full" to ("Full" to "2,000 signs"), "union" to ("Extended" to "3,075 signs"))
-
 @Composable
 fun SettingsScreen(vm: MainViewModel) {
     val s by vm.settings.collectAsStateWithLifecycle()
@@ -55,26 +53,6 @@ fun SettingsScreen(vm: MainViewModel) {
 
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
-
-        SectionTitle("Signs it knows")
-        val vocabs = vm.engine.vocabularies
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            vocabs.forEachIndexed { i, v ->
-                SegmentedButton(selected = s.vocabulary == v, onClick = { vm.update { it.copy(vocabulary = v) } },
-                    shape = SegmentedButtonDefaults.itemShape(i, vocabs.size)) {
-                    val (name, count) = VOCAB_NAMES[v] ?: (v to "")
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(name, maxLines = 1)
-                        Text(count, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Full knows all 2,000 WLASL signs. Core knows 100 everyday signs and is the most reliable for live captions; Extended adds 1,075 more from ASL Citizen. Bigger vocabularies are less sure of each word.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
 
         SectionTitle("Captions")
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

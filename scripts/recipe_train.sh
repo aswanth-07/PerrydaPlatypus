@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Overnight chain of 2026-11-13, two runs at a time, safe to start again (a run with result.json is skipped):
-#   1. two more measurement seeds of the plain recipe and of the clean-view teacher (--consist 1.0), so soups of
-#      four plain runs, four teacher runs and mixes of both can be compared at equal size on unseen signers;
-#   2. the eight shipping fine-tunes of the shipped soup (same seeds and starting points) with the teacher.
-# Progress: runs/log_chain_cons.txt. Each run: runs/<name>/result.json, runs/log_<name>.txt.
+# The fine-tunes behind the shipped EchoGesture model, two at a time; a run with result.json is skipped, so it is
+# safe to start again. Each is scripts/run_exp.sh: 2,000 words, 30 epochs, learning rate 5e-4, from a model
+# pretrained on 3,075 signs (WLASL + ASL Citizen):
+#   measure  trained on ASL Citizen's train and validation signers only, then scored on its 11 unseen test
+#            signers; plain recipe and clean-view teacher (--consist 1.0), compared at equal soup size;
+#   deploy   trained on every clip; with the eight plain runs listed in recipe_soup.sh, these eight teacher runs
+#            make the 16-member shipped soup.
+# Progress: runs/log_recipe_train.txt. Each run: runs/<name>/result.json, runs/log_<name>.txt.
 set -u
 cd "$(dirname "$0")/.."
 M=runs/union2_measure_s73/best.pt
@@ -33,10 +36,10 @@ run() {
 n=0
 for job in "${queue[@]}"; do
   # shellcheck disable=SC2086
-  run $job >> runs/log_chain_cons.txt 2>&1 &
+  run $job >> runs/log_recipe_train.txt 2>&1 &
   n=$((n + 1))
   sleep 30
   if [ $((n % 2)) -eq 0 ]; then wait; fi
 done
 wait
-echo "chain done $(date)" >> runs/log_chain_cons.txt
+echo "chain done $(date)" >> runs/log_recipe_train.txt

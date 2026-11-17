@@ -27,9 +27,10 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
 import contsign as cs
-import model_v2 as mv
-import train_v2 as tv
+import model as mv
+import train as tv
 
 POSE = (0, 11, 12, 13, 14, 15, 16, 23, 24)
 CENTRE, WIDTH = np.array([0.5, 0.45]), 0.18

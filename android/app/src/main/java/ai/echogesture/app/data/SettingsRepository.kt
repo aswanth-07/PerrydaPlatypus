@@ -20,7 +20,6 @@ data class Settings(
     val showLandmarks: Boolean = true,
     val backCamera: Boolean = true,    // exocentric: the camera faces the signer
     val gpu: Boolean = false,          // MediaPipe on the GPU delegate; CPU lanes are faster (bench, 13 Nov)
-    val vocabulary: String = "full",   // "full" 2,000 words (default), "core" 100 words, "union" 3,075
     val speak: Boolean = false,        // say each caption word aloud (on-device voice)
     val speechRate: Float = 1.15f,     // a little faster than the engine's default keeps up with signing
     val teachThreshold: Float = 0.55f, // cosine a window needs to a taught sign's prototype
@@ -39,7 +38,6 @@ class SettingsRepository(private val context: Context) {
         val landmarks = booleanPreferencesKey("show_landmarks")
         val back = booleanPreferencesKey("back_camera")
         val gpu = booleanPreferencesKey("gpu_tracking")   // new key: the default changed from GPU to CPU
-        val vocabulary = stringPreferencesKey("vocabulary")
         val speak = booleanPreferencesKey("speak")
         val speechRate = floatPreferencesKey("speech_rate")
         val teachThreshold = floatPreferencesKey("teach_threshold")
@@ -55,7 +53,6 @@ class SettingsRepository(private val context: Context) {
         showLandmarks = p[K.landmarks] ?: Settings().showLandmarks,
         backCamera = p[K.back] ?: Settings().backCamera,
         gpu = p[K.gpu] ?: Settings().gpu,
-        vocabulary = p[K.vocabulary] ?: Settings().vocabulary,
         speak = p[K.speak] ?: Settings().speak,
         speechRate = p[K.speechRate] ?: Settings().speechRate,
         teachThreshold = p[K.teachThreshold] ?: Settings().teachThreshold,
@@ -75,7 +72,6 @@ class SettingsRepository(private val context: Context) {
             p[K.landmarks] = s.showLandmarks
             p[K.back] = s.backCamera
             p[K.gpu] = s.gpu
-            p[K.vocabulary] = s.vocabulary
             p[K.speak] = s.speak
             p[K.speechRate] = s.speechRate
             p[K.teachThreshold] = s.teachThreshold

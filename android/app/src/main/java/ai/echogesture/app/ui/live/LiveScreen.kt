@@ -101,8 +101,6 @@ import ai.echogesture.app.ui.theme.ReplyStyle
 import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
 
-private val VOCAB_SHORT = mapOf("core" to "100 signs", "full" to "2,000 signs", "union" to "3,075 signs")
-
 /**
  * The conversation screen: the camera fills the screen, the signer's words appear in the caption card at the
  * bottom (and are spoken when Voice is on), and the hearing person taps Reply to speak back; their words appear
@@ -162,7 +160,7 @@ fun LiveScreen(vm: MainViewModel) {
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 val (text, colour) = status(state)
-                StatusPill(text + "  ·  " + (VOCAB_SHORT[settings.vocabulary] ?: settings.vocabulary), colour, Modifier.weight(1f, fill = false))
+                StatusPill(text + (vm.engine.info?.takeIf { state.ready }?.let { "  ·  %,d signs".format(it.words) } ?: ""), colour, Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(8.dp))
                 GlassIconButton(Icons.Filled.Cameraswitch, "Switch camera") {
                     vm.update { it.copy(backCamera = !it.backCamera) }

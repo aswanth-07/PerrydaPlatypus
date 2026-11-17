@@ -1,8 +1,10 @@
-# EchoGesture `src/` — the scored `predict()`
+# `src/`: the scored `predict()`
 
 Everything the evaluator runs is in this folder: `main.py` (the `predict()` function), the three modules it uses
-(`holistic_kp.py` keypoints, `data_v2.py` normalisation, `extract_v2.py` video reading) and `models/`
-(INT8 ONNX classifiers and the MediaPipe Holistic task file). Nothing is downloaded at run time and nothing leaves
+(`holistic_kp.py` keypoints, `normalise.py` normalisation, `extract.py` video reading) and `models/`:
+`echogesture_int8.onnx` (the EchoGesture model, 2,000 ASL words, 3.32 MB INT8), `labels.json`, `sets.json` (the
+same-sign set of each word), `export.json` (how it was exported and what it scored) and
+`holistic_landmarker.task` (MediaPipe Holistic). Nothing is downloaded at run time and nothing leaves
 the machine.
 
 ## Run it (Python 3.11)
@@ -29,22 +31,20 @@ predict("clip.mp4")
 ```
 
 - `clip_id` is the file name without extension; `prediction` and `top5` are uppercase words from the model's
-  fixed vocabulary (`models/<vocabulary>/labels.json`).
-- `latency_ms` is the INT8 classifier's inference time for the clip (the figure the brief's 50 ms budget is about).
+  fixed vocabulary (`models/labels.json`, the 2,000 WLASL words).
+- `latency_ms` is the INT8 model's inference time for the clip (the figure the brief's 50 ms budget is about).
   `pipeline_ms` is the whole clip on one CPU thread: decoding, MediaPipe Holistic on each landmarked frame and the
-  classifier. `keypoints_ms_per_frame` is the Holistic cost per frame, which is what a live camera pays per frame.
+  model. `keypoints_ms_per_frame` is the Holistic cost per frame, which is what a live camera pays per frame.
 
 ## Options (environment variables)
 
 | Variable | Default | Effect |
 |---|---|---|
-| `ECHO_VOCAB` | `full` | `full` = 2,000 WLASL words, `core` = the 100 most common, `union` = 3,075 (WLASL + ASL Citizen) |
 | `ECHO_VOCAB_FILE` | unset | a word list (one per line or a JSON list): answers are restricted to those words |
 | `ECHO_FRAMES` | `96` | frames landmarked per clip: every frame up to 96, then evenly spaced. `24` is 2.8x faster per clip and costs 1.2 points top-1 (63.45% vs 64.63% on the 2,878 WLASL2000 test videos) |
 | `ECHO_SET_RULE` | `1` | `0` answers from the network's own probabilities instead of the same-sign answer rule (see the main README) |
 | `ECHO_FRESH_LANDMARKER` | unset | `1` builds a new Holistic landmarker per clip (same accuracy, slower) |
 | `ECHO_LANES` | `1` | `2`: two Holistic landmarkers take the clip's frames in turn, in parallel threads; 1.8x faster per clip, 78.8% vs 79.5% top-1 on the first 600 test clips (within noise). Published numbers use 1 |
-| `ECHO_MODELS` | `src/models` | another folder of model directories |
 
 ## Docker
 

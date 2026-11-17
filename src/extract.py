@@ -4,7 +4,7 @@ Some WLASL entries are cut from longer videos. The 21k copy is already cut for m
 still hold the whole source video, so the next sign leaks in; those are sliced here, with frame numbers
 scaled by the copy's frame rate against the main copy's (or 25/30 when the main copy lacks the clip).
 
-Usage: extract_v2.py <index.json> <videos_dir> <out_dir> <models_dir> [--main-videos DIR] [--workers N] [--top K] [--limit 96]
+Usage: extract.py <index.json> <videos_dir> <out_dir> <models_dir> [--main-videos DIR] [--workers N] [--top K] [--limit 96]
 """
 import argparse
 import json
@@ -40,7 +40,6 @@ def frame_count(path):
 
 def slice_for(job):
     """Frame range [a, b) to keep, or None for the whole clip."""
-    import cv2
     path, start, end, main_path = job["video"], job["start"], job["end"], job["main"]
     n = frame_count(path)
     if start == 1 and end == -1:

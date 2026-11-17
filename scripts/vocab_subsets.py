@@ -24,8 +24,9 @@ import torch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-import export_v2 as ex  # noqa: E402
-import train_v2 as tv  # noqa: E402
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import export as ex  # noqa: E402
+import train as tv  # noqa: E402
 
 
 def restrict(probs, keep, set_probs=None, set_of=None):
@@ -57,7 +58,7 @@ def main():
     feeds = ex.batches({k: cache[k] for k in ("X", "W", "S", "L")}, ids, json.loads((md / "export.json").read_text())["t_in"])
     so = ort.SessionOptions()
     so.intra_op_num_threads = 4
-    sess = ort.InferenceSession(str(md / "sign_int8.onnx"), so, providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(str(md / "echogesture_int8.onnx"), so, providers=["CPUExecutionProvider"])
     outs = [sess.run(["probs", "set_probs", "raw_probs"], f) for f in feeds]
     probs = np.concatenate([o[0] for o in outs])
     mass = np.concatenate([o[1] for o in outs])

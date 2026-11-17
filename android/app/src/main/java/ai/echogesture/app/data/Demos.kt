@@ -42,14 +42,14 @@ class Demo(val word: String, val durationMs: Int, val frames: Int, val points: I
 }
 
 /**
- * The demonstrations packed with the app (assets/full/demos.bin, written by scripts/make_demos.py): keypoints of
+ * The demonstrations packed with the app (assets/demos.bin, written by scripts/make_demos.py): keypoints of
  * one training clip per word, never video. Loaded once, on first use.
  */
 object Demos {
     @Volatile private var cached: Map<String, Demo>? = null
 
     fun load(context: Context): Map<String, Demo> = cached ?: synchronized(this) {
-        cached ?: runCatching { parse(context.assets.open("full/demos.bin").readBytes()) }.getOrDefault(emptyMap()).also { cached = it }
+        cached ?: runCatching { parse(context.assets.open("demos.bin").readBytes()) }.getOrDefault(emptyMap()).also { cached = it }
     }
 
     fun parse(bytes: ByteArray): Map<String, Demo> {

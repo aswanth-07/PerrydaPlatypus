@@ -110,9 +110,9 @@ fun LearnScreen(vm: MainViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    // Signs that have a demonstration and that the loaded vocabulary can recognise.
+    // Signs that have a demonstration and that the model can recognise.
     val demos = remember { Demos.load(context) }
-    val known = remember(live.ready, settings.vocabulary) { vm.engine.labels().toSet() }
+    val known = remember(live.ready) { vm.engine.labels().toSet() }
     val words = remember(demos, known) { demos.keys.filter { it in known } }
 
     var index by rememberSaveable { mutableIntStateOf(0) }

@@ -29,7 +29,7 @@ class Prediction(
 }
 
 /**
- * The exported INT8 classifier (scripts/export_v2.py). It takes a clip already resampled to tIn steps and
+ * The exported INT8 classifier (scripts/export.py). It takes a clip already resampled to tIn steps and
  * returns class probabilities; dominant-hand flip, features, the ensemble average and (when exported with it)
  * the same-sign answer rule are inside the graph. Newer exports also return set_probs and embedding by name.
  */

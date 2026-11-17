@@ -11,7 +11,7 @@ Normalisation, the part the phone must repeat exactly: make x, y, z isotropic us
 centre on the clip's mean shoulder midpoint, divide by the clip's median shoulder width, fill tracking
 gaps by linear interpolation in time per group, clamp to +-CLAMP.
 
-Usage: data_v2.py <kp_dir> <out.pt> [--format holistic|legacy]
+Usage: normalise.py <kp_dir> <out.pt> [--format holistic|legacy]
 """
 import argparse
 import pathlib

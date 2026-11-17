@@ -11,7 +11,7 @@ Two spotters are scored on the same streams by word error rate against the true 
               rests, the sliding window after 4 s without one
   continuous  a window of --window seconds classified every `stride` frames while the hands are up; a run of
               windows that name a sign is one sign, captioned when it ends (contsign.Decoder); meant for a model
-              trained on such windows (train_v2.py --cont)
+              trained on such windows (train.py --cont)
 
 Decoder settings are chosen without the clips they are scored on. The shipped models train on WLASL train and
 val, so val streams would flatter every threshold; instead the test clips are split in two halves by video id,
@@ -34,12 +34,13 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
 import contsign as cs
-import data_v2 as dv
+import normalise as dv
 import live_eval as le
-import model_v2 as mv
+import model as mv
 import signsets
-import train_v2 as tv
+import train as tv
 
 KINDS = dict(norest=(0.5, 0.3, 0.0, 0.2), mixed=(0.4, 0.25, 0.2, 0.15))   # shares of (direct, pause, rest, hover) joins
 TWIN = None            # {word: same-sign set id}, set by main() when the vocabulary has sets

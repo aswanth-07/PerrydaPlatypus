@@ -5,7 +5,7 @@ The exported graph takes the clip already resampled to t_in steps and does every
 dominant-hand flip (if the model was trained with it), features, network, and averaging over an ensemble.
 Inputs:  points [1, T, 119, 3], world [1, T, 2, 21, 3], seen [1, T, 4]   Output: probs [1, classes]
 
-Usage: export_v2.py <index.json> <cache.pt> <out_dir> <ckpt.pt> [<ckpt.pt> ...] [--subset 100] [--calib 400]
+Usage: export.py <index.json> <cache.pt> <out_dir> <ckpt.pt> [<ckpt.pt> ...] [--subset 100] [--calib 400]
 """
 import argparse
 import json
@@ -18,15 +18,16 @@ import torch
 import torch.nn as nn
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import model_v2 as mv
-import train_v2 as tv
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import model as mv
+import train as tv
 
 
 class Deploy(nn.Module):
     """Outputs: probs (what predict() answers from: the same-sign answer rule applied when the model has one),
     set_probs (per gloss, the probability of its whole same-sign set: the confidence the captions use),
     embedding (the pooled features, for signs the user teaches on the device), raw_probs (the network's own
-    probabilities, before the rule). A live model (trained with a "no sign" class, train_v2.py --cont) also returns
+    probabilities, before the rule). A live model (trained with a "no sign" class, train.py --cont) also returns
     none [1, 1], the probability that the window is centred between two signs; its word outputs then sum to
     1 - none."""
 
@@ -162,7 +163,7 @@ def main():
         outs = [deploy(*(torch.from_numpy(f[k]) for k in ("points", "world", "seen"))) for f in feeds]
         torch_probs = torch.cat([o[0] for o in outs])
         torch_raw = torch.cat([o[3] for o in outs])
-    fp32, raw, int8 = out / "sign_fp32.onnx", out / "sign_pre.onnx", out / "sign_int8.onnx"
+    fp32, raw, int8 = out / "echogesture_fp32.onnx", out / "echogesture_pre.onnx", out / "echogesture_int8.onnx"
     ex = tuple(torch.from_numpy(feeds[0][k]) for k in ("points", "world", "seen"))
     torch.onnx.export(deploy, ex, str(fp32), input_names=["points", "world", "seen"],
                       output_names=["probs", "set_probs", "embedding", "raw_probs"] + (["none"] if deploy.none else []),

@@ -20,8 +20,9 @@ import zlib
 os.environ.setdefault("GLOG_minloglevel", "3")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
 
-import extract_v2 as ev  # noqa: E402
+import extract as ev  # noqa: E402
 
 _state = {}
 

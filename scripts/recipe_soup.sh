@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# 13 Nov: settle the clean-view teacher (IG-KZ-037) and score the shipping candidates on both robustness strengths.
-#   1. soups of four measurement runs: plain, teacher, mixed 2+2, and all eight; full suite with the moderate set;
-#   2. soup_mix16 = soupAll8's eight members + the eight teacher shipping runs; WLASL + both robustness strengths;
-#   3. soupAll8 (candidate A) on both robustness strengths.
-# Progress: runs/log_chain_soups.txt.
+# Weight-averaged soups and their scores:
+#   1. soups of four measurement runs (plain, teacher, mixed 2 + 2) and of all eight, scored on unseen signers and
+#      the moderate robustness set: does the clean-view teacher help at equal soup size;
+#   2. soup_mix16, the shipped soup: eight plain fine-tunes and the eight teacher fine-tunes of recipe_train.sh,
+#      scored on WLASL and both robustness strengths (then scripts/finalize_model.sh exports it).
+# Progress: runs/log_recipe_soup.txt.
 set -u
 cd "$(dirname "$0")/.."
 PY="${ECHO_PY:-python}"   # the training environment's Python 3.11

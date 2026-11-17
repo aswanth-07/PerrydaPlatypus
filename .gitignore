@@ -4,14 +4,14 @@
 *.zip
 *.pt
 *.onnx
-# The INT8 models the app and the parity test load ship with the source
-!android/app/src/main/assets/**/*.onnx
-!android/parity/*.onnx
-!android/models/**/*.onnx
-!src/models/**/*.onnx
+# The EchoGesture INT8 models ship with the source (src/models for predict(), android/models for the app's live captions)
+!android/models/*.onnx
+!src/models/*.onnx
 *.tflite
 *.npz
 __pycache__/
 android/**/build/
 android/.gradle/
 android/local.properties
+# Generated before every build from src/models and android/models (app/build.gradle.kts, copyModels)
+android/app/src/main/assets/

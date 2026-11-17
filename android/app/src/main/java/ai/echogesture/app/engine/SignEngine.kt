@@ -211,7 +211,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     // ---------- continuous signing: the live model and its measured decoder settings ----------
 
-    /** The vocabulary's model trained on windows of continuous signing (assets/<vocab>/live_int8.onnx), if packed. */
+    /** The live-caption model, trained on windows of continuous signing (assets/echogesture_live_int8.onnx), if packed. */
     @Volatile private var liveModel: SignModel? = null
     @Volatile private var liveMatcher: TaughtMatcher? = null
     /** The evidence a caption needs, as measured for the loaded live model (live.json); Settings' caution scales both. */
@@ -220,7 +220,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
     @Volatile private var continuousOn = true
     @Volatile private var caution = 1
 
-    /** Decoder settings measured for this vocabulary's live model on held-out streams (scripts/live_cont.py). */
+    /** Decoder settings measured for the live model on held-out streams (scripts/live_cont.py). */
     private fun applyLive(s: Spotter, cfg: JSONObject?) {
         cfg ?: return
         s.liveWindowMs = cfg.optLong("window_ms", s.liveWindowMs)
@@ -244,8 +244,8 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     /** The loaded classifier's bytes and labels, for the latency benchmark. */
     fun modelAsset(): Pair<ByteArray, List<String>> {
-        val labels = JSONArray(context.assets.open("$vocabulary/labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
-        return context.assets.open("$vocabulary/sign_int8.onnx").readBytes() to labels
+        val labels = JSONArray(context.assets.open("labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
+        return context.assets.open(MODEL_ASSET).readBytes() to labels
     }
 
     // ---------- same-sign names and signs taught on the phone ----------
@@ -293,29 +293,21 @@ class SignEngine(private val context: Context) : AutoCloseable {
         private set
 
     private val loading = Mutex()
-    var vocabulary = "full"   // "full": all 2,000 WLASL words (default); "core": 100 words, most accurate; "union": 3,075 signs
-        private set
+    /** Loads the EchoGesture model (2,000 ASL words) and the live-caption model once; later calls return at once. */
+    suspend fun load() = loading.withLock { loadOnce() }
 
-    /** Vocabulary folders packed into this build, in display order. */
-    val vocabularies: List<String> by lazy {
-        val packed = context.assets.list("").orEmpty().toSet()
-        listOf("core", "full", "union").filter { it in packed }
-    }
-
-    suspend fun load(vocab: String = vocabulary) = loading.withLock { loadOnce(vocab) }
-
-    private suspend fun loadOnce(vocab: String) = withContext(Dispatchers.IO) {
-        if (model != null && vocab == vocabulary) return@withContext
+    private suspend fun loadOnce() = withContext(Dispatchers.IO) {
+        if (model != null) return@withContext
         _live.update { it.copy(ready = false) }
-        val labels = JSONArray(context.assets.open("$vocab/labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
+        val labels = JSONArray(context.assets.open("labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
         // One thread, workers sleeping between calls: as fast as two when paced like the spotter (6 a second), and
         // no second core kept spinning (bench_model_spin*.jsonl, power_phase_*.jsonl).
-        val m = SignModel(context.assets.open("$vocab/sign_int8.onnx").readBytes(), labels, threads = 1, spin = false)
-        // The live model answers windows of continuous signing; a vocabulary packed without one falls back on the
+        val m = SignModel(context.assets.open(MODEL_ASSET).readBytes(), labels, threads = 1, spin = false)
+        // The live model answers windows of continuous signing; a build packed without it falls back on the
         // clip model for them (measured: about level with captions at rest, but no waiting for the hands to drop).
-        val lm = runCatching { context.assets.open("$vocab/live_int8.onnx").readBytes() }.getOrNull()
+        val lm = runCatching { context.assets.open(LIVE_MODEL_ASSET).readBytes() }.getOrNull()
             ?.let { SignModel(it, labels, threads = 1, spin = false) }
-        val liveCfg = runCatching { JSONObject(context.assets.open("$vocab/live.json").bufferedReader().readText()) }.getOrNull()
+        val liveCfg = runCatching { JSONObject(context.assets.open("live.json").bufferedReader().readText()) }.getOrNull()
         val old = model
         val oldLive = liveModel
         val s = Spotter(m)
@@ -325,7 +317,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
         }
         // sets.json: one set id per label; only exports made with the same-sign rule have it.
         val setIds = runCatching {
-            val a = JSONArray(context.assets.open("$vocab/sets.json").bufferedReader().readText())
+            val a = JSONArray(context.assets.open("sets.json").bufferedReader().readText())
             IntArray(a.length()) { a.getInt(it) }.takeIf { it.size == labels.size }
         }.getOrNull()
         val sets = setIds?.let(::SameSignSets)
@@ -340,9 +332,8 @@ class SignEngine(private val context: Context) : AutoCloseable {
         worker.submit { model = m; liveModel = lm; spotter = s; sameSign = sets }.get()
         old?.let(retired::add)   // a clip may still be using it; closed with the engine
         oldLive?.let(retired::add)
-        vocabulary = vocab
         info = runCatching {
-            val e = JSONObject(context.assets.open("$vocab/export.json").bufferedReader().readText())
+            val e = JSONObject(context.assets.open("export.json").bufferedReader().readText())
             val int8 = e.getJSONObject("int8")
             ModelInfo(labels.size, int8.getJSONObject("test").getDouble("top1"), int8.getJSONObject("test").getDouble("top5"),
                 e.getInt("test_clips"), e.getJSONArray("ckpts").length(), int8.getDouble("size_mb"))
@@ -374,7 +365,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
         worker.submit { matcher = tm; liveMatcher = ltm; spotter?.taught = tm; spotter?.liveTaught = ltm }.get()
         _teach.value = TeachState(
             supported, signs,
-            if (supported) null else "This vocabulary's model has no embedding output. Choose the 2,000-word vocabulary in Settings to teach signs.",
+            if (supported) null else "This model has no embedding output, so signs cannot be taught.",
         )
     }
 
@@ -824,7 +815,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
             .setModelAssetPath("holistic_landmarker.task")
             .setDelegate(if (gpu) Delegate.GPU else Delegate.CPU)
             .build()
-        // Thresholds match scripts/holistic_kp.py, so the phone sees what the model was trained on.
+        // Thresholds match src/holistic_kp.py, so the phone sees what the model was trained on.
         val b = HolisticLandmarker.HolisticLandmarkerOptions.builder()
             .setBaseOptions(base)
             .setRunningMode(mode)
@@ -853,6 +844,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     companion object {
         private const val TAG = "EchoGesture"
+        /** The EchoGesture model (2,000 ASL words) and its live-caption model, copied into assets by the build. */
+        const val MODEL_ASSET = "echogesture_int8.onnx"
+        const val LIVE_MODEL_ASSET = "echogesture_live_int8.onnx"
         // 24 evenly spaced frames: 0.57 s a picked clip on the phone. Tracking every frame scores 1.2 points
         // higher on the WLASL2000 test videos (64.63 vs 63.45, predict() on the laptop) at 2.8x the time, so
         // the scored predict() tracks every frame and the Videos tab keeps 24.

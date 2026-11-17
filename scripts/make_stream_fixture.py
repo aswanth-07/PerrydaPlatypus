@@ -2,14 +2,14 @@
 and captioned in Python with the INT8 models the phone runs. Spotter.kt must give the same words at the same frames.
 
 Two spotters are recorded for every stream:
-  caption     the boundary spotter (live_eval.run_stream_seg) with the clip model in the parity folder
+  caption     the boundary spotter (live_eval.run_stream_seg) with the clip model (src/models)
   continuous  the continuous spotter (live_cont.run_cont: one caption per run of sign windows) with the live model given by --live,
               its decoder settings read from the live.json beside it; left out when --live is not given
 
 Each stream is `per` consecutive fixture clips at 25 fps (40 ms a frame) followed by half a second with nobody in
 view, with the first clip's frame size for every frame. Writes android/parity/streams.json (a few kilobytes).
 
-Usage: make_stream_fixture.py <parity_dir> [--per 6] [--live android/models/full/live_int8.onnx --sets src/models/full/sets.json]
+Usage: make_stream_fixture.py <parity_dir> [--per 6] [--model-dir src/models] [--live android/models/echogesture_live_int8.onnx --sets src/models/sets.json]
 """
 import argparse
 import json
@@ -20,6 +20,7 @@ import numpy as np
 import onnxruntime as ort
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
 import live_eval as le
 
 FPS = 25.0
@@ -61,14 +62,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("parity_dir")
     ap.add_argument("--per", type=int, default=6)
-    ap.add_argument("--live", help="the live INT8 model (live_int8.onnx, with live.json beside it)")
+    ap.add_argument("--model-dir", default=str(pathlib.Path(__file__).resolve().parents[1] / "src" / "models"))
+    ap.add_argument("--live", help="the live INT8 model (echogesture_live_int8.onnx, with live.json beside it)")
     ap.add_argument("--sets", help="sets.json of the vocabulary: words that are one sign gather evidence together")
     a = ap.parse_args()
     d = pathlib.Path(a.parity_dir)
     fixture = json.loads((d / "fixture.json").read_text())
-    labels = json.loads((d / "labels.json").read_text(encoding="utf-8"))
+    md = pathlib.Path(a.model_dir)
+    labels = json.loads((md / "labels.json").read_text(encoding="utf-8"))
     labels = [l.upper() for l in labels]
-    clf = OnnxClassifier(d / "sign_int8.onnx", fixture["t_in"])
+    clf = OnnxClassifier(md / "echogesture_int8.onnx", fixture["t_in"])
     live = cfg = set_of = None
     if a.live:
         import live_cont as lc

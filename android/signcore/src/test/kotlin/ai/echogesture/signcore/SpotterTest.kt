@@ -47,9 +47,9 @@ class SpotterTest {
         val spec = JSONObject(expect.readText())
         val stepMs = 1000.0 / spec.getDouble("fps")
         val clips = JSONObject(File(dir, "fixture.json").readText()).getJSONArray("clips")
-        val la = JSONArray(File(dir, "labels.json").readText())
+        val la = JSONArray(File(dir, "../../src/models/labels.json").readText())
         val labels = (0 until la.length()).map { la.getString(it).uppercase() }
-        val model = SignModel(File(dir, "sign_int8.onnx").readBytes(), labels)
+        val model = SignModel(File(dir, "../../src/models/echogesture_int8.onnx").readBytes(), labels)
         val streams = spec.getJSONArray("streams")
         var words = 0
         for (n in 0 until streams.length()) {
@@ -77,24 +77,24 @@ class SpotterTest {
 
     /**
      * Continuous captions against Python: the same streams, captioned by Spotter in continuous mode with the app's
-     * live INT8 model (android/models/full) and the decoder settings of its live.json;
+     * live INT8 model (android/models) and the decoder settings of its live.json;
      * scripts/make_stream_fixture.py --live did the same with live_cont.run_cont.
      */
     @Test
     fun continuousSpotterMatchesPython() {
         val expect = File(dir, "streams.json")
-        val liveFile = File(dir, "../models/full/live_int8.onnx")
+        val liveFile = File(dir, "../models/echogesture_live_int8.onnx")
         if (!expect.exists() || !liveFile.exists()) { println("no streams.json or live model: skipped"); return }
         val spec = JSONObject(expect.readText())
         val cfg = spec.optJSONObject("live")
         if (cfg == null) { println("streams.json has no continuous captions: run make_stream_fixture.py --live"); return }
         val stepMs = 1000.0 / spec.getDouble("fps")
         val clips = JSONObject(File(dir, "fixture.json").readText()).getJSONArray("clips")
-        val la = JSONArray(File(dir, "labels.json").readText())
+        val la = JSONArray(File(dir, "../../src/models/labels.json").readText())
         val labels = (0 until la.length()).map { la.getString(it).uppercase() }
-        val model = SignModel(File(dir, "sign_int8.onnx").readBytes(), labels)
+        val model = SignModel(File(dir, "../../src/models/echogesture_int8.onnx").readBytes(), labels)
         val live = SignModel(liveFile.readBytes(), labels)
-        val setsFile = File(dir, "../../src/models/full/sets.json")
+        val setsFile = File(dir, "../../src/models/sets.json")
         val sets = if (setsFile.exists()) JSONArray(setsFile.readText()).let { a -> IntArray(a.length()) { a.getInt(it) } } else null
         val streams = spec.getJSONArray("streams")
         var words = 0
@@ -136,8 +136,8 @@ class SpotterTest {
     @Test
     fun continuousModeSwitchStartsAfresh() {
         val clips = JSONObject(File(dir, "fixture.json").readText()).getJSONArray("clips")
-        val la = JSONArray(File(dir, "labels.json").readText())
-        val model = SignModel(File(dir, "sign_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
+        val la = JSONArray(File(dir, "../../src/models/labels.json").readText())
+        val model = SignModel(File(dir, "../../src/models/echogesture_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
         val c = clips.getJSONObject(0)
         val spotter = Spotter(model)
         spotter.continuous = true
@@ -153,8 +153,8 @@ class SpotterTest {
     @Test
     fun modeSwitchStartsAfresh() {
         val clips = JSONObject(File(dir, "fixture.json").readText()).getJSONArray("clips")
-        val la = JSONArray(File(dir, "labels.json").readText())
-        val model = SignModel(File(dir, "sign_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
+        val la = JSONArray(File(dir, "../../src/models/labels.json").readText())
+        val model = SignModel(File(dir, "../../src/models/echogesture_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
         val c = clips.getJSONObject(0)
         val spotter = Spotter(model)
         val fr = frames(c)
@@ -167,8 +167,8 @@ class SpotterTest {
     /** A tap on an offered word rewrites the newest caption word, and only while it still is the newest. */
     @Test
     fun correctionReplacesOnlyTheNewestWord() {
-        val la = JSONArray(File(dir, "labels.json").readText())
-        val model = SignModel(File(dir, "sign_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
+        val la = JSONArray(File(dir, "../../src/models/labels.json").readText())
+        val model = SignModel(File(dir, "../../src/models/echogesture_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
         val spotter = Spotter(model)
         assertTrue(!spotter.replaceLast("BOOK", "BIBLE"), "nothing captioned yet")
         spotter.caption.addLast("DRINK")

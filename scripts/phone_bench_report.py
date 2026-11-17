@@ -11,6 +11,12 @@ brief's device metrics.
                     row in newer logs); plugged-in rows are left out because the charger feeds the phone
 
 Usage: phone_bench_report.py <live.jsonl> [<sampler.csv>] [--out summary.json]
+       phone_bench_report.py --pairs <dir> [--out summary.json]
+
+--pairs summarises the app's paired power run (Bench.powerPaired, `--es bench powerpair`): power_phase_pair<N>_baseline
+and _classifier files in <dir>. Only rows on battery count, and only rounds whose two phases both have such rows; the
+classifier's own power is the mean of the per-round differences (classifier phase minus its baseline), with its
+standard error across rounds.
 """
 import argparse
 import csv
@@ -19,12 +25,39 @@ import pathlib
 import statistics as st
 
 
+def pairs(d):
+    rows = lambda f: [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+    rounds = []
+    for k in range(1, 100):
+        fb, fc = d / f"power_phase_pair{k}_baseline.jsonl", d / f"power_phase_pair{k}_classifier.jsonl"
+        if not (fb.exists() and fc.exists()):
+            break
+        b = [r for r in rows(fb) if "t_s" in r and r.get("plugged") == 0]
+        c = [r for r in rows(fc) if "t_s" in r and r.get("plugged") == 0]
+        if b and c:
+            rounds.append(dict(round=k, baseline_mw=st.mean(r["power_mw"] for r in b), classifier_mw=st.mean(r["power_mw"] for r in c),
+                               classifier_cpu_pct=st.mean(r["cpu_pct_of_one_core"] for r in c),
+                               baseline_cpu_pct=st.mean(r["cpu_pct_of_one_core"] for r in b), calls_per_10s=st.mean(r["calls"] for r in c)))
+    diffs = [r["classifier_mw"] - r["baseline_mw"] for r in rounds]
+    return dict(rounds_used=len(rounds), rounds=[{k: round(v, 1) for k, v in r.items()} for r in rounds],
+                baseline_mw=round(st.mean(r["baseline_mw"] for r in rounds)), classifier_phase_mw=round(st.mean(r["classifier_mw"] for r in rounds)),
+                classifier_increment_mw=round(st.mean(diffs)), classifier_increment_se_mw=round(st.stdev(diffs) / len(diffs) ** 0.5) if len(diffs) > 1 else None,
+                classifier_cpu_pct=round(st.mean(r["classifier_cpu_pct"] for r in rounds), 1), baseline_cpu_pct=round(st.mean(r["baseline_cpu_pct"] for r in rounds), 1))
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("live")
+    ap.add_argument("live", nargs="?")
+    ap.add_argument("--pairs", help="folder with the paired power run's power_phase_pair* files")
     ap.add_argument("sampler", nargs="?")
     ap.add_argument("--out")
     a = ap.parse_args()
+    if a.pairs:
+        out = pairs(pathlib.Path(a.pairs))
+        print(json.dumps(out, indent=1))
+        if a.out:
+            pathlib.Path(a.out).write_text(json.dumps(out, indent=1), encoding="utf-8")
+        return
     rows = [json.loads(l) for l in open(a.live, encoding="utf-8") if l.strip()]
     start = next(r for r in rows if r.get("event") == "start")
     rep = [r for r in rows if "t_s" in r]
@@ -36,7 +69,7 @@ def main():
     fps0, fps1 = m(first, "fps"), m(last, "fps")
     lat0, lat1 = m(first, "landmarks_p95_ms"), m(last, "landmarks_p95_ms")
     out = dict(
-        device=start.get("device"), soc=start.get("soc"), android=start.get("android"), vocab=start.get("vocab"),
+        device=start.get("device"), soc=start.get("soc"), android=start.get("android"), words=start.get("words", 2000),
         gpu_delegate=start.get("gpu", True), lanes=start.get("lanes", "gpu"), fps_target=start.get("fps_target"),
         frame=f'{start.get("frame_w")}x{start.get("frame_h")}', duration_s=rep[-1]["t_s"],
         fps_mean=round(m(rep, "fps"), 2), fps_first_min=round(fps0, 2), fps_last_min=round(fps1, 2),

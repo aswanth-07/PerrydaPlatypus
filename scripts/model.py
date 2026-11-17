@@ -1,5 +1,5 @@
 """Sign classifier v2: input features are computed inside the network, so the exported model takes
-normalised points straight from the extractor and the phone repeats only data_v2.normalise.
+normalised points straight from the extractor and the phone repeats only normalise.normalise.
 
 Backbone after the 1st-place Kaggle ISLR design (1D depthwise-conv blocks with channel attention,
 interleaved with transformer blocks, over MediaPipe landmarks), sized for INT8 on a phone CPU.
@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import data_v2 as dv
+import normalise as dv
 
 NORM_POINT = 9  # middle-finger knuckle: wrist-to-knuckle length sets the hand's scale
 

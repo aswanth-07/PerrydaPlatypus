@@ -62,7 +62,7 @@ class ParityTest {
     @Test
     fun int8ModelMatchesPython() {
         val fixture = JSONObject(File(dir, "fixture.json").readText())
-        val labels = JSONArray(File(dir, "labels.json").readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
+        val labels = JSONArray(File(dir, "../../src/models/labels.json").readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
         val clips = fixture.getJSONArray("clips")
         // Dynamic INT8 quantizes activations from each input's own range, so the model is sensitive to tiny input
         // changes by itself: in Python, noise of +-7e-6 (the normaliser's worst difference) on the present points
@@ -75,7 +75,7 @@ class ParityTest {
         var agree = 0
         var correct = 0
         val flips = mutableListOf<String>()
-        SignModel(File(dir, "sign_int8.onnx").readBytes(), labels, fixture.getInt("t_in")).use { model ->
+        SignModel(File(dir, "../../src/models/echogesture_int8.onnx").readBytes(), labels, fixture.getInt("t_in")).use { model ->
             for (i in 0 until clips.length()) {
                 val c = clips.getJSONObject(i)
                 val pred = model.classify(Normaliser.normalise(frames(c), c.getInt("width"), c.getInt("height")))

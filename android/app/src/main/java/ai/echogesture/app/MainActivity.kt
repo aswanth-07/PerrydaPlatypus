@@ -58,8 +58,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            val s = vm.settings.first { true }
-            vm.engine.load(intent.getStringExtra("vocab") ?: s.vocabulary)
+            vm.settings.first { true }
+            vm.engine.load()
             runCatching {
                 when (mode) {
                     "model" -> bench.model(intent.getIntExtra("runs", 400))
@@ -69,6 +69,20 @@ class MainActivity : ComponentActivity() {
                         bench.live(90, 30, listOf(false, false), blank = true, gate = true, prefix = "power")
                         bench.live(90, 30, listOf(false, false), blank = true, gate = false, prefix = "power")
                         bench.live(90, 30, listOf(true), prefix = "power")
+                    }
+                    "powerall" -> {
+                        // Everything the power rows need in one unplugged session, in the app's shipped settings:
+                        // screen-on baseline, the classifier alone at the live rate (1 thread, not spinning), the live
+                        // pipeline signing on 2 CPU lanes, and nobody in view at the signing-gated rate.
+                        delay(intent.getIntExtra("wait", 60) * 1000L)   // time to unplug the phone
+                        bench.powerSplit(intent.getIntExtra("seconds", 90), 1, false)
+                        bench.live(150, 30, listOf(false, false), prefix = "power")
+                        bench.live(90, 30, listOf(false, false), blank = true, gate = true, prefix = "power")
+                    }
+                    "powerpair" -> {
+                        delay(intent.getIntExtra("wait", 60) * 1000L)   // time to unplug the phone
+                        bench.powerPaired(intent.getIntExtra("rounds", 4), intent.getIntExtra("seconds", 40))
+                        bench.live(150, 30, listOf(false, false), prefix = "power")
                     }
                     "power2" -> {
                         delay(intent.getIntExtra("wait", 45) * 1000L)

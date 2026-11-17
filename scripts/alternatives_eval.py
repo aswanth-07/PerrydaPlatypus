@@ -7,7 +7,7 @@ is the clip's label or a name of the same sign (sets.json; built from train and 
 --gates lists confidences under which the chips are shown at all: a caption the model is sure of stays clean, and
 the table says what each gate costs.
 
-Usage: alternatives_eval.py [--model-dir src/models/full] [--cache data/cache_hol2000w.pt]
+Usage: alternatives_eval.py [--model-dir src/models] [--cache data/cache_hol2000w.pt]
        [--index data/index/WLASL_v0.3.json] [--out runs/analysis/alternatives.json]
 """
 import argparse
@@ -21,8 +21,9 @@ import torch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-import export_v2 as ex  # noqa: E402
-import train_v2 as tv  # noqa: E402
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import export as ex  # noqa: E402
+import train as tv  # noqa: E402
 
 
 def shown(order, set_of, k):
@@ -40,7 +41,7 @@ def shown(order, set_of, k):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model-dir", default=str(ROOT / "src/models/full"))
+    ap.add_argument("--model-dir", default=str(ROOT / "src/models"))
     ap.add_argument("--cache", default=str(ROOT / "data/cache_hol2000w.pt"))
     ap.add_argument("--index", default=str(ROOT / "data/index/WLASL_v0.3.json"))
     ap.add_argument("--gates", default="0.5,0.6,0.7,0.8,0.9")
@@ -55,7 +56,7 @@ def main():
     y = y.numpy()
     so = ort.SessionOptions()
     so.intra_op_num_threads = 4
-    sess = ort.InferenceSession(str(md / "sign_int8.onnx"), so, providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(str(md / "echogesture_int8.onnx"), so, providers=["CPUExecutionProvider"])
     outs = [sess.run(["probs", "set_probs"], f) for f in ex.batches({k: cache[k] for k in ("X", "W", "S", "L")}, ids, 64)]
     probs = np.concatenate([o[0] for o in outs])
     set_probs = np.concatenate([o[1] for o in outs])

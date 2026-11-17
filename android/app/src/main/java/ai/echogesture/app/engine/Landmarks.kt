@@ -8,7 +8,7 @@ import ai.echogesture.signcore.RawFrame
 import ai.echogesture.signcore.Slots
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarkerResult
 
-/** MediaPipe Holistic output -> the signcore frame the model was trained on (same as scripts/holistic_kp.py). */
+/** MediaPipe Holistic output -> the signcore frame the model was trained on (same as src/holistic_kp.py). */
 fun HolisticLandmarkerResult.toRawFrame(): RawFrame {
     val poseList = poseLandmarks()
     val pose = if (poseList.isEmpty()) null else FloatArray(33 * 4).also { a ->

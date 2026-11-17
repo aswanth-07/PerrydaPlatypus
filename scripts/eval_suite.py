@@ -13,16 +13,33 @@ import json
 import pathlib
 import sys
 
+import numpy as np
 import torch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import eval_v2  # noqa: E402
-import model_v2 as mv  # noqa: E402
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import model as mv  # noqa: E402
+import normalise as dv  # noqa: E402
 import signsets  # noqa: E402
-import train_v2 as tv  # noqa: E402
+import train as tv  # noqa: E402
 
 N = 2000
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def load_dir(kp_dir, vids):
+    """Keypoint files <kp_dir>/<vid>.npz as padded GPU tensors (X, W, S, L), in the order of vids."""
+    files = [pathlib.Path(kp_dir) / f"{v}.npz" for v in vids]
+    n = len(files)
+    X = np.zeros((n, dv.T_MAX, dv.P, 3), np.float32)
+    W = np.zeros((n, dv.T_MAX, 2, 21, 3), np.float32)
+    S = np.zeros((n, dv.T_MAX, 4), np.float32)
+    L = np.zeros(n, np.int64)
+    for k, f in enumerate(files):
+        pts, wld, seen = dv.load_clip(f, "holistic")
+        t = min(len(pts), dv.T_MAX)
+        X[k, :t], W[k, :t], S[k, :t], L[k] = pts[:t], wld[:t], seen[:t], t
+    return {k: torch.from_numpy(v).cuda() for k, v in dict(X=X, W=W, S=S, L=L).items()}
 
 
 def load(ckpts):
@@ -109,7 +126,7 @@ def main():
             ry, rl = torch.tensor(labels).cuda(), torch.arange(len(vids)).cuda()
             block = {}
             for cond, d in [("clean", clean_dir)] + [(k, rd / k) for k in conds]:
-                p = probs(models, eval_v2.load_dir(d, vids), rl)
+                p = probs(models, load_dir(d, vids), rl)
                 ruled = signsets.answer_rule(p.double(), set_of, counts)
                 block[cond] = dict(top1=round(100 * (p.argmax(1) == ry).float().mean().item(), 2),
                                    rule_top1=round(100 * (ruled.argmax(1) == ry).float().mean().item(), 2))

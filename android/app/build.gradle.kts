@@ -75,21 +75,14 @@ dependencies {
     implementation("androidx.camera:camera-view:1.6.2")
 }
 
-// The Holistic bundle and the exported vocabularies (core: 100 words, full: 2,000, union: 3,075 when exported)
-// are copied from src/models (the same files predict() loads, kept in Git) into assets before each build; Sync
-// also removes anything stale from earlier layouts.
-val modelDir = rootProject.file("../src/models")
+// Assets are generated, not kept in Git: before every build Sync copies the EchoGesture model, its labels, same-sign
+// sets and export record and the MediaPipe Holistic bundle from src/models (the files predict() loads), and the
+// live-caption model, its decoder settings and the Learn demonstrations from android/models.
 val copyModels = tasks.register<Sync>("copyModels") {
     into(layout.projectDirectory.dir("src/main/assets"))
-    from(modelDir) { include("holistic_landmarker.task") }
-    for (v in listOf("core", "full", "union").filter { File(modelDir, it).isDirectory }) {
-        from(File(modelDir, v)) { include("sign_int8.onnx", "labels.json", "export.json", "sets.json"); into(v) }
+    from(rootProject.file("../src/models")) {
+        include("echogesture_int8.onnx", "labels.json", "export.json", "sets.json", "holistic_landmarker.task")
     }
-    // Live captions of continuous signing use a second INT8 model per vocabulary, trained on windows; it belongs to
-    // the app, not to the scored predict() bundle, so it lives in android/models/<vocab>.
-    val liveDir = rootProject.file("models")
-    for (v in listOf("core", "full", "union").filter { File(liveDir, it).isDirectory }) {
-        from(File(liveDir, v)) { include("live_int8.onnx", "live.json", "demos.bin"); into(v) }
-    }
+    from(rootProject.file("models")) { include("echogesture_live_int8.onnx", "live.json", "demos.bin") }
 }
 tasks.named("preBuild") { dependsOn(copyModels) }

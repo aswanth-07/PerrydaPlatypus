@@ -13,8 +13,8 @@ data class TaughtSign(val id: String, val word: String, val created: Long, val e
 /**
  * Taught signs on the phone's private storage: one folder per sign under files/taught/<id>/ with meta.json and
  * each example's model input (the clip resampled to the model's 64 steps) as raw floats. Only keypoints are
- * stored, never video. Examples are kept rather than prototypes because each vocabulary's model has its own
- * embedding, so prototypes are rebuilt with whichever model is loaded.
+ * stored, never video. Examples are kept rather than prototypes because the clip model and the live-caption
+ * model each have their own embedding, so prototypes are rebuilt with each model when it loads.
  */
 class TaughtStore(context: Context) {
     private val root = File(context.filesDir, "taught").apply { mkdirs() }

@@ -32,7 +32,7 @@ import java.util.Random
  * On-device benchmarks for the brief's metrics, started from adb so they are repeatable:
  *
  *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench model --ei runs 400
- *       classifier latency on the loaded vocabulary for 1, 2 and 4 threads (warm-up, then [runs] timed calls)
+ *       classifier latency of the EchoGesture model for 1, 2 and 4 threads (warm-up, then [runs] timed calls)
  *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench live --ei seconds 600 --ei fps 30 --es lanes gpu,gpu
  *       a signer video (files/bench.mp4 in the app's external files dir) replayed like a camera at [fps] through the
  *       live pipeline: Holistic lanes (gpu or cpu each), the spotter, the classifier; every 10 s a line with
@@ -47,6 +47,14 @@ import java.util.Random
  *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench power
  *       on battery (unplug after starting): signing on 2 CPU lanes 150 s, nobody in view gated 90 s and ungated
  *       90 s, signing on 1 GPU lane 90 s; files power_live_*.jsonl, power_mw averaged from 1 s current samples
+ *
+ *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench powerall [--ei wait 60]
+ *       on battery (unplug within [wait] s): screen-on baseline 90 s, the classifier alone at 6 windows a second on
+ *       1 thread 90 s, signing on 2 CPU lanes 150 s, nobody in view at the signing-gated rate 90 s
+ *
+ *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench powerpair [--ei wait 60] [--ei rounds 4] [--ei seconds 40]
+ *       on battery, best in airplane mode: the classifier's own power as paired differences, baseline and classifier
+ *       phases alternating (files power_phase_pair<N>_baseline / _classifier), then the live pipeline 150 s
  *
  *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench teach --es words AXE,TWINS --ei examples 3 --es file teach_test.mp4
  *       Teach a sign end to end without a camera: for each word, files/teach_<word>_<n>.mp4 (one example each) are
@@ -83,7 +91,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
                 // Back to back, and paced like the live spotter (6 a second), where idle workers either spin or sleep.
                 val ms = DoubleArray(runs) { m.classify(clip).latencyMs }
                 val paced = DoubleArray(minOf(runs, 120)) { Thread.sleep(160); m.classify(clip).latencyMs }
-                emit(out, JSONObject().put("bench", "model").put("vocab", engine.vocabulary).put("threads", threads).put("spin", spin)
+                emit(out, JSONObject().put("bench", "model").put("words", engine.labels().size).put("threads", threads).put("spin", spin)
                     .put("runs", runs).put("p50_ms", pct(ms, 50.0)).put("p95_ms", pct(ms, 95.0)).put("mean_ms", ms.average())
                     .put("paced_p50_ms", pct(paced, 50.0)).put("paced_p95_ms", pct(paced, 95.0)))
             }
@@ -113,7 +121,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         emit(out, JSONObject().put("bench", "clip").put("gpu", gpu).put("file", file).put("runs", runs).put("top1", top)
             .put("total_p50_ms", pct(a(total), 50.0)).put("total_p95_ms", pct(a(total), 95.0))
             .put("tracking_p50_ms", pct(a(track), 50.0)).put("decode_p50_ms", pct(a(decode), 50.0))
-            .put("model_p50_ms", pct(a(model), 50.0)).put("vocab", engine.vocabulary))
+            .put("model_p50_ms", pct(a(model), 50.0)).put("words", engine.labels().size))
         _status.value = "Video recognition done: $top"
     }
 
@@ -212,7 +220,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         var nextFrame = t0
         emit(out, JSONObject().put("bench", "live").put("event", "start").put("fps_target", fps).put("seconds", seconds)
             .put("gpu", lanes.any { it }).put("lanes", tag).put("blank", blank).put("gate", gate).put("replay_frames", frames.size).put("frame_w", frames[0].width).put("frame_h", frames[0].height)
-            .put("vocab", engine.vocabulary).put("device", Build.MODEL).put("soc", Build.SOC_MODEL).put("android", Build.VERSION.RELEASE))
+            .put("words", engine.labels().size).put("device", Build.MODEL).put("soc", Build.SOC_MODEL).put("android", Build.VERSION.RELEASE))
         try {
             while (true) {
                 val now = SystemClock.elapsedRealtime()
@@ -344,6 +352,27 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         val tag = "classifier_6hz_${threads}t" + if (spin) "_spin" else ""
         SignModel(bytes, labels, threads = threads, spin = spin).use { m -> powerPhase(tag, seconds, 6) { m.classify(clip) } }
         _status.value = "Power split done"
+    }
+
+    /**
+     * The classifier's own power, paired: [rounds] times a screen-on baseline phase then the classifier alone at the
+     * live rate (6 windows a second, 1 thread, not spinning), [seconds] each. Alternating cancels the slow drift of
+     * the phone's other consumers; each round's classifier phase minus its baseline is one paired difference.
+     */
+    suspend fun powerPaired(rounds: Int, seconds: Int) {
+        engine.speaker.enabled = false
+        val (bytes, labels) = engine.modelAsset()
+        val rng = Random(7)
+        val t = 64
+        val clip = Clip(t, FloatArray(t * Layout.P * 3) { rng.nextGaussian().toFloat() * 0.5f },
+            FloatArray(t * 2 * 21 * 3) { rng.nextGaussian().toFloat() * 0.05f }, FloatArray(t * 4) { 1f })
+        SignModel(bytes, labels, threads = 1, spin = false).use { m ->
+            for (r in 1..rounds) {
+                powerPhase("pair${r}_baseline", seconds, 0, null)
+                powerPhase("pair${r}_classifier", seconds, 6) { m.classify(clip) }
+            }
+        }
+        _status.value = "Paired power done"
     }
 
     companion object {

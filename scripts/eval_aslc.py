@@ -11,8 +11,9 @@ import sys
 import torch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import model_v2 as mv
-import train_v2 as tv
+sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
+import model as mv
+import train as tv
 
 
 def main():
