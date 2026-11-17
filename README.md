@@ -129,6 +129,8 @@ half of it, half a sign often looks like another sign, and a decoder that answer
 it names 64% of whole clips, and a sign listed under two names (QUIT and RESIGN, MOTHER and MOM) counts as an
 error in the strict rows. Classifying every frame instead of every fourth changes nothing (46.0% against 46.8%
 when the hands never rest), so the phone keeps the six windows a second its power figure was measured at. The
+table is the PyTorch model; the exported INT8 graph the phone runs gives 46.8%, 46.2% and 45.3% at the shipped
+settings (`live_cont.py --onnx`). The
 Kotlin spotter is checked against the Python one word for word and frame for frame on six test streams, in both
 modes (`SpotterTest`). The streams are synthetic joins of isolated clips; no gloss-annotated continuous ASL was
 available, and a real signer's transitions will differ.
