@@ -5,7 +5,7 @@
 #   deploy:  every ASL Citizen clip (test signers too), for shipping
 set -u
 cd "$(dirname "$0")/.."
-PY="${ECHO_PY:-C:\\Users\\AASWAN~1\\AppData\\Local\\Temp\\xr2\\m\\Scripts\\python.exe}"
+PY="${ECHO_PY:-python}"   # the training environment's Python 3.11
 name=$1 seed=$2 init=$3 subset=$4 kind=$5 lr=$6 epochs=$7; shift 7
 if [ "$subset" -gt 2000 ]; then cache=data/cache_aslc_all.pt; else cache=data/cache_aslc2000.pt; fi
 if [ "$kind" = measure ]; then manifest=data/aslcitizen/manifest_trainval.json; else manifest=data/aslcitizen/manifest.json; fi
