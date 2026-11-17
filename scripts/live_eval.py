@@ -252,10 +252,12 @@ def run_stream_seg(frames, wh, fps, clf, labels, rest_h=-1.0, rest_ms=200, pre_m
     return caption
 
 
-def streams(entries, kp_dir, split, subset, n_streams, n_words, seed, rate_div=1):
+def streams(entries, kp_dir, split, subset, n_streams, n_words, seed, rate_div=1, keep=None):
+    """keep: a predicate on the video id, to draw the streams from part of the split only."""
     rng = np.random.default_rng(seed)
     pool = [(i["video_id"], e["gloss"].upper()) for e in entries[:subset] for i in e["instances"]
-            if i["split"] == split and (pathlib.Path(kp_dir) / f"{i['video_id']}.npz").exists()]
+            if i["split"] == split and (pathlib.Path(kp_dir) / f"{i['video_id']}.npz").exists()
+            and (keep is None or keep(i["video_id"]))]
     out = []
     for _ in range(n_streams):
         pick = [pool[j] for j in rng.choice(len(pool), n_words, replace=False)]

@@ -85,5 +85,11 @@ val copyModels = tasks.register<Sync>("copyModels") {
     for (v in listOf("core", "full", "union").filter { File(modelDir, it).isDirectory }) {
         from(File(modelDir, v)) { include("sign_int8.onnx", "labels.json", "export.json", "sets.json"); into(v) }
     }
+    // Live captions of continuous signing use a second INT8 model per vocabulary, trained on windows; it belongs to
+    // the app, not to the scored predict() bundle, so it lives in android/models/<vocab>.
+    val liveDir = rootProject.file("models")
+    for (v in listOf("core", "full", "union").filter { File(liveDir, it).isDirectory }) {
+        from(File(liveDir, v)) { include("live_int8.onnx", "live.json"); into(v) }
+    }
 }
 tasks.named("preBuild") { dependsOn(copyModels) }

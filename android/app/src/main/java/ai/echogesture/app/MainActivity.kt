@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
                         val lanes = intent.getStringExtra("lanes")?.split(",")?.map { it.trim() == "gpu" }
                             ?: List(SignEngine.DEFAULT_LANES) { gpu }
                         if (intent.hasExtra("boundary")) vm.engine.boundaryForBench(intent.getBooleanExtra("boundary", true))
+                        if (intent.hasExtra("continuous")) vm.engine.continuousForBench(intent.getBooleanExtra("continuous", true))
                         bench.live(intent.getIntExtra("seconds", 600), intent.getIntExtra("fps", 30), lanes,
                             blank = intent.getBooleanExtra("blank", false), gate = intent.getBooleanExtra("gate", false),
                             file = intent.getStringExtra("file") ?: "bench.mp4", voice = intent.getBooleanExtra("voice", false))

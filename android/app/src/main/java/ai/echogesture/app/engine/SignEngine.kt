@@ -10,6 +10,7 @@ import androidx.camera.core.ImageProxy
 import ai.echogesture.app.data.TaughtSign
 import ai.echogesture.app.data.TaughtStore
 import ai.echogesture.signcore.Clip
+import ai.echogesture.signcore.Cores
 import ai.echogesture.signcore.Embeddings
 import ai.echogesture.signcore.Layout
 import ai.echogesture.signcore.Normaliser
@@ -63,6 +64,7 @@ data class LiveState(
     val bodyVisible: Boolean = false,           // Holistic finds hands from the body: no body, no hands
     val top: List<Pair<String, Float>> = emptyList(),
     val caption: List<String> = emptyList(),
+    val pending: String? = null,                // the sign under way, not yet settled (continuous captions)
     val lastWord: String? = null,
     val lastWordAt: Long = 0,
     val lastAlso: List<String> = emptyList(),   // other names of the same sign (DOCTOR · PHYSICIAN)
@@ -184,6 +186,43 @@ class SignEngine(private val context: Context) : AutoCloseable {
     }
     @Volatile private var benchBoundary: Boolean? = null
 
+    /** Benchmark only: continuous captions (one per sign while the hands stay up) on or off, whatever Settings says. */
+    fun continuousForBench(on: Boolean) {
+        benchContinuous = on
+        worker.submit { spotter?.continuous = on }.get()
+    }
+    @Volatile private var benchContinuous: Boolean? = null
+
+    // ---------- continuous signing: the live model and its measured decoder settings ----------
+
+    /** The vocabulary's model trained on windows of continuous signing (assets/<vocab>/live_int8.onnx), if packed. */
+    @Volatile private var liveModel: SignModel? = null
+    @Volatile private var liveMatcher: TaughtMatcher? = null
+    /** The evidence a caption needs, as measured for the loaded live model (live.json); Settings' caution scales both. */
+    @Volatile private var liveEmin = 2.5f
+    @Volatile private var liveCommit = 6f
+    @Volatile private var continuousOn = true
+    @Volatile private var caution = 1
+
+    /** Decoder settings measured for this vocabulary's live model on held-out streams (scripts/live_cont.py). */
+    private fun applyLive(s: Spotter, cfg: JSONObject?) {
+        cfg ?: return
+        s.liveWindowMs = cfg.optLong("window_ms", s.liveWindowMs)
+        s.liveStrideMs = cfg.optLong("stride_ms", s.liveStrideMs)
+        s.lo = cfg.optDouble("lo", s.lo.toDouble()).toFloat()
+        s.gap = cfg.optInt("gap", s.gap)
+        s.tailMs = cfg.optLong("tail_ms", s.tailMs)
+        liveEmin = cfg.optDouble("emin", liveEmin.toDouble()).toFloat()
+        liveCommit = cfg.optDouble("commit", liveCommit.toDouble()).toFloat()
+    }
+
+    /** Eager captions need less evidence (sooner, more wrong words); careful ones more. */
+    private fun applyCaution(s: Spotter) {
+        val k = CAUTION_SCALE[caution.coerceIn(0, 2)]
+        s.emin = liveEmin * k
+        s.commit = liveCommit * k
+    }
+
     /** The loaded classifier's bytes and labels, for the latency benchmark. */
     fun modelAsset(): Pair<ByteArray, List<String>> {
         val labels = JSONArray(context.assets.open("$vocabulary/labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
@@ -253,20 +292,35 @@ class SignEngine(private val context: Context) : AutoCloseable {
         // One thread, workers sleeping between calls: as fast as two when paced like the spotter (6 a second), and
         // no second core kept spinning (bench_model_spin*.jsonl, power_phase_*.jsonl).
         val m = SignModel(context.assets.open("$vocab/sign_int8.onnx").readBytes(), labels, threads = 1, spin = false)
+        // The live model answers windows of continuous signing; a vocabulary packed without one falls back on the
+        // clip model for them (measured: about level with captions at rest, but no waiting for the hands to drop).
+        val lm = runCatching { context.assets.open("$vocab/live_int8.onnx").readBytes() }.getOrNull()
+            ?.let { SignModel(it, labels, threads = 1, spin = false) }
+        val liveCfg = runCatching { JSONObject(context.assets.open("$vocab/live.json").bufferedReader().readText()) }.getOrNull()
         val old = model
+        val oldLive = liveModel
         val s = Spotter(m)
         spotter?.let { o ->
             s.threshold = o.threshold; s.slideThreshold = o.slideThreshold; s.agree = o.agree; s.windowMs = o.windowMs
             s.boundary = o.boundary
         }
         // sets.json: one set id per label; only exports made with the same-sign rule have it.
-        val sets = runCatching {
+        val setIds = runCatching {
             val a = JSONArray(context.assets.open("$vocab/sets.json").bufferedReader().readText())
-            IntArray(a.length()) { a.getInt(it) }.takeIf { it.size == labels.size }?.let(::SameSignSets)
+            IntArray(a.length()) { a.getInt(it) }.takeIf { it.size == labels.size }
         }.getOrNull()
+        val sets = setIds?.let(::SameSignSets)
+        liveEmin = 2.5f
+        liveCommit = 6f
+        applyLive(s, liveCfg)
+        s.liveModel = lm
+        s.setOf = setIds
+        applyCaution(s)
+        s.continuous = benchContinuous ?: continuousOn
         // Swap on the worker thread so a live frame never meets a half-replaced model.
-        worker.submit { model = m; spotter = s; sameSign = sets }.get()
+        worker.submit { model = m; liveModel = lm; spotter = s; sameSign = sets }.get()
         old?.let(retired::add)   // a clip may still be using it; closed with the engine
+        oldLive?.let(retired::add)
         vocabulary = vocab
         info = runCatching {
             val e = JSONObject(context.assets.open("$vocab/export.json").bufferedReader().readText())
@@ -288,7 +342,17 @@ class SignEngine(private val context: Context) : AutoCloseable {
             if (embs.isEmpty()) null else sign.word to Embeddings.prototype(embs)
         }
         val tm = TaughtMatcher(protos, teachThreshold).takeIf { protos.isNotEmpty() }
-        worker.submit { matcher = tm; spotter?.taught = tm }.get()
+        // The live model has its own embedding space, so it gets its own prototypes from the same stored examples.
+        // An example is a whole recording, rest to rest; a live window is shorter and centred on the sign, so each
+        // example is cut to the part such a window would hold (Cores.window) before the live model embeds it.
+        val lm = liveModel
+        val share = (spotter?.liveWindowMs ?: 1200L) / TEACH_MS.toFloat()
+        val liveProtos = if (lm == null || !supported) emptyList() else signs.mapNotNull { sign ->
+            val embs = store.examples(sign.id).mapNotNull { runCatching { lm.classify(Cores.window(it, share)).embedding }.getOrNull() }
+            if (embs.isEmpty()) null else sign.word to Embeddings.prototype(embs)
+        }
+        val ltm = TaughtMatcher(liveProtos, teachThreshold).takeIf { liveProtos.isNotEmpty() }
+        worker.submit { matcher = tm; liveMatcher = ltm; spotter?.taught = tm; spotter?.liveTaught = ltm }.get()
         _teach.value = TeachState(
             supported, signs,
             if (supported) null else "This vocabulary's model has no embedding output. Choose the 2,000-word vocabulary in Settings to teach signs.",
@@ -298,10 +362,11 @@ class SignEngine(private val context: Context) : AutoCloseable {
     fun setTeachThreshold(t: Float) {
         teachThreshold = t
         matcher?.threshold = t
+        liveMatcher?.threshold = t
     }
 
     /** Records [durationMs] of live tracked frames as one example; the camera must be running. */
-    suspend fun recordExample(durationMs: Long = 2500): TeachExample {
+    suspend fun recordExample(durationMs: Long = TEACH_MS): TeachExample {
         check(live != null && model != null) { "The camera is not running" }
         val r = Recording(durationMs, CompletableDeferred())
         recording = r
@@ -340,13 +405,22 @@ class SignEngine(private val context: Context) : AutoCloseable {
         loading.withLock { model?.let(::rebuildTaught) }
     }
 
-    fun configure(threshold: Float, agree: Int, windowMs: Long, gpu: Boolean, boundary: Boolean = true) {
+    /**
+     * [continuous]: caption each sign while the hands stay up, the default; off: one answer per sign as the
+     * hands come to rest, with [threshold], [agree] and [windowMs] as before. [caution] (0 eager, 1 balanced,
+     * 2 careful) scales the evidence a continuous caption needs around the value measured for the loaded model.
+     */
+    fun configure(threshold: Float, agree: Int, windowMs: Long, gpu: Boolean, continuous: Boolean = true, caution: Int = 1) {
+        continuousOn = continuous
+        this.caution = caution
         worker.execute {
             spotter?.let { s ->
                 // One slider: a sign's own answer needs [threshold]; a sliding window, which sees part of a sign,
                 // never less than the 0.35 that won on val streams.
                 s.threshold = threshold; s.slideThreshold = maxOf(threshold, SLIDE_THRESHOLD)
-                s.agree = agree; s.windowMs = windowMs; s.boundary = benchBoundary ?: boundary
+                s.agree = agree; s.windowMs = windowMs; s.boundary = benchBoundary ?: true
+                applyCaution(s)
+                s.continuous = benchContinuous ?: continuous
             }
         }
         if (gpu != useGpu) {
@@ -576,10 +650,11 @@ class SignEngine(private val context: Context) : AutoCloseable {
                         event == null -> st.top
                         hit != null -> listOf(hit.word to hit.cosine) + (event.prediction?.topK(2) ?: emptyList())
                         event.prediction != null -> event.prediction!!.topK(3)
-                        s.boundary && !event.signing -> st.top   // at rest: the last sign's guesses stay until the next
+                        (s.continuous || s.boundary) && !event.signing -> st.top   // at rest: the last sign's guesses stay until the next
                         else -> emptyList()
                     },
                     caption = s.caption.toList(),
+                    pending = if (rec == null && s.continuous) s.tentative else null,
                     lastWord = word ?: st.lastWord,
                     lastWordAt = if (word != null) SystemClock.uptimeMillis() else st.lastWordAt,
                     lastAlso = if (word != null) alsoNames else st.lastAlso,
@@ -743,6 +818,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
         clipLandmarkers.forEach { it?.close() }
         worker.shutdown()
         model?.close()
+        liveModel?.close()
         retired.forEach { it.close() }
     }
 
@@ -763,5 +839,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
         private const val IDLE_AFTER_MS = 2_000L
         private const val IDLE_PERIOD_MS = 120L
         private const val SLIDE_THRESHOLD = 0.35f
+        /** How long an example of a taught sign is recorded for. */
+        const val TEACH_MS = 2500L
+        /** Eager, balanced, careful: the measured evidence thresholds times this. */
+        private val CAUTION_SCALE = floatArrayOf(0.65f, 1f, 1.4f)
     }
 }

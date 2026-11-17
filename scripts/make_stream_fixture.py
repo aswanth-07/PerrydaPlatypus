@@ -1,11 +1,15 @@
 """Expected live captions for the Kotlin SpotterTest: the clips of android/parity/fixture.json chained into streams
-and captioned by the Python boundary spotter (live_eval.run_stream_seg) with the INT8 model in that folder.
-Spotter.kt must give the same words at the same frames.
+and captioned in Python with the INT8 models the phone runs. Spotter.kt must give the same words at the same frames.
+
+Two spotters are recorded for every stream:
+  caption     the boundary spotter (live_eval.run_stream_seg) with the clip model in the parity folder
+  continuous  the continuous spotter (live_cont.run_cont: one caption per run of sign windows) with the live model given by --live,
+              its decoder settings read from the live.json beside it; left out when --live is not given
 
 Each stream is `per` consecutive fixture clips at 25 fps (40 ms a frame) followed by half a second with nobody in
 view, with the first clip's frame size for every frame. Writes android/parity/streams.json (a few kilobytes).
 
-Usage: make_stream_fixture.py <parity_dir> [--per 6]
+Usage: make_stream_fixture.py <parity_dir> [--per 6] [--live android/models/full/live_int8.onnx --sets src/models/full/sets.json]
 """
 import argparse
 import json
@@ -57,12 +61,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("parity_dir")
     ap.add_argument("--per", type=int, default=6)
+    ap.add_argument("--live", help="the live INT8 model (live_int8.onnx, with live.json beside it)")
+    ap.add_argument("--sets", help="sets.json of the vocabulary: words that are one sign gather evidence together")
     a = ap.parse_args()
     d = pathlib.Path(a.parity_dir)
     fixture = json.loads((d / "fixture.json").read_text())
     labels = json.loads((d / "labels.json").read_text(encoding="utf-8"))
     labels = [l.upper() for l in labels]
     clf = OnnxClassifier(d / "sign_int8.onnx", fixture["t_in"])
+    live = cfg = set_of = None
+    if a.live:
+        import live_cont as lc
+        live = lc.OnnxWindowModel(a.live, fixture["t_in"], half=False)
+        cfg = json.loads((pathlib.Path(a.live).parent / "live.json").read_text())
+        set_of = np.array(json.loads(pathlib.Path(a.sets).read_text())) if a.sets else None
     clips = fixture["clips"]
     streams = []
     for s in range(0, len(clips) - a.per + 1, a.per):
@@ -70,11 +82,22 @@ def main():
         frames = [f for i in ids for f in raw_frames(clips[i])]
         wh = (clips[s]["width"], clips[s]["height"])
         rest = int(round(FPS / 2))
-        cap = le.run_stream_seg(le.rest_frames(frames, rest), wh, FPS, clf, labels)
-        streams.append(dict(clips=ids, truth=[clips[i]["label"] for i in ids], rest_frames=rest,
-                            caption=[[w, int(t)] for w, t in cap]))
-        print(ids, [clips[i]["label"] for i in ids], "->", cap)
-    (d / "streams.json").write_text(json.dumps(dict(fps=FPS, streams=streams), indent=1))
+        frames = le.rest_frames(frames, rest)
+        cap = le.run_stream_seg(frames, wh, FPS, clf, labels)
+        row = dict(clips=ids, truth=[clips[i]["label"] for i in ids], rest_frames=rest,
+                   caption=[[w, int(t)] for w, t in cap])
+        print(ids, row["truth"], "->", cap)
+        if live is not None:
+            post, hs = lc.posteriors(frames, wh, FPS, live, cfg["window_ms"] / 1000.0)
+            cont = lc.run_cont(len(frames), FPS, post, hs, labels, set_of, stride=int(round(cfg["stride_ms"] * FPS / 1000.0)),
+                               lo=cfg["lo"], gap=cfg["gap"], emin=cfg["emin"], commit=cfg["commit"], tail_ms=cfg["tail_ms"])
+            row["continuous"] = [[w, int(t)] for w, t in cont]
+            print("   continuous ->", cont)
+        streams.append(row)
+    out = dict(fps=FPS, streams=streams)
+    if cfg is not None:
+        out["live"] = {k: cfg[k] for k in ("window_ms", "stride_ms", "lo", "gap", "emin", "commit", "tail_ms")}
+    (d / "streams.json").write_text(json.dumps(out, indent=1))
 
 
 if __name__ == "__main__":

@@ -89,27 +89,54 @@ is 0.39 points, had made low light and low resolution look like 5-point drops; o
 occlusion; union ≤ 4.3 on all six. Training on extra occlusion-only degraded copies helped the core model (about
 2 points under moderate occlusion in a paired test), which ships with it.
 
-Live captions, all 2,000 words open (`scripts/live_eval.py`: held-out test clips chained into streams of six
-signs, scored by word error rate against the true sequence). The classifier was trained on whole signs, and a
-sliding window usually holds the end of one sign and the start of the next. The app now answers once per sign: a
-stretch opens when a wrist rises above a rest line under the shoulders and closes when both have been back below
-it for 200 ms, and the whole stretch is classified like a clip; signing that does not rest for 4 s falls back to
-the sliding window. Settings were chosen on validation streams and then scored on test:
+Live captions of continuous signing, all 2,000 words open. Until 17 Nov the app answered once per sign when the
+hands came back to rest, so a signer had to lower the hands after every word. It now captions each sign while the
+hands stay up (`scripts/contsign.py`, `scripts/live_cont.py`, `android/signcore/Spotter.kt`):
 
-| Spotter (2,000 words) | Word error rate | Words found | False words per 100 | Caption, relative to the clip's last frame |
-|---|---|---|---|---|
-| Sliding window, 45% confidence (the app until 15 Nov) | 52.5% | 49.7% | 18.6 | 840 ms before |
-| Sliding window, 35% confidence (its best on validation streams) | 48.9% | 59.2% | 29.7 | 840 ms before |
-| One answer per sign, at rest (now) | **42.8%** | 58.9% | 27.8 | 180 ms before |
+- **A second 3.3 MB INT8 model for the live camera** (`android/models/full/live_int8.onnx`), the shipped classifier
+  fine-tuned on 1.2 s windows of continuous signing made from the isolated training clips: the core of a sign with
+  the end of another sign before it and the start of another after it, joined by a direct movement, a pose held in
+  the air or a relaxed wait. A window is labelled with the sign at its centre, or "no sign" when it is centred on
+  the movement between two (the training recipe of Zuo, Wei and Mak, EMNLP 2024, for online recognition). On
+  whole clips it still scores 64.1% top-1; `predict()` and the scored bundle do not use it.
+- **One caption per sign, settled when the sign ends.** The window is classified about six times a second while
+  a wrist is up. A run of windows that name a sign is one sign: every window adds its five best answers'
+  probabilities as evidence, and when the run ends (a "no sign" window, or the hands at rest) the sign with the
+  most evidence is captioned. A sign held for longer is captioned as soon as its evidence is enough. Until then
+  the leading word is shown muted and unsettled, the way live speech captions settle a word.
 
-Against the sliding window at its best setting the gain is 6.1 points on these 60 test streams (paired 95%
-interval 2.5 to 10.0) and 6.7 points on 240 further test streams (52.2% → 45.6%; 4.9 to 8.5). The caption comes
-about 0.7 s later than a mid-sign guess would, because it waits for the hands to drop, and it is right more
-often. Chained clips are harsher than a person signing word by word: 30% of WLASL clips are cut with the hands
-still raised, so two signs share one stretch there and the sliding window has to split them. With the 100-word
-vocabulary the same spotter gives 13.6%, level with the sliding window there (12.8% at its validation-tuned
-setting, 16.9% at the older default), so the change is aimed at, and measured on, the 2,000-word model. The Kotlin
-spotter is checked against the Python one word for word and frame for frame on six test streams (`SpotterTest`).
+Measured on held-out WLASL test clips joined into streams of six signs, 120 streams of each kind: the hands never
+rest (direct movements, held poses and relaxed waits between signs), mixed, and whole clips chained as they are
+(a rest after most signs). The live models train on WLASL validation clips, so the decoder's settings were not
+tuned there: the test clips are split in two halves, the settings best on one half are scored on the other, and
+the two scores are pooled.
+
+| Word error rate (2,000 words open) | Hands never rest | Mixed | A rest after most signs |
+|---|---|---|---|
+| One answer per sign at rest (the app, 15 to 17 Nov) | 57.2% | 54.3% | 47.1% |
+| Live model, answering as soon as 3 of 5 windows agree | 74.0% | 73.3% | 75.6% |
+| Live model, one caption per sign (now) | **47.5%** | **46.0%** | **44.4%** |
+| ... counting another name of the same sign as right | 36.5% (was 49.7%) | 35.6% (was 47.4%) | 33.3% (was 37.2%) |
+
+Against the app as it was, the paired gain is 9.7 points when the hands never rest (95% interval
+6.4 to 13.1), 8.3 mixed (4.9 to 11.7) and 2.6 with rests (-0.4 to
+5.7): no worse for a signer who does rest, and far better for one who does not. The caption comes 280 ms
+before the sign's last frame at the median (240 ms after it at the 90th percentile); the old spotter's 90th
+percentile on the same streams was 1272 ms after, because it waited for a rest that did not come. The middle
+row is the measured dead end: the model's window answers are sharp, but a window on the way into a sign holds
+half of it, half a sign often looks like another sign, and a decoder that answers on agreement captions it
+(68.5 false words per 100). The word error rate that remains is mostly the classifier's own: with 2,000 words open
+it names 64% of whole clips, and a sign listed under two names (QUIT and RESIGN, MOTHER and MOM) counts as an
+error in the strict rows. Classifying every frame instead of every fourth changes nothing (46.0% against 46.8%
+when the hands never rest), so the phone keeps the six windows a second its power figure was measured at. The
+Kotlin spotter is checked against the Python one word for word and frame for frame on six test streams, in both
+modes (`SpotterTest`). The streams are synthetic joins of isolated clips; no gloss-annotated continuous ASL was
+available, and a real signer's transitions will differ.
+
+Before that, the 15 Nov change from a sliding window to one answer per sign at rest (`scripts/live_eval.py
+--compare`, 60 test streams of whole clips, settings chosen on validation streams) had lowered the word error
+rate from 48.9% to 42.8% (paired gain 6.1 points, 95% interval 2.5 to 10.0; 6.7 points on 240 further streams).
+It remains in the app as Settings > Advanced > "Wait for the hands to rest".
 
 ## One sign, several names
 
@@ -224,7 +251,7 @@ a 30 fps camera (`engine/Bench.kt`, `scripts/phone_bench_report.py`; `android/RE
 | App CPU, memory | 2.1 cores of 10, 458 MB PSS; GPU idle |
 | Power, whole phone, screen on, on battery | live at 30 fps **2,869 mW**; nobody in view 724 mW (signing-gated) vs 1,583 mW (gating off); the old single GPU tracker at 10 fps 1,180 mW; the app open with nothing tracked 712 mW |
 | Power of the classifier | 395 mW above that baseline at 6 windows a second (2 threads, spin-waiting; the app now uses 1 thread without spinning) |
-| Sign to voice | the word settles 200 ms after the hands come to rest; the phone starts to speak it **70 ms** (median) after the camera frame that settled it, with an installed voice and no network. 368 ms at p90, when a word waits for the one before it to finish (26 words of a replayed stream of test signs; the speaker's own output delay is not included) |
+| Sign to voice | (measured 15 Nov, captions at rest) the word settles 200 ms after the hands come to rest; the phone starts to speak it **70 ms** (median) after the camera frame that settled it, with an installed voice and no network. 368 ms at p90, when a word waits for the one before it to finish (26 words of a replayed stream of test signs; the speaker's own output delay is not included) |
 | Picked video (Videos tab) | 0.57 s p50 per clip, decode + 24 frames + classifier (2.73 s before the 13 Nov rework) |
 
 What made it real time: on this phone MediaPipe's CPU path is faster than its GPU path (the GPU stays at a third of

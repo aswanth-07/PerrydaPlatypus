@@ -186,7 +186,7 @@ fun LiveScreen(vm: MainViewModel) {
                     style = MaterialTheme.typography.bodyMedium, color = Palette.Text,
                 )
             }
-            CaptionCard(state, atRest = settings.boundary, onClear = vm.engine::clearCaption, onCorrect = vm.engine::correctLast)
+            CaptionCard(state, atRest = !settings.continuous, onClear = vm.engine::clearCaption, onCorrect = vm.engine::correctLast)
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
                 LabelledControl(
@@ -334,13 +334,18 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit, 
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Glass)
             .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 16.dp),
     ) {
+        if (state.caption.isEmpty() && state.pending != null) {
+            // The first sign is under way: its word so far, not yet settled.
+            Text(state.pending + "…", Modifier.padding(end = 12.dp, top = 4.dp), style = CaptionStyle, color = Palette.TextMuted, maxLines = 1)
+            return@Column
+        }
         if (state.caption.isEmpty()) {
             Text(
                 when {
                     state.paused -> "Paused"
                     !state.bodyVisible -> "Hands are found from the body: keep your head, shoulders and both hands in view."
                     atRest -> "Sign, then lower your hands. The word appears as they come to rest."
-                    else -> "Sign in front of the camera. Words appear here."
+                    else -> "Sign one word after another. Each appears as you make it; keep your hands up."
                 },
                 Modifier.padding(end = 12.dp, top = 4.dp),
                 style = MaterialTheme.typography.titleMedium, color = Palette.TextMuted,
@@ -361,6 +366,12 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit, 
                     label = "word",
                 ) { (word, _) ->
                     Text(word, style = CaptionStyle, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                }
+                // The sign under way: shown muted until it settles, as live speech captions do.
+                state.pending?.let {
+                    Spacer(Modifier.width(10.dp))
+                    Text("$it…", style = CaptionStyle, color = Palette.TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false))
                 }
             }
             IconButton(onClick = onClear) { Icon(Icons.AutoMirrored.Outlined.Backspace, "Clear captions", tint = Palette.TextMuted) }

@@ -17,6 +17,7 @@ import torch
 import torch.nn.functional as F
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import contsign
 import data_v2 as dv
 import model_v2 as mv
 
@@ -325,6 +326,10 @@ def main():
     ap.add_argument("--head", choices=["linear", "cosine"], default="linear")
     ap.add_argument("--init", default="", help="checkpoint to warm-start from (shape-matched tensors only)")
     ap.add_argument("--trainval", action="store_true", help="train on train+val and keep the last EMA (no selection)")
+    ap.add_argument("--add-test", choices=["0", "1", "all"],
+                    help="WLASL test clips join training: one half of them by a hash of the video id (the reported "
+                         "test score is then on the other half only: what the extra clips are worth on unseen clips), "
+                         "or all (a model for a hidden test set; its own test score then means nothing)")
     ap.add_argument("--teachers", default="", help="comma-separated checkpoints whose averaged softmax the model also learns")
     ap.add_argument("--distill-alpha", type=float, default=0.5)
     ap.add_argument("--distill-temp", type=float, default=2.0)
@@ -343,6 +348,12 @@ def main():
     ap.add_argument("--consist-temp", type=float, default=2.0)
     ap.add_argument("--consist-ramp", type=int, default=3, help="epochs over which the teacher term ramps up")
     ap.add_argument("--prefix", type=float, default=0.0, help="share of clips shown only up to 45-85%% of their length")
+    ap.add_argument("--cont", type=float, default=0.0,
+                    help="share of each batch shown as a window of continuous signing (contsign.windows): the sign with "
+                         "the end of another before it and the start of another after it; adds the 'no sign' class")
+    ap.add_argument("--cont-none", type=float, default=0.25, help="with --cont: share of those windows centred between two signs")
+    ap.add_argument("--pool", choices=["mean", "centre"], default="mean",
+                    help="how the time steps are pooled: evenly, or weighted towards the middle of the window")
     a = ap.parse_args()
 
     torch.manual_seed(a.seed)
@@ -363,6 +374,14 @@ def main():
             extra_cls["aslc_" + pathlib.Path(c["file"]).stem] = c["cls"]
     train_ids = set(pathlib.Path(a.train_ids).read_text().split()) if a.train_ids else None
     rows = select(cache, entries, a.subset, train_ids)
+    if a.add_test:
+        import zlib
+        ti, ty = rows["test"]
+        take = torch.tensor([a.add_test == "all" or zlib.crc32(str(cache["vid"][int(r)]).encode()) % 2 == int(a.add_test) for r in ti])
+        rows["train"] = (torch.cat([rows["train"][0], ti[take]]), torch.cat([rows["train"][1], ty[take]]))
+        if a.add_test != "all":
+            rows["test"] = (ti[~take], ty[~take])
+        print(f"--add-test {a.add_test}: {int(take.sum())} test clips join training, {len(rows['test'][0])} scored", flush=True)
     if extra_cls:
         add = [(n, extra_cls[v]) for n, v in enumerate(cache["vid"]) if extra_cls.get(v, a.subset) < a.subset]
         if add:
@@ -387,7 +406,8 @@ def main():
 
     cfg = dict(dim=a.dim, repeats=a.repeats, convs=a.convs, kernel=a.kernel, heads=a.heads, drop=a.drop,
                head_drop=a.head_drop, face=not a.no_face, world=not a.no_world, z=not a.no_z, t_in=a.t_in,
-               canon=a.canon, canon_rel=a.canon_rel, flip=0.0 if a.canon else a.flip, format=cache["format"], head=a.head)
+               canon=a.canon, canon_rel=a.canon_rel, flip=0.0 if a.canon else a.flip, format=cache["format"], head=a.head,
+               pool=a.pool)
     if a.trainval:  # the deployment fit: validation clips join training, the last EMA is kept
         rows["train"] = (torch.cat([rows["train"][0], rows["val"][0]]), torch.cat([rows["train"][1], rows["val"][1]]))
     teachers = []
@@ -396,14 +416,18 @@ def main():
         t = mv.build(ck["cfg"], ck["classes"]).to(dev)
         t.load_state_dict(ck["state"])
         teachers.append(t.eval())
-    n_cls = a.subset + (1 if a.none_prob else 0)   # the extra last class is "no sign" (a boundary between signs)
-    cfg["none_class"] = bool(a.none_prob)
+    n_cls = a.subset + (1 if a.none_prob or a.cont else 0)   # the extra last class is "no sign" (between two signs)
+    cfg["none_class"] = bool(a.none_prob or a.cont)
     model = mv.build(cfg, n_cls).to(dev)
     if a.init:  # warm start: every weight whose shape matches (all but the class head when vocabularies differ)
         src = torch.load(a.init, weights_only=False)["state"]
         own = model.state_dict()
         keep = {k: v for k, v in src.items() if k in own and own[k].shape == v.shape}
         own.update(keep)
+        for k, v in src.items():   # a head one class short (no "no sign" yet): keep its rows, start the new one at their mean
+            if k in own and k not in keep and v.dim() == own[k].dim() and v.shape[0] + 1 == own[k].shape[0] and v.shape[1:] == own[k].shape[1:]:
+                own[k] = torch.cat([v, v.mean(0, keepdim=True)]).to(own[k])
+                keep[k] = v
         model.load_state_dict(own)
         print(f"warm start from {a.init}: {len(keep)}/{len(own)} tensors", flush=True)
     if a.late_epoch:
@@ -451,6 +475,13 @@ def main():
     warm = a.warmup * steps
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda k: min(1.0, (k + 1) / warm) * 0.5 * (1 + np.cos(np.pi * min(k / total_steps, 1.0))))
     a.flip = cfg["flip"]
+    spans = dom_left = None
+    if a.cont:   # every clip's core (between the rise and the drop) and which hand leads, found once
+        spans = contsign.clip_spans(data["X"], data["L"]).to(dev)
+        dom_left = torch.cat([dominant_left(data["X"][i].float(), data["S"][i].float(), data["L"][i], a.canon_rel)
+                              for i in torch.arange(len(data["L"]), device=dev).split(2048)]) if a.canon else torch.zeros(len(data["L"]), dtype=torch.bool, device=dev)
+        core = (spans[:, 2] - spans[:, 1]).float() / data["L"].clamp_min(1).float()
+        print(f"continuous windows: core is {core.mean():.2f} of a clip on average, {(core > 0.99).float().mean():.2f} of clips are all core", flush=True)
     best, best_epoch, t0 = -1.0, 0, time.time()
     for epoch in range(1, a.epochs + 1):
         if a.late_epoch and epoch == a.late_epoch:
@@ -468,8 +499,17 @@ def main():
             x, w, s = sample_time(Xb, Wb, Sb, Lb, a.t_in, True, tp=tp, cut=True)
             if a.canon:
                 x, w, s = apply_flip(x, w, s, dominant_left(x, s, torch.full_like(c, a.t_in), a.canon_rel), perm)
-            x, w, s = augment(x, w, s, perm, a)
             y = labels[pick]
+            if a.cont:   # windows of continuous signing: the label is the sign at the centre, or "no sign" between two
+                m = torch.rand(len(c), device=dev) < a.cont
+                if bool(m.any()):
+                    xc, wc, sc, none = contsign.windows(data, spans, dom_left, perm, c[m], ids, a.t_in, apply_flip, a.cont_none)
+                    if a.canon:   # the exported graph decides the leading hand from the window it is given
+                        xc, wc, sc = apply_flip(xc, wc, sc, dominant_left(xc, sc, torch.full_like(c[m], a.t_in), a.canon_rel), perm)
+                    x, w, s, y = x.clone(), w.clone(), s.clone(), y.clone()
+                    x[m], w[m], s[m] = xc, wc, sc
+                    y[m] = torch.where(none, torch.full_like(y[m], a.subset), y[m])
+            x, w, s = augment(x, w, s, perm, a)
             t_emb = t_logits = None
             if a.consist:  # the teacher's view: the clean clip this row came from, same window, whole, un-augmented
                 with torch.no_grad():

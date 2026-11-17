@@ -11,11 +11,14 @@ import java.nio.FloatBuffer
  * setProbs gives, per word, the probability of its whole same-sign set (words that are one sign under several
  * names, such as DOCTOR and PHYSICIAN); it equals probs for a model exported without sets. embedding is the
  * clip's pooled features, used for signs taught on the device; null for a model exported without it. rawProbs is
- * the network's own answer before the same-sign rule; null for a model exported without the rule.
+ * the network's own answer before the same-sign rule; null for a model exported without the rule. none is the
+ * probability that the window holds no sign at its centre (the movement between two signs); 0 for a model
+ * without that class. With it, probs sums to 1 - none.
  */
 class Prediction(
     val labels: List<String>, val probs: FloatArray, val latencyMs: Double,
     val setProbs: FloatArray = probs, val embedding: FloatArray? = null, val rawProbs: FloatArray? = null,
+    val none: Float = 0f,
 ) {
     val order: List<Int> = probs.indices.sortedByDescending { probs[it] }
     val top: String get() = labels[order[0]]
@@ -59,7 +62,8 @@ class SignModel(
             fun row(name: String): FloatArray? = result.get(name).orElse(null)?.let { (it.value as Array<FloatArray>)[0] }
             @Suppress("UNCHECKED_CAST")
             val probs = (result[0].value as Array<FloatArray>)[0]
-            Prediction(labels, probs, (System.nanoTime() - start) / 1e6, row("set_probs") ?: probs, row("embedding"), row("raw_probs"))
+            Prediction(labels, probs, (System.nanoTime() - start) / 1e6, row("set_probs") ?: probs, row("embedding"), row("raw_probs"),
+                row("none")?.get(0) ?: 0f)
         }
         inputs.values.forEach { it.close() }
         return prediction

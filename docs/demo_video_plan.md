@@ -16,8 +16,9 @@ number on screen comes from a file in the repository (named at the end); nothing
   offline, tap Reply once on an Android 13+ phone so it fetches the offline English speech pack (or add it in
   the phone's speech settings), then check Reply works in airplane mode.
 - Rehearse the six signs below until each is captioned on the first try; keep one take per shot.
-- Sign one word at a time and lower both hands to the waist between words: the app answers once per sign, as
-  the hands come to rest (status chip "Signing" while they are up), and that is when the word is shown and spoken.
+- Sign one word after another with the hands kept up; there is no need to lower them between words. The word
+  under way is shown muted, then settles and is spoken as the sign ends. Make each sign fully and leave a short
+  beat between signs; lower the hands only at the end of the sentence.
 
 ## Shots
 

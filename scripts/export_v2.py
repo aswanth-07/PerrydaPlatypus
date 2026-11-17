@@ -26,7 +26,9 @@ class Deploy(nn.Module):
     """Outputs: probs (what predict() answers from: the same-sign answer rule applied when the model has one),
     set_probs (per gloss, the probability of its whole same-sign set: the confidence the captions use),
     embedding (the pooled features, for signs the user teaches on the device), raw_probs (the network's own
-    probabilities, before the rule)."""
+    probabilities, before the rule). A live model (trained with a "no sign" class, train_v2.py --cont) also returns
+    none [1, 1], the probability that the window is centred between two signs; its word outputs then sum to
+    1 - none."""
 
     def __init__(self, models, cfgs, face_flip, rule=None):
         super().__init__()
@@ -36,6 +38,7 @@ class Deploy(nn.Module):
         self.register_buffer("perm", tv.flip_perm(face_flip), persistent=False)
         self.t_in = cfgs[0]["t_in"]
         self.rule = rule
+        self.none = bool(cfgs[0].get("none_class"))
 
     def flip(self, x, w, s):
         xf = x.index_select(2, self.perm)
@@ -60,10 +63,13 @@ class Deploy(nn.Module):
             probs = probs + torch.softmax(m.head(e), -1)
             emb = emb + e
         raw, emb = probs / len(self.models), emb / len(self.models)
+        none = ()
+        if self.none:   # the last class is "no sign": it leaves the word outputs and comes out on its own
+            raw, none = raw[:, :-1], (raw[:, -1:],)
         if self.rule is None:
-            return raw, raw, emb, raw
+            return (raw, raw, emb, raw) + none
         ruled, mass = self.rule(raw)
-        return ruled, mass, emb, raw
+        return (ruled, mass, emb, raw) + none
 
 
 def batches(data, ids, t_in):
@@ -131,7 +137,7 @@ def main():
     rule, sets_info = None, None
     if a.set_rule:
         import signsets
-        n_idx, n_cls = min(a.subset, len(entries)), cks[0]["classes"]
+        n_idx, n_cls = min(a.subset, len(entries)), cks[0]["classes"] - (1 if cks[0]["cfg"].get("none_class") else 0)
         set_of, links = signsets.same_sign_sets(entries, n_idx)
         counts = signsets.wlasl_counts(entries, n_idx)
         # Classes outside the WLASL index (a union vocabulary) are sets of their own with a neutral weight.
@@ -159,7 +165,8 @@ def main():
     fp32, raw, int8 = out / "sign_fp32.onnx", out / "sign_pre.onnx", out / "sign_int8.onnx"
     ex = tuple(torch.from_numpy(feeds[0][k]) for k in ("points", "world", "seen"))
     torch.onnx.export(deploy, ex, str(fp32), input_names=["points", "world", "seen"],
-                      output_names=["probs", "set_probs", "embedding", "raw_probs"], opset_version=17, dynamo=False)
+                      output_names=["probs", "set_probs", "embedding", "raw_probs"] + (["none"] if deploy.none else []),
+                      opset_version=17, dynamo=False)
     quant_pre_process(str(fp32), str(raw))
 
     class Reader(CalibrationDataReader):
@@ -183,7 +190,8 @@ def main():
                         op_types_to_quantize=a.ops.split(","), calibrate_method=getattr(CalibrationMethod, a.calib_method),
                         nodes_to_exclude=exclude)
     raw.unlink()
-    res = dict(ckpts=a.ckpts, t_in=t_in, test_clips=len(y), int8_scheme=dict(dynamic=a.dynamic, ops=a.ops, fp32_nodes=exclude),
+    res = dict(ckpts=a.ckpts, t_in=t_in, test_clips=len(y), none_class=deploy.none,
+               int8_scheme=dict(dynamic=a.dynamic, ops=a.ops, fp32_nodes=exclude),
                torch=tv.score(torch_probs, y))
     if sets_info is not None:  # the network's own answer, before the rule, for the record
         res["torch_before_rule"] = tv.score(torch_raw, y)
@@ -193,7 +201,7 @@ def main():
         sc, lat = run_onnx(path, feeds, y, reference=torch_probs)
         res[name] = dict(size_mb=round(path.stat().st_size / 1e6, 3), test=sc, one_thread=lat)
     labels = json.loads(pathlib.Path(a.labels).read_text(encoding="utf-8")) if a.labels else [e["gloss"].upper() for e in entries[:a.subset]]
-    labels = labels[:cks[0]["classes"]]
+    labels = labels[:cks[0]["classes"] - (1 if deploy.none else 0)]
     (out / "labels.json").write_text(json.dumps(labels), encoding="utf-8")
     (out / "export.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     print(json.dumps(res, indent=1))

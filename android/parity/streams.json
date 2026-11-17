@@ -44,6 +44,28 @@
      "DRINK",
      405
     ]
+   ],
+   "continuous": [
+    [
+     "MEDICINE",
+     38
+    ],
+    [
+     "MUSIC",
+     110
+    ],
+    [
+     "SCIENCE",
+     206
+    ],
+    [
+     "DRINK",
+     310
+    ],
+    [
+     "DRINK",
+     374
+    ]
    ]
   },
   {
@@ -77,6 +99,32 @@
      "COMPUTER",
      399
     ]
+   ],
+   "continuous": [
+    [
+     "SPIRIT",
+     60
+    ],
+    [
+     "INDIVIDUAL",
+     110
+    ],
+    [
+     "COMPUTER",
+     138
+    ],
+    [
+     "COMPUTER",
+     218
+    ],
+    [
+     "COMPUTER",
+     284
+    ],
+    [
+     "SYMPATHY",
+     361
+    ]
    ]
   },
   {
@@ -109,6 +157,32 @@
     [
      "SALT",
      280
+    ]
+   ],
+   "continuous": [
+    [
+     "COMPUTER",
+     20
+    ],
+    [
+     "FORMER",
+     72
+    ],
+    [
+     "NEIGHBOR",
+     160
+    ],
+    [
+     "NEXT",
+     216
+    ],
+    [
+     "BEFORE",
+     240
+    ],
+    [
+     "SALT",
+     264
     ]
    ]
   },
@@ -146,6 +220,32 @@
     [
      "CLOTHES",
      357
+    ]
+   ],
+   "continuous": [
+    [
+     "CHAIR",
+     32
+    ],
+    [
+     "WOOD",
+     76
+    ],
+    [
+     "CHAIR",
+     133
+    ],
+    [
+     "GO",
+     201
+    ],
+    [
+     "GO",
+     273
+    ],
+    [
+     "CLOTHES",
+     329
     ]
    ]
   },
@@ -192,6 +292,28 @@
      "CANDY",
      411
     ]
+   ],
+   "continuous": [
+    [
+     "CLOTHES",
+     38
+    ],
+    [
+     "FINE",
+     112
+    ],
+    [
+     "CLOTHES",
+     160
+    ],
+    [
+     "WHO",
+     328
+    ],
+    [
+     "CANDY",
+     388
+    ]
    ]
   },
   {
@@ -233,7 +355,42 @@
      "COUSIN",
      378
     ]
+   ],
+   "continuous": [
+    [
+     "CANDY",
+     37
+    ],
+    [
+     "CANDY",
+     108
+    ],
+    [
+     "COUSIN",
+     156
+    ],
+    [
+     "COUSIN",
+     228
+    ],
+    [
+     "COUSIN",
+     306
+    ],
+    [
+     "DEAF",
+     366
+    ]
    ]
   }
- ]
+ ],
+ "live": {
+  "window_ms": 1200,
+  "stride_ms": 160,
+  "lo": 0.05,
+  "gap": 1,
+  "emin": 1.0,
+  "commit": 2.0,
+  "tail_ms": 600
+ }
 }

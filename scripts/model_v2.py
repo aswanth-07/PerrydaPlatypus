@@ -141,9 +141,14 @@ class Normalize(nn.Module):
 
 class SignNet(nn.Module):
     def __init__(self, classes, dim=192, repeats=2, convs=3, kernel=17, heads=4, drop=0.2, head_drop=0.4,
-                 face=True, world=True, z=True, t_in=64, head="linear"):
+                 face=True, world=True, z=True, t_in=64, head="linear", pool="mean"):
         super().__init__()
         self.t_in = t_in
+        # "centre": the time steps are averaged with a weight that peaks in the middle of the window (a raised
+        # cosine over a floor of 0.25), for a live model whose window is centred on the sign it should name.
+        wt = 0.25 + 0.75 * (0.5 - 0.5 * torch.cos(2 * math.pi * (torch.arange(t_in) + 0.5) / t_in))
+        self.register_buffer("pool_w", (wt / wt.sum()) if pool == "centre" else torch.full((t_in,), 1.0 / t_in), persistent=False)
+        self.pool = pool
         self.features = Features(face, world, z)
         self.stem = nn.Conv1d(self.features.dim, dim, 1, bias=False)
         self.stem_bn = nn.BatchNorm1d(dim)
@@ -159,12 +164,13 @@ class SignNet(nn.Module):
     def embed(self, x, w, s):
         f = self.features(x, w, s).transpose(1, 2)
         h = self.blocks(self.stem_bn(self.stem(f)))
-        return F.silu(self.top(h)).mean(2)
+        h = F.silu(self.top(h))
+        return h.mean(2) if self.pool == "mean" else (h * self.pool_w).sum(2)
 
     def forward(self, x, w, s):
         return self.head(self.head_drop(self.embed(x, w, s)))
 
 
 def build(cfg, classes):
-    keys = ("dim", "repeats", "convs", "kernel", "heads", "drop", "head_drop", "face", "world", "z", "t_in", "head")
+    keys = ("dim", "repeats", "convs", "kernel", "heads", "drop", "head_drop", "face", "world", "z", "t_in", "head", "pool")
     return SignNet(classes, **{k: cfg[k] for k in keys if k in cfg})

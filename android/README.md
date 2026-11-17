@@ -15,20 +15,30 @@ captions, entirely on the phone. The app has no internet permission: video and k
 
 First launch explains what the camera is for before asking for it; the Clips tab works without the camera.
 
-### One answer per sign
+### Captions while the hands stay up
 
-The live spotter (`signcore/Spotter.kt`) answers once per sign. A stretch opens when a wrist rises above a rest
-line (the higher wrist one shoulder width under the shoulders) and closes when both wrists have been back below
-it for 200 ms; the whole stretch, with 300 ms of lead-in, is classified the way a clip is, and its word is shown
-and spoken if it reaches the confidence in Settings (15% by default: one look at a whole sign needs no agreement
-between looks). Signing that does not rest for 4 s is captioned by a sliding window instead (1.5 s every 5
-frames, two looks in a row above 35%), and the same windows give a fallback word when a closed stretch is below
-the confidence. On chained held-out test clips with all 2,000 words open this lowers the word error rate from
-48.9% to 42.8% against the sliding window alone (`scripts/live_eval.py --compare`; settings chosen on validation
-streams); the caption comes as the hands drop rather than mid-sign. `SpotterTest` replays six such streams through
-the Kotlin spotter with the shipped INT8 model and requires the same words at the same frames as Python
-(`scripts/make_stream_fixture.py` writes `parity/streams.json`). Settings > Advanced > "Caption each sign when the
-hands rest" turns it off, which leaves the sliding window alone.
+The live spotter (`signcore/Spotter.kt`, continuous mode) captions each sign as it is made; the signer does not
+lower the hands between words. While a wrist is above a rest line (one shoulder width under the shoulders), and
+for 600 ms after both have dropped, the last 1.2 s are classified every 160 ms by the vocabulary's live model
+(`models/<vocab>/live_int8.onnx`, packed into the app's assets beside `live.json`, its measured decoder
+settings). That model was trained on windows of continuous signing and answers with the sign at the window's
+centre or with "no sign" between two. A run of windows that name a sign is one sign: each window adds its five
+best answers' probabilities as evidence, and the sign with the most evidence is captioned when the run ends, or
+at once when the evidence is already enough. The leading word is shown muted until then. Settings > Captions
+(Eager / Balanced / Careful) scales the evidence a caption needs. A vocabulary packed without a live model uses
+its clip model for the windows.
+
+With all 2,000 words open, on held-out test clips joined without rests, the word error rate is
+47.5% against 57.2% for the app as it was (44.4% against 47.1% when the signer does rest; `scripts/live_cont.py`,
+settings cross-fitted on halves of the test clips; the table is in the main README). `SpotterTest` replays six
+streams through the Kotlin spotter with the shipped INT8 models and requires the same words at the same frames
+as Python, in both modes (`scripts/make_stream_fixture.py --live` writes `parity/streams.json`).
+
+Settings > Advanced > "Wait for the hands to rest" brings back the 15 Nov behaviour: a stretch opens when a wrist
+rises above the rest line and closes when both wrists have been back below it for 200 ms; the whole stretch, with
+300 ms of lead-in, is classified once, the way a clip is, and its word is shown if it reaches the confidence
+slider (15% by default). A stretch longer than 4 s falls back to a sliding window (1.5 s every 5 frames, two
+looks in a row above 35%).
 
 ### Tap to correct
 
@@ -48,7 +58,7 @@ offline; Settings warns when none is installed). The status line shows how long 
 settled the word the sound started, last and median. Measured on a Galaxy S26 with the 2,000-word model
 (`--es bench live --es file stream.mp4 --ez voice true`, a stream of ten chained test signs replayed at 25 fps, 26
 words spoken): the text-to-speech engine starts 70 ms (median) after the frame that settled the word, 368 ms at
-p90 and 770 ms at worst, the slow ones being words that waited for the one before them to finish. The word itself
+p90 and 770 ms at worst, the slow ones being words that waited for the one before them to finish. With captions at rest (how this was measured) the word
 settles 200 ms after the hands come to rest, so speech begins about 0.3 s after a sign ends. The engine's start is
 what is timed; the speaker's own output delay is not included.
 

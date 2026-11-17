@@ -76,6 +76,20 @@ fun SettingsScreen(vm: MainViewModel) {
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        SectionTitle("Captions")
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            listOf("Eager", "Balanced", "Careful").forEachIndexed { i, name ->
+                SegmentedButton(selected = s.caution == i, onClick = { vm.update { it.copy(caution = i) } },
+                    shape = SegmentedButtonDefaults.itemShape(i, 3), enabled = s.continuous) { Text(name, maxLines = 1) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (s.continuous) "Each word appears as you sign it; keep your hands up between signs. Eager shows more words, some of them wrong; Careful shows fewer, surer ones."
+            else "Captions are waiting for the hands to rest after each sign (see Advanced).",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         SectionTitle("Voice")
         SwitchSetting(
             "Speak signed words aloud",
@@ -118,7 +132,7 @@ fun SettingsScreen(vm: MainViewModel) {
         ) {
             Column(Modifier.weight(1f)) {
                 Text("Advanced", style = MaterialTheme.typography.titleMedium)
-                Text("Sensitivity, timing, taught-sign matching, details overlay", style = MaterialTheme.typography.bodySmall,
+                Text("Caption timing, taught-sign matching, details overlay", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val turn by animateFloatAsState(if (advanced) 180f else 0f, label = "chevron")
@@ -127,25 +141,29 @@ fun SettingsScreen(vm: MainViewModel) {
         AnimatedVisibility(advanced) {
             Column {
                 SwitchSetting(
-                    "Caption each sign when the hands rest",
-                    "One answer per sign, given as the hands drop: fewer wrong words. Off: guess while the hands are still moving.",
-                    s.boundary,
-                ) { v -> vm.update { it.copy(boundary = v) } }
-                SliderSetting(
-                    "Confidence needed", "%d%%".format(Math.round(100 * s.threshold)),
-                    "Lower shows more words, including wrong ones; higher shows fewer, surer words.",
-                    s.threshold, 0f..0.6f, 11,
-                ) { v -> vm.update { it.copy(threshold = v) } }
-                SliderSetting(
-                    "Stability", if (s.agree == 1) "1 look" else "${s.agree} looks in a row",
-                    "Signing without rests: how many consecutive looks must agree before a word is shown.",
-                    s.agree.toFloat(), 1f..4f, 2,
-                ) { v -> vm.update { it.copy(agree = Math.round(v)) } }
-                SliderSetting(
-                    "Listening window", "%.1f s".format(s.windowSec),
-                    "Signing without rests: how much signing each look covers. Slow signers may want longer.",
-                    s.windowSec, 1f..3f, 7,
-                ) { v -> vm.update { it.copy(windowSec = v) } }
+                    "Wait for the hands to rest",
+                    "Off (recommended): each word appears as it is signed, hands kept up. On: one answer per sign, given only when the hands drop.",
+                    !s.continuous,
+                ) { v -> vm.update { it.copy(continuous = !v) } }
+                AnimatedVisibility(!s.continuous) {
+                    Column {
+                        SliderSetting(
+                            "Confidence needed", "%d%%".format(Math.round(100 * s.threshold)),
+                            "Lower shows more words, including wrong ones; higher shows fewer, surer words.",
+                            s.threshold, 0f..0.6f, 11,
+                        ) { v -> vm.update { it.copy(threshold = v) } }
+                        SliderSetting(
+                            "Stability", if (s.agree == 1) "1 look" else "${s.agree} looks in a row",
+                            "Hands up for over four seconds: how many consecutive looks must agree before a word is shown.",
+                            s.agree.toFloat(), 1f..4f, 2,
+                        ) { v -> vm.update { it.copy(agree = Math.round(v)) } }
+                        SliderSetting(
+                            "Listening window", "%.1f s".format(s.windowSec),
+                            "Hands up for over four seconds: how much signing each look covers.",
+                            s.windowSec, 1f..3f, 7,
+                        ) { v -> vm.update { it.copy(windowSec = v) } }
+                    }
+                }
                 SliderSetting(
                     "Taught-sign match", "%.2f".format(s.teachThreshold),
                     "How closely a sign must match one taught on the Teach tab. Raise it if taught signs appear when they should not.",

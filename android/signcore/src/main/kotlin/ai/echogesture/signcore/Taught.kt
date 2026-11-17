@@ -125,3 +125,57 @@ object ClipCodec {
         return Clip(t, points, world, seen)
     }
 }
+
+/**
+ * The core of a signed clip: the stretch between the hands' rise and their drop, found from the wrists' height
+ * alone. A port of scripts/contsign.py `core_span`, used so that a taught sign's examples (recorded from rest to
+ * rest) can be shown to the live model the way a live window shows a sign: centred on the sign itself.
+ */
+object Cores {
+    const val REST_H = -1.0f
+    const val FRAC = 0.65f
+
+    /** (s0, a, b, s1): the stretch above the rest line is [s0, s1) and the core [a, b). h: the higher wrist's height per step. */
+    fun span(h: FloatArray, restH: Float = REST_H, frac: Float = FRAC, minLen: Int = 5): IntArray {
+        val t = h.size
+        var s0 = -1
+        var s1 = -1
+        for (i in 0 until t) if (h[i] > restH) { if (s0 < 0) s0 = i; s1 = i + 1 }
+        if (s0 < 0) return intArrayOf(0, 0, t, t)
+        val sorted = h.copyOfRange(s0, s1).also { it.sort() }
+        val pos = 0.9f * (sorted.size - 1)
+        val lo = pos.toInt()
+        val peak = sorted[lo] + (sorted[minOf(lo + 1, sorted.size - 1)] - sorted[lo]) * (pos - lo)
+        val lo0 = minOf(h[s0], peak)
+        val lo1 = minOf(h[s1 - 1], peak)
+        var a = s0
+        while (a < s1 - 1 && h[a] < lo0 + frac * (peak - lo0)) a++
+        var b = s1
+        while (b > s0 + 1 && h[b - 1] < lo1 + frac * (peak - lo1)) b--
+        if (b - a < maxOf(minLen.toFloat(), 0.35f * (s1 - s0))) { a = s0; b = s1 }
+        return intArrayOf(s0, a, b, s1)
+    }
+
+    /** The higher wrist's height above the shoulder line at every step of a normalised clip, in shoulder widths. */
+    fun heights(clip: Clip): FloatArray {
+        val p = Layout.P
+        fun y(t: Int, k: Int) = clip.points[(t * p + k) * 3 + 1]
+        val wl = Layout.POSE_KEEP.indexOf(Layout.POSE_WRIST_L)
+        val wr = Layout.POSE_KEEP.indexOf(Layout.POSE_WRIST_R)
+        return FloatArray(clip.t) { t ->
+            val mid = (y(t, Layout.SHOULDER_L) + y(t, Layout.SHOULDER_R)) / 2
+            maxOf(mid - y(t, wl), mid - y(t, wr))
+        }
+    }
+
+    /** The steps of [clip] a live window `share` of its length would hold when centred on the sign's core. */
+    fun window(clip: Clip, share: Float): Clip {
+        val w = maxOf(8, Math.round(share * clip.t))
+        if (w >= clip.t) return clip
+        val s = span(heights(clip))
+        val lo = Math.round((s[1] + s[2] - 1) / 2f - (w - 1) / 2f).coerceIn(0, clip.t - w)
+        val p3 = Layout.P * 3
+        return Clip(w, clip.points.copyOfRange(lo * p3, (lo + w) * p3), clip.world.copyOfRange(lo * 126, (lo + w) * 126),
+            clip.seen.copyOfRange(lo * 4, (lo + w) * 4))
+    }
+}

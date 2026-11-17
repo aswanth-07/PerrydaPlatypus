@@ -75,6 +75,80 @@ class SpotterTest {
         model.close()
     }
 
+    /**
+     * Continuous captions against Python: the same streams, captioned by Spotter in continuous mode with the app's
+     * live INT8 model (android/models/full) and the decoder settings of its live.json;
+     * scripts/make_stream_fixture.py --live did the same with live_cont.run_cont.
+     */
+    @Test
+    fun continuousSpotterMatchesPython() {
+        val expect = File(dir, "streams.json")
+        val liveFile = File(dir, "../models/full/live_int8.onnx")
+        if (!expect.exists() || !liveFile.exists()) { println("no streams.json or live model: skipped"); return }
+        val spec = JSONObject(expect.readText())
+        val cfg = spec.optJSONObject("live")
+        if (cfg == null) { println("streams.json has no continuous captions: run make_stream_fixture.py --live"); return }
+        val stepMs = 1000.0 / spec.getDouble("fps")
+        val clips = JSONObject(File(dir, "fixture.json").readText()).getJSONArray("clips")
+        val la = JSONArray(File(dir, "labels.json").readText())
+        val labels = (0 until la.length()).map { la.getString(it).uppercase() }
+        val model = SignModel(File(dir, "sign_int8.onnx").readBytes(), labels)
+        val live = SignModel(liveFile.readBytes(), labels)
+        val setsFile = File(dir, "../../src/models/full/sets.json")
+        val sets = if (setsFile.exists()) JSONArray(setsFile.readText()).let { a -> IntArray(a.length()) { a.getInt(it) } } else null
+        val streams = spec.getJSONArray("streams")
+        var words = 0
+        for (n in 0 until streams.length()) {
+            val s = streams.getJSONObject(n)
+            val ids = s.getJSONArray("clips")
+            val first = clips.getJSONObject(ids.getInt(0))
+            val w = first.getInt("width")
+            val h = first.getInt("height")
+            val stream = ArrayList<RawFrame>()
+            for (k in 0 until ids.length()) stream += frames(clips.getJSONObject(ids.getInt(k)))
+            repeat(s.getInt("rest_frames")) { stream += RawFrame(null, arrayOfNulls(2), arrayOfNulls(2), null) }
+            val spotter = Spotter(model)
+            spotter.liveModel = live
+            spotter.setOf = sets
+            spotter.liveWindowMs = cfg.getLong("window_ms")
+            spotter.liveStrideMs = cfg.getLong("stride_ms")
+            spotter.lo = cfg.getDouble("lo").toFloat()
+            spotter.gap = cfg.getInt("gap")
+            spotter.emin = cfg.getDouble("emin").toFloat()
+            spotter.commit = cfg.getDouble("commit").toFloat()
+            spotter.tailMs = cfg.getLong("tail_ms")
+            spotter.continuous = true
+            val got = ArrayList<Pair<String, Int>>()
+            for ((t, f) in stream.withIndex()) {
+                spotter.push(Math.round(t * stepMs), f, w, h)?.words?.forEach { got += it to t }
+            }
+            val want = s.getJSONArray("continuous").let { c -> (0 until c.length()).map { c.getJSONArray(it).getString(0) to c.getJSONArray(it).getInt(1) } }
+            println("continuous stream $n: ${got.joinToString(" ") { "${it.first}@${it.second}" }}")
+            assertEquals(want, got, "stream $n: Kotlin's continuous caption differs from Python's")
+            words += got.size
+        }
+        assertTrue(words > 0, "no word was captioned in any stream")
+        model.close()
+        live.close()
+    }
+
+    /** Continuous captions never wait for the hands to drop: the mode switch starts afresh and nothing stays open. */
+    @Test
+    fun continuousModeSwitchStartsAfresh() {
+        val clips = JSONObject(File(dir, "fixture.json").readText()).getJSONArray("clips")
+        val la = JSONArray(File(dir, "labels.json").readText())
+        val model = SignModel(File(dir, "sign_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
+        val c = clips.getJSONObject(0)
+        val spotter = Spotter(model)
+        spotter.continuous = true
+        val fr = frames(c)
+        for ((t, f) in fr.take(fr.size / 2).withIndex()) spotter.push(t * 40L, f, c.getInt("width"), c.getInt("height"))
+        assertTrue(spotter.signing, "the hands are up half-way through a clip")
+        spotter.continuous = false
+        assertTrue(!spotter.signing, "an open gate survived the switch out of continuous mode")
+        model.close()
+    }
+
     /** A wrist that never comes down is captioned by the sliding window; switching modes forgets the open stretch. */
     @Test
     fun modeSwitchStartsAfresh() {

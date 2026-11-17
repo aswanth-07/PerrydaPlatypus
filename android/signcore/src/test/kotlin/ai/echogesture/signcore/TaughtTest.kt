@@ -67,3 +67,43 @@ class TaughtTest {
         assertContentEquals(clip.seen, back.seen)
     }
 }
+
+class CoresTest {
+    /** Hands at rest, a rise, a sign held at chest height, a drop: the core is the held part. */
+    @Test
+    fun coreIsTheStretchBetweenRiseAndDrop() {
+        val h = FloatArray(40) { t ->
+            when {
+                t < 8 -> -1.6f                           // at rest
+                t < 12 -> -1.6f + (t - 7) * 0.275f       // rising to -0.5
+                t < 28 -> -0.5f                          // the sign
+                t < 32 -> -0.5f - (t - 27) * 0.275f      // dropping
+                else -> -1.6f
+            }
+        }
+        val s = Cores.span(h)
+        assertEquals(10, s[0], "the stretch opens when the wrist passes the rest line")
+        assertEquals(29, s[3], "and closes after the last step above it (step 28, at -0.775)")
+        assertTrue(s[1] in 11..12 && s[2] in 28..29, "core ${s[1]}..${s[2]} should be the held part 12..28")
+    }
+
+    @Test
+    fun handsNeverRaisedGiveTheWholeClip() {
+        assertContentEquals(intArrayOf(0, 0, 20, 20), Cores.span(FloatArray(20) { -1.7f }))
+    }
+
+    @Test
+    fun liveWindowIsCentredOnTheCore() {
+        val t = 64
+        val p3 = Layout.P * 3
+        val points = FloatArray(t * p3)
+        val wl = Layout.POSE_KEEP.indexOf(Layout.POSE_WRIST_L)
+        val wr = Layout.POSE_KEEP.indexOf(Layout.POSE_WRIST_R)
+        // y grows downwards: wrists 1.6 shoulder widths below the shoulders at rest, 0.4 below while signing (steps 30-49)
+        for (k in 0 until t) for (w in intArrayOf(wl, wr)) points[(k * Layout.P + w) * 3 + 1] = if (k in 30..49) 0.4f else 1.6f
+        val clip = Clip(t, points, FloatArray(t * 126), FloatArray(t * 4) { it.toFloat() })
+        val win = Cores.window(clip, 0.5f)
+        assertEquals(32, win.t)
+        assertEquals(24f * 4, win.seen[0], "the window should start at step 24: 32 steps centred on the core 30..49")
+    }
+}

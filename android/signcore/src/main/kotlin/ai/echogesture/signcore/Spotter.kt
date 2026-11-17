@@ -3,7 +3,19 @@ package ai.echogesture.signcore
 /**
  * Live word captions from a camera stream.
  *
- * Boundary mode (the default): a sign is the stretch between two rests. A stretch opens when a wrist rises above
+ * Continuous mode (`continuous`, what the app uses): signs follow one another with the hands kept up. While a
+ * wrist is above the rest line, and for `tailMs` after both have dropped, the last `liveWindowMs` are classified
+ * every `liveStride` frames by `liveModel`, a model trained on such windows: it names the sign the window is
+ * centred on, or says "no sign" when the window is centred on the movement between two. A run of windows that
+ * name a sign is one sign: while it lasts, every window adds evidence to the signs it names, and when it ends
+ * (`gap` windows of "no sign", or the hands at rest) the sign with the most evidence is captioned, if it reached
+ * `emin`. A sign held for long is captioned as soon as its evidence reaches `commit`. Until then the leading word
+ * is `tentative`: shown, not yet settled, the way live speech captions settle a word. Nothing waits for the hands
+ * to drop. Answering as soon as a few windows agreed was measured first and captioned half-seen signs.
+ * scripts/contsign.py (`Decoder`, `RestGate`) and scripts/live_cont.py (`run_cont`) are the same logic in
+ * Python, measured on held-out clips joined without rests. Keep them identical.
+ *
+ * Boundary mode: a sign is the stretch between two rests. A stretch opens when a wrist rises above
  * the rest line (a height under the shoulders, in shoulder widths) and closes once both wrists have been back
  * below it for `restMs`; the whole stretch, with `preMs` of lead-in, is then classified once, the way a clip is,
  * and its word is emitted if it reaches `threshold`. The classifier was trained on whole signs, so it is asked
@@ -56,6 +68,36 @@ class Spotter(
             if (value != field) { field = value; frames.clear(); idle() }
         }
 
+    // ---------- continuous signing: settings ----------
+
+    /** One caption per run of sign windows while the hands are up; takes precedence over `boundary`. Switching starts afresh. */
+    var continuous: Boolean = false
+        set(value) {
+            if (value != field) { field = value; frames.clear(); idle() }
+        }
+
+    /** The model trained on windows of continuous signing; null: the clip model answers the windows. */
+    @Volatile var liveModel: SignModel? = null
+    /** Signs taught on the device, as `liveModel` embeds them. */
+    @Volatile var liveTaught: TaughtMatcher? = null
+    /** Same-sign set of each label (words that are one sign under two names gather evidence together); null: none. */
+    @Volatile var setOf: IntArray? = null
+    @Volatile var liveWindowMs: Long = 1200
+    /** A window is classified every this many ms, rounded to whole frames (80 ms: every second frame at 25 or 30 fps). */
+    @Volatile var liveStrideMs: Long = 80
+    /** A window names a sign when its top word's set reaches this and beats "no sign". */
+    @Volatile var lo: Float = 0.1f
+    /** This many windows in a row without a sign end the sign. */
+    @Volatile var gap: Int = 1
+    /** The evidence a sign needs to be captioned when it ends (the sum of its probability over its windows). */
+    @Volatile var emin: Float = 2.5f
+    /** The evidence at which a sign is captioned without waiting for its end; 0: never. */
+    @Volatile var commit: Float = 6f
+    /** The evidence at which the leading word is offered as `tentative`. */
+    @Volatile var show: Float = 1f
+    @Volatile var tailMs: Long = 600
+    @Volatile var minHandFrames: Int = 6
+
     private val frames = ArrayDeque<Pair<Long, RawFrame>>()
     private var sinceLast = 0
     private var streakWord: String? = null
@@ -68,18 +110,141 @@ class Spotter(
     private var shoulder = 0f            // running shoulder width, image units
     private var openAt = -1L             // timestamp the open stretch starts at (lead-in included); -1: at rest
     private var lowSince = -1L           // first frame of the current run below the rest line; -1: a wrist is up
-    private var continuous = false       // the open stretch outlived maxOneMs: the sliding window captions it
+    private var overlong = false         // the open stretch outlived maxOneMs: the sliding window captions it
     private val pending = ArrayList<String>()
     private var lastInStretch: String? = null
 
     /** Whether a stretch is open: the signer's hands are up. */
-    val signing: Boolean get() = openAt >= 0
+    val signing: Boolean get() = if (continuous) gateOpen else openAt >= 0
 
     fun push(timestampMs: Long, frame: RawFrame, width: Int, height: Int): Event? {
         frames.addLast(timestampMs to frame)
-        val keepMs = if (boundary) maxOf(windowMs, maxOneMs + preMs + restMs + 1000) else windowMs
+        val keepMs = if (continuous) liveWindowMs else if (boundary) maxOf(windowMs, maxOneMs + preMs + restMs + 1000) else windowMs
         while (frames.isNotEmpty() && timestampMs - frames.first().first > keepMs) frames.removeFirst()
-        return if (boundary) pushBoundary(timestampMs, frame, width, height) else pushSliding(timestampMs, width, height)
+        return when {
+            continuous -> pushContinuous(timestampMs, frame, width, height)
+            boundary -> pushBoundary(timestampMs, frame, width, height)
+            else -> pushSliding(timestampMs, width, height)
+        }
+    }
+
+    // ---------- continuous signing: windows voted on ----------
+
+    /** What a sign's caption is shown with: the newest window that named it. */
+    private class Named(val pred: Prediction?, val taught: TaughtMatcher.Match?)
+    private class Settled(val word: String, val by: Named?)
+
+    private val ev = LinkedHashMap<String, Double>()     // evidence per sign of the open run: a same-sign set or a taught word
+    private val wsum = LinkedHashMap<Int, Double>()      // summed probability per word of the open run
+    private val namedBy = HashMap<String, Named>()
+    private var gapRun = 0
+    private var done: String? = null                     // the sign already captioned in this run (commit)
+    private var gateOpen = false
+    private var closedAt = -1L
+    private var liveActive = false
+    private var classifiedAt = 0L
+    private var prevTs = -1L
+    private var framePeriod = 0f     // running time between frames, ms
+
+    /** The open run's leading word, once its evidence reaches `show`: what the caption will most likely be. */
+    @Volatile var tentative: String? = null
+        private set
+
+    private fun pushContinuous(ts: Long, frame: RawFrame, width: Int, height: Int): Event? {
+        if (prevTs >= 0) framePeriod = if (framePeriod == 0f) (ts - prevTs).toFloat() else 0.9f * framePeriod + 0.1f * (ts - prevTs)
+        prevTs = ts
+        // The gate: open from the frame a wrist rises above the rest line until both have been below it for restMs;
+        // windows are still classified for tailMs after that, while their centre is on the last sign.
+        val h = wristHeight(frame, width, height)
+        val up = h != null && h > restHeight + (if (gateOpen) 0f else 0.1f)
+        if (gateOpen) {
+            if (up) lowSince = -1 else if (lowSince < 0) lowSince = ts
+            if (lowSince >= 0 && ts - lowSince >= restMs) { gateOpen = false; closedAt = ts }
+        } else if (up) {
+            gateOpen = true
+            lowSince = -1
+        }
+        if (!(gateOpen || (closedAt >= 0 && ts - closedAt <= tailMs))) {
+            if (!liveActive) return null
+            liveActive = false
+            val last = flush()       // the hands came to rest: the open sign is settled
+            if (last != null) emit(last.word)
+            return Event(last?.word, last?.by?.pred, false, last?.by?.taught)
+        }
+        // The first active frame classifies at once; after that every liveStrideMs, to the nearest whole frame.
+        if (liveActive && ts - classifiedAt < liveStrideMs - framePeriod / 2) return null
+        liveActive = true
+        classifiedAt = ts
+
+        val window = frames.filter { ts - it.first < liveWindowMs }.map { it.second }
+        var pred: Prediction? = null
+        var hit: TaughtMatcher.Match? = null
+        var settled: Settled? = null
+        var sign = false
+        if (window.size >= 8 && window.count { it.hands[0] != null || it.hands[1] != null } >= minHandFrames) {
+            val live = liveModel
+            pred = (live ?: model).classify(Normaliser.normalise(window, width, height))
+            hit = (if (live != null) liveTaught else taught)?.match(pred.embedding)
+            val conf = pred.setProbs[pred.order[0]]
+            sign = hit != null || (conf >= lo && conf > pred.none)   // a taught match passed its own threshold
+        }
+        if (!sign) {                 // the movement between two signs, or no hands to read
+            if (++gapRun >= gap) settled = flush()
+        } else {
+            gapRun = 0
+            val p = pred!!
+            val named = Named(p, hit)
+            if (hit != null) {
+                val key = "t:" + hit.word
+                ev[key] = (ev[key] ?: 0.0) + 1.0
+                namedBy[key] = named
+            }
+            val seen = HashSet<String>()
+            for (n in 0 until minOf(TOP_K, p.order.size)) {
+                val k = p.order[n]
+                val key = setKey(k)
+                wsum[k] = (wsum[k] ?: 0.0) + p.probs[k].toDouble()
+                if (seen.add(key)) ev[key] = (ev[key] ?: 0.0) + p.setProbs[k].toDouble()
+                if (n == 0 && hit == null) namedBy[key] = named
+            }
+            if (commit > 0 && done == null) {
+                val (key, word, e) = leader()
+                if (e >= commit) { done = key; settled = Settled(word, namedBy[key]) }
+            }
+        }
+        tentative = if (ev.isEmpty()) null else leader().let { (key, word, e) -> if (e >= show && key != done) word else null }
+        if (settled != null) emit(settled.word)
+        return Event(settled?.word, settled?.by?.pred ?: pred, true, if (settled != null) settled.by?.taught else hit, signing = gateOpen)
+    }
+
+    private fun setKey(k: Int): String = "s:" + (setOf?.getOrNull(k) ?: k)
+
+    /** The open run's leading sign, the word to show for it, and its evidence. Ties go to whichever came first. */
+    private fun leader(): Triple<String, String, Double> {
+        val top = ev.entries.maxByOrNull { it.value }!!
+        val word = if (top.key.startsWith("t:")) top.key.substring(2)
+        else model.labels[wsum.entries.filter { setKey(it.key) == top.key }.maxByOrNull { it.value }!!.key]
+        return Triple(top.key, word, top.value)
+    }
+
+    /** Close the open run (a gap, or the hands at rest): its caption, or null. */
+    private fun flush(): Settled? {
+        var out: Settled? = null
+        if (ev.isNotEmpty() && done == null) {
+            val (key, word, e) = leader()
+            if (e >= emin) out = Settled(word, namedBy[key])
+        }
+        clearRun()
+        return out
+    }
+
+    private fun clearRun() {
+        ev.clear()
+        wsum.clear()
+        namedBy.clear()
+        gapRun = 0
+        done = null
+        tentative = null
     }
 
     // ---------- the sliding window alone ----------
@@ -136,7 +301,7 @@ class Spotter(
             if (!up) return if (++sinceLast >= stride) { sinceLast = 0; Event(null, null, false) } else null
             openAt = ts - preMs
             lowSince = -1
-            continuous = false
+            overlong = false
             pending.clear()
             streakWord = null
             streak = 0
@@ -149,7 +314,7 @@ class Spotter(
 
         // The stretch is open: slide a window over it, for continuous signing and (with preview) as a fallback.
         var out: Event? = null
-        if (++sinceLast >= stride && (preview || continuous) && frames.count { it.first >= openAt } >= 8) {
+        if (++sinceLast >= stride && (preview || overlong) && frames.count { it.first >= openAt } >= 8) {
             sinceLast = 0
             val window = frames.filter { it.first >= openAt && ts - it.first < windowMs }.map { it.second }
             if (handFraction(window) >= minHandFraction) {
@@ -164,13 +329,13 @@ class Spotter(
                 var emitted: String? = null
                 if (streak >= agree && word != lastInStretch) {
                     lastInStretch = word
-                    if (continuous) { emitted = word; emit(word) } else pending += word
+                    if (overlong) { emitted = word; emit(word) } else pending += word
                 }
                 out = Event(emitted, pred, true, hit, signing = true)
             }
         }
-        if (!continuous && ts - openAt >= maxOneMs) {   // no rest for this long: several signs, caption as they come
-            continuous = true
+        if (!overlong && ts - openAt >= maxOneMs) {   // no rest for this long: several signs, caption as they come
+            overlong = true
             if (pending.isNotEmpty()) {
                 val words = pending.toList()
                 pending.clear()
@@ -184,11 +349,11 @@ class Spotter(
     /** The hands are back at rest: answer for the stretch that just ended. */
     private fun close(ts: Long, width: Int, height: Int): Event {
         val from = openAt
-        val wasContinuous = continuous
+        val wasContinuous = overlong
         val upMs = lowSince - from
         openAt = -1
         lowSince = -1
-        continuous = false
+        overlong = false
         sinceLast = 0
         if (wasContinuous) {
             // The sliding window captioned this stretch; give its last sign one more look, without the agreement.
@@ -231,14 +396,25 @@ class Spotter(
         while (caption.size > 8) caption.removeFirst()
     }
 
+    private companion object {
+        /** A window's this many most probable words add evidence (contsign.TOPK). */
+        const val TOP_K = 5
+    }
+
     private fun idle() {
+        clearRun()
+        gateOpen = false
+        closedAt = -1
+        liveActive = false
+        prevTs = -1
+        framePeriod = 0f
         streak = 0
         streakWord = null
         lastEmitted = null
         restedSinceEmit = true
         openAt = -1
         lowSince = -1
-        continuous = false
+        overlong = false
         pending.clear()
         lastInStretch = null
         sinceLast = 0
