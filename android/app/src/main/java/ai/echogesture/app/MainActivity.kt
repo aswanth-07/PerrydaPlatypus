@@ -75,10 +75,17 @@ class MainActivity : ComponentActivity() {
                         bench.powerSplit(intent.getIntExtra("seconds", 90), intent.getIntExtra("threads", 2), intent.getBooleanExtra("spin", false))
                     }
                     "clip" -> bench.clip(intent.getIntExtra("runs", 10), intent.getBooleanExtra("gpu", false), intent.getStringExtra("file") ?: "bench.mp4")
+                    "teach" -> {
+                        if (intent.hasExtra("continuous")) vm.engine.continuousForBench(intent.getBooleanExtra("continuous", true))
+                        bench.teach((intent.getStringExtra("words") ?: "").split(",").map { it.trim() }.filter { it.isNotEmpty() },
+                            intent.getIntExtra("examples", 3), intent.getStringExtra("file") ?: "teach_test.mp4",
+                            intent.getIntExtra("fps", 25), intent.getIntExtra("seconds", 40), intent.getBooleanExtra("keep", false))
+                    }
                     "live" -> {
                         val gpu = intent.getBooleanExtra("gpu", false)
                         val lanes = intent.getStringExtra("lanes")?.split(",")?.map { it.trim() == "gpu" }
                             ?: List(SignEngine.DEFAULT_LANES) { gpu }
+                        vm.engine.practiceTarget = intent.getStringExtra("practice")   // Learn mode's check on a replayed video
                         if (intent.hasExtra("boundary")) vm.engine.boundaryForBench(intent.getBooleanExtra("boundary", true))
                         if (intent.hasExtra("continuous")) vm.engine.continuousForBench(intent.getBooleanExtra("continuous", true))
                         bench.live(intent.getIntExtra("seconds", 600), intent.getIntExtra("fps", 30), lanes,

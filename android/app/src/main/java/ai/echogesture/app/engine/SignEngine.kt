@@ -65,6 +65,7 @@ data class LiveState(
     val top: List<Pair<String, Float>> = emptyList(),
     val caption: List<String> = emptyList(),
     val pending: String? = null,                // the sign under way, not yet settled (continuous captions)
+    val attempt: Attempt? = null,               // Learn mode: the last sign made while a word was being practised
     val lastWord: String? = null,
     val lastWordAt: Long = 0,
     val lastAlso: List<String> = emptyList(),   // other names of the same sign (DOCTOR · PHYSICIAN)
@@ -81,6 +82,12 @@ data class LiveState(
     val lanes: Int = 1,                         // live landmarkers taking turns on frames
     val error: String? = null,
 )
+
+/**
+ * Learn mode: one sign the learner made while practising [target]. [share] is how much of the sign's evidence was
+ * for the target (1 when the target was the caption); [correct] when at least [SignEngine.PRACTICE_PASS] of it.
+ */
+data class Attempt(val target: String, val seen: String, val share: Float, val correct: Boolean, val at: Long)
 
 /** Who said a line of the conversation: the signer (recognised signs) or the hearing person (spoken reply). */
 enum class Who { SIGNER, VOICE }
@@ -193,6 +200,15 @@ class SignEngine(private val context: Context) : AutoCloseable {
     }
     @Volatile private var benchContinuous: Boolean? = null
 
+    // ---------- Learn mode: the app shows a sign, the learner copies it, the recogniser checks it ----------
+
+    /** The word being practised; null outside Learn mode. Captions made meanwhile are not spoken or kept in Chat. */
+    @Volatile var practiceTarget: String? = null
+        set(value) {
+            field = value?.let(TaughtStore::clean)
+            _live.update { it.copy(attempt = null) }
+        }
+
     // ---------- continuous signing: the live model and its measured decoder settings ----------
 
     /** The vocabulary's model trained on windows of continuous signing (assets/<vocab>/live_int8.onnx), if packed. */
@@ -222,6 +238,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
         s.emin = liveEmin * k
         s.commit = liveCommit * k
     }
+
+    /** The loaded classifier's words, in label order; empty until a model is loaded. */
+    fun labels(): List<String> = model?.labels.orEmpty()
 
     /** The loaded classifier's bytes and labels, for the latency benchmark. */
     fun modelAsset(): Pair<ByteArray, List<String>> {
@@ -621,6 +640,8 @@ class SignEngine(private val context: Context) : AutoCloseable {
                     finishRecording(rec)
                 }
             }
+            val target = practiceTarget
+            s.watch = target?.let { t -> model?.labels?.indexOf(t)?.takeIf { it >= 0 } }
             val event = if (rec == null) s.push(ts, frame, w, h) else null
             event?.prediction?.let { pr -> bench?.let { b -> synchronized(b) { b.model += pr.latencyMs } } }
             val word = event?.word
@@ -628,11 +649,18 @@ class SignEngine(private val context: Context) : AutoCloseable {
             val taught = hit != null
             val alsoNames = if (word != null && !taught) event.prediction?.let { also(it, word) }.orEmpty() else emptyList()
             val others = if (word != null && !taught) event.prediction?.let { alternatives(it, word) }.orEmpty() else emptyList()
+            var attempt: Attempt? = null
             for (w in event?.words.orEmpty()) {
-                speaker.speak(w, ts)   // ts is the uptime of the camera frame that settled the word
                 val conf = hit?.cosine ?: event?.prediction?.confidence ?: 0f
+                if (target != null) {   // practising: judge the sign against the word asked for, say and keep nothing
+                    val share = if (w == target) 1f else event?.watchShare ?: 0f
+                    attempt = Attempt(target, w, share, share >= PRACTICE_PASS, SystemClock.uptimeMillis())
+                    if (bench != null) Log.i(Bench.TAG, "attempt " + target + " seen " + w + " share " + share + " correct " + (share >= PRACTICE_PASS))
+                    continue
+                }
+                speaker.speak(w, ts)   // ts is the uptime of the camera frame that settled the word
                 _transcript.update { it + TranscriptEntry(w, conf, System.currentTimeMillis()) }
-                if (bench != null) Log.i(Bench.TAG, "caption " + w + " conf " + conf + " at " + ts)
+                if (bench != null) Log.i(Bench.TAG, "caption " + w + " conf " + conf + " at " + ts + (if (taught) " taught" else ""))
             }
             _live.update { st ->
                 val fps = if (dt > 0) (if (st.fps == 0.0) 1000.0 / dt else 0.9 * st.fps + 0.1 * 1000.0 / dt) else st.fps
@@ -661,6 +689,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
                     lastTaught = if (word != null) taught else st.lastTaught,
                     lastAlternatives = if (word != null) others else st.lastAlternatives,
                     recording = progress,
+                    attempt = attempt ?: st.attempt,
                 )
             }
         }
@@ -839,6 +868,8 @@ class SignEngine(private val context: Context) : AutoCloseable {
         private const val IDLE_AFTER_MS = 2_000L
         private const val IDLE_PERIOD_MS = 120L
         private const val SLIDE_THRESHOLD = 0.35f
+        /** Learn mode: a sign passes when the practised word holds at least this share of its evidence. */
+        const val PRACTICE_PASS = 0.5f
         /** How long an example of a taught sign is recorded for. */
         const val TEACH_MS = 2500L
         /** Eager, balanced, careful: the measured evidence thresholds times this. */

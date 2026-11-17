@@ -59,13 +59,13 @@ import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.ui.clips.ClipsScreen
 import ai.echogesture.app.ui.live.LiveScreen
 import ai.echogesture.app.ui.settings.SettingsScreen
-import ai.echogesture.app.ui.teach.TeachScreen
+import ai.echogesture.app.ui.teach.SignsScreen
 import ai.echogesture.app.ui.transcript.TranscriptScreen
 
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     Live("live", "Live", Icons.Filled.Videocam),
     Chat("chat", "Chat", Icons.AutoMirrored.Filled.Chat),
-    Teach("teach", "Teach", Icons.Filled.School),
+    Teach("teach", "Signs", Icons.Filled.School),
     Clips("clips", "Videos", Icons.Filled.VideoLibrary),
     Settings("settings", "Settings", Icons.Filled.Tune),
 }
@@ -106,7 +106,7 @@ fun EchoApp(vm: MainViewModel = viewModel()) {
         NavHost(nav, startDestination = Tab.Live.route, modifier = Modifier.padding(padding)) {
             composable(Tab.Live.route) { CameraGate { LiveScreen(vm) } }
             composable(Tab.Clips.route) { ClipsScreen(vm) }
-            composable(Tab.Teach.route) { CameraGate { TeachScreen(vm) } }
+            composable(Tab.Teach.route) { CameraGate { SignsScreen(vm) } }
             composable(Tab.Chat.route) { TranscriptScreen(vm) }
             composable(Tab.Settings.route) { SettingsScreen(vm) }
         }

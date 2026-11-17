@@ -274,7 +274,7 @@ thread without spinning, which is as fast when paced like the live captions (15.
 ## Android app
 
 `android/` — Kotlin, Jetpack Compose, Material 3. Tabs: Live (full-screen camera, caption card, Voice / Reply /
-Pause), Chat (both sides of the conversation), Teach, Videos (pick a video: the same pipeline as `predict()`),
+Pause), Chat (both sides of the conversation), Signs (learn a sign from the app, or teach the app one), Videos (pick a video: the same pipeline as `predict()`),
 Settings (Core 100 / Full 2,000 / Extended 3,075 vocabulary, voice, camera; tuning folded under Advanced). The build copies the models from
 `src/models`. `signcore` is plain Kotlin with a parity test against Python on 40 test clips, running the shipped
 INT8 model: normaliser within 7e-6, top-1 identical on 40/40, probabilities within 0.025 (dynamic INT8 itself moves
@@ -308,7 +308,16 @@ Beyond captions:
   INCLUDE does not label its signers, so examples and test clips may come from the same person and these numbers
   are optimistic; and at the same 0.55 threshold, 35-39% of clips of ISL signs that were *not* taught match one
   that was, because signs of one language sit closer to each other than to the ASL words the threshold was set on.
-  Someone teaching many signs of another language should raise the threshold in Settings.
+  Someone teaching many signs of another language should raise the threshold in Settings. Checked end to end on
+  the emulator by replaying videos as the camera (`Bench.kt`, `--es bench teach`): AXE and TWINS (not among the
+  2,000 words) taught from 3 ASL Citizen signers each, then a 10-clip stream: all 4 clips of them by other signers
+  were captioned as the taught word, and none of the other 6 clips (2 untaught ASL Citizen signs, 4 WLASL signs).
+- **Learn a sign.** The app teaches signs to anyone learning ASL: a moving stick figure shows one of 300 common
+  signs (keypoints of one WLASL training clip, never video; 737 KB for all 300, `scripts/make_demos.py`), the
+  learner copies it in front of the front camera, and the recogniser says whether that was the sign. The check
+  asks "was it the word asked for": the practised word's share of the sign's evidence must be at least half, an
+  easier question than naming one sign out of 2,000. Emulator check with a replayed 10-clip stream while DRINK was
+  practised: passed on the DRINK clip, rejected on the 9 others.
 
 The release APK is attached to the GitHub release; `android/README.md` says how to build it.
 

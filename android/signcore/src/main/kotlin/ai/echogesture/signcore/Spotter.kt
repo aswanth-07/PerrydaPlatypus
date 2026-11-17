@@ -57,6 +57,8 @@ class Spotter(
     class Event(
         val word: String?, val prediction: Prediction?, val active: Boolean, val taught: TaughtMatcher.Match? = null,
         val words: List<String> = listOfNotNull(word), val signing: Boolean = false,
+        /** Continuous mode with a `watch` word: its share of the settled sign's evidence, 1 when it is the sign. */
+        val watchShare: Float? = null,
     )
 
     /** Signs taught on the device; a window that matches one is that word, whatever the classifier says. */
@@ -95,6 +97,13 @@ class Spotter(
     @Volatile var commit: Float = 6f
     /** The evidence at which the leading word is offered as `tentative`. */
     @Volatile var show: Float = 1f
+    /**
+     * A word the signer is trying to make (the app's Learn mode), as a label index; null: none. Every settled
+     * caption then reports how much of the sign's evidence was for this word's set: with 2,000 words open the
+     * top answer is often a near neighbour, and "was that the sign I asked for" is an easier question than
+     * "which sign was that".
+     */
+    @Volatile var watch: Int? = null
     @Volatile var tailMs: Long = 600
     @Volatile var minHandFrames: Int = 6
 
@@ -132,7 +141,7 @@ class Spotter(
 
     /** What a sign's caption is shown with: the newest window that named it. */
     private class Named(val pred: Prediction?, val taught: TaughtMatcher.Match?)
-    private class Settled(val word: String, val by: Named?)
+    private class Settled(val word: String, val by: Named?, val watchShare: Float?)
 
     private val ev = LinkedHashMap<String, Double>()     // evidence per sign of the open run: a same-sign set or a taught word
     private val wsum = LinkedHashMap<Int, Double>()      // summed probability per word of the open run
@@ -169,7 +178,7 @@ class Spotter(
             liveActive = false
             val last = flush()       // the hands came to rest: the open sign is settled
             if (last != null) emit(last.word)
-            return Event(last?.word, last?.by?.pred, false, last?.by?.taught)
+            return Event(last?.word, last?.by?.pred, false, last?.by?.taught, watchShare = last?.watchShare)
         }
         // The first active frame classifies at once; after that every liveStrideMs, to the nearest whole frame.
         if (liveActive && ts - classifiedAt < liveStrideMs - framePeriod / 2) return null
@@ -195,26 +204,29 @@ class Spotter(
             val p = pred!!
             val named = Named(p, hit)
             if (hit != null) {
+                // A window that matches a taught sign is that sign, whatever the classifier says of it.
                 val key = "t:" + hit.word
                 ev[key] = (ev[key] ?: 0.0) + 1.0
                 namedBy[key] = named
-            }
-            val seen = HashSet<String>()
-            for (n in 0 until minOf(TOP_K, p.order.size)) {
-                val k = p.order[n]
-                val key = setKey(k)
-                wsum[k] = (wsum[k] ?: 0.0) + p.probs[k].toDouble()
-                if (seen.add(key)) ev[key] = (ev[key] ?: 0.0) + p.setProbs[k].toDouble()
-                if (n == 0 && hit == null) namedBy[key] = named
+            } else {
+                val seen = HashSet<String>()
+                for (n in 0 until minOf(TOP_K, p.order.size)) {
+                    val k = p.order[n]
+                    val key = setKey(k)
+                    wsum[k] = (wsum[k] ?: 0.0) + p.probs[k].toDouble()
+                    if (seen.add(key)) ev[key] = (ev[key] ?: 0.0) + p.setProbs[k].toDouble()
+                    if (n == 0) namedBy[key] = named
+                }
             }
             if (commit > 0 && done == null) {
                 val (key, word, e) = leader()
-                if (e >= commit) { done = key; settled = Settled(word, namedBy[key]) }
+                if (e >= commit) { done = key; settled = Settled(word, namedBy[key], share(e)) }
             }
         }
         tentative = if (ev.isEmpty()) null else leader().let { (key, word, e) -> if (e >= show && key != done) word else null }
         if (settled != null) emit(settled.word)
-        return Event(settled?.word, settled?.by?.pred ?: pred, true, if (settled != null) settled.by?.taught else hit, signing = gateOpen)
+        return Event(settled?.word, settled?.by?.pred ?: pred, true, if (settled != null) settled.by?.taught else hit, signing = gateOpen,
+            watchShare = settled?.watchShare)
     }
 
     private fun setKey(k: Int): String = "s:" + (setOf?.getOrNull(k) ?: k)
@@ -227,12 +239,15 @@ class Spotter(
         return Triple(top.key, word, top.value)
     }
 
+    /** The watched word's evidence in the open run as a share of the leader's [top] evidence; null: nothing watched. */
+    private fun share(top: Double): Float? = watch?.let { ((ev[setKey(it)] ?: 0.0) / top).toFloat().coerceIn(0f, 1f) }
+
     /** Close the open run (a gap, or the hands at rest): its caption, or null. */
     private fun flush(): Settled? {
         var out: Settled? = null
         if (ev.isNotEmpty() && done == null) {
             val (key, word, e) = leader()
-            if (e >= emin) out = Settled(word, namedBy[key])
+            if (e >= emin) out = Settled(word, namedBy[key], share(e))
         }
         clearRun()
         return out

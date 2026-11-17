@@ -11,10 +11,14 @@ import android.os.Debug
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import ai.echogesture.app.data.TaughtStore
 import ai.echogesture.signcore.Clip
+import ai.echogesture.signcore.Embeddings
 import ai.echogesture.signcore.Layout
 import ai.echogesture.signcore.SignModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +47,12 @@ import java.util.Random
  *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench power
  *       on battery (unplug after starting): signing on 2 CPU lanes 150 s, nobody in view gated 90 s and ungated
  *       90 s, signing on 1 GPU lane 90 s; files power_live_*.jsonl, power_mw averaged from 1 s current samples
+ *
+ *   adb shell am start -n ai.echogesture.app/.MainActivity --es bench teach --es words AXE,TWINS --ei examples 3 --es file teach_test.mp4
+ *       Teach a sign end to end without a camera: for each word, files/teach_<word>_<n>.mp4 (one example each) are
+ *       replayed like a camera while the app records an example exactly as the Teach tab does; the sign is saved;
+ *       then the test video is replayed through the live captions. A taught caption is logged with " taught".
+ *       The signs taught by the run are deleted afterwards unless --ez keep true.
  *
  * Results go to logcat (tag EchoBench) and to bench_<mode>.jsonl next to bench.mp4. The screen stays on at the
  * brightness it had; the speaker is silent unless a live run is started with --ez voice true, which speaks the
@@ -105,6 +115,60 @@ class Bench(private val context: Context, private val engine: SignEngine) {
             .put("tracking_p50_ms", pct(a(track), 50.0)).put("decode_p50_ms", pct(a(decode), 50.0))
             .put("model_p50_ms", pct(a(model), 50.0)).put("vocab", engine.vocabulary))
         _status.value = "Video recognition done: $top"
+    }
+
+    private suspend fun decode(name: String): List<Bitmap> {
+        val video = File(dir, name)
+        require(video.exists()) { "Push ${video.absolutePath}" }
+        val frames = ArrayList<Bitmap>()
+        withContext(Dispatchers.IO) { VideoFrames.decode(context, Uri.fromFile(video), 1000) { f -> frames += f.bitmap } }
+        require(frames.isNotEmpty()) { "Could not decode $name" }
+        return frames
+    }
+
+    /** Teach-a-sign end to end: record [examples] examples of each word from replayed videos, save, caption [test]. */
+    suspend fun teach(words: List<String>, examples: Int, test: String, fps: Int, seconds: Int, keep: Boolean) = coroutineScope {
+        val lanes = listOf(false, false)
+        engine.lanesForBench(lanes)
+        engine.speaker.enabled = false
+        val period = 1000L / fps
+        engine.acquireLive()
+        try {
+            for (w in words) {
+                val clips = ArrayList<Clip>()
+                val embs = ArrayList<FloatArray>()
+                for (n in 1..examples) {
+                    _status.value = "Teaching $w: example $n of $examples"
+                    val frames = decode("teach_${w.lowercase()}_$n.mp4")
+                    val rec = async { engine.recordExample() }
+                    val t0 = SystemClock.elapsedRealtime()
+                    var next = t0
+                    while (!rec.isCompleted) {   // the video once, then its last frame held, as a signer back at rest
+                        val now = SystemClock.elapsedRealtime()
+                        if (now >= next) {
+                            val k = ((now - t0) / period).toInt()
+                            engine.analyzeBitmap(frames[minOf(k, frames.size - 1)])
+                            next = t0 + (k + 1) * period
+                        } else delay(1)
+                    }
+                    val ex = rec.await()
+                    val match = ex.embedding?.takeIf { embs.isNotEmpty() }?.let { Embeddings.cosine(it, Embeddings.prototype(embs)) }
+                    Log.i(TAG, "teach example $w $n hands ${"%.2f".format(ex.handFraction)} match_to_earlier ${match?.let { "%.2f".format(it) } ?: "-"}")
+                    clips += ex.clip
+                    ex.embedding?.let { embs += it }
+                }
+                engine.saveTaught(w, clips)
+                Log.i(TAG, "teach saved $w with ${clips.size} examples; taught now: ${engine.teach.value.signs.joinToString { it.word }}")
+            }
+        } finally {
+            engine.releaseLive()
+        }
+        try {
+            live(seconds, fps, lanes, prefix = "teach", file = test)
+        } finally {
+            if (!keep) engine.teach.value.signs.filter { it.word in words.map(TaughtStore::clean) }.forEach { engine.deleteTaught(it.id) }
+            Log.i(TAG, "teach done; taught left: ${engine.teach.value.signs.joinToString { it.word }}")
+        }
     }
 
     /** [lanes]: one delegate per live landmarker, true for GPU (SignEngine.Lane). */

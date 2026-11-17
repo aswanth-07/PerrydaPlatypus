@@ -9,7 +9,8 @@ captions, entirely on the phone. The app has no internet permission: video and k
 |---|---|
 | **Live** | The camera fills the screen. One status chip ("Signing" while the hands are up / "Watching" / "Show your hands" · vocabulary size), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; when the model was not sure, two other signs it could have been ("or BIBLE · WALLET") as buttons for 8 s: a tap swaps the word on screen and in Chat and speaks it; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
 | **Chat** | Both sides of the conversation as chat bubbles: signed words (grouped at pauses of more than 4 s) and spoken replies, with copy, share and clear (with a confirmation). |
-| **Teach** | Teach a sign the model does not know (a name sign, a word from another sign language): type the word, record 1 to 5 examples of 2.5 s after a 3-2-1 countdown, with one progress dot per example. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Live and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
+| **Signs** | Two modes. **Learn a sign**: a stick figure (left) loops one of 300 common signs, at full or half speed ("Slow"), mirrored to match the front-camera preview beside it (right); the learner copies it and the card under them says "Yes, that was DRINK" or what it looked like instead; Skip / Next sign and Choose (search the 300). Practice is not spoken or kept in Chat. **Teach the app**: as below. |
+| ↳ **Teach the app** | Teach a sign the model does not know (a name sign, a word from another sign language): type the word, record 1 to 5 examples of 2.5 s after a 3-2-1 countdown, with one progress dot per example. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Live and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
 | **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names, the five closest signs and timings for frames, landmarks, model and total. |
 | **Settings** | Signs it knows (Core 100 / Full 2,000 / Extended 3,075), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera faces the signer, hand-tracking overlay); **Advanced**, folded away: caption each sign when the hands rest (on by default), confidence needed, stability and listening window (for signing without rests), taught-sign match, show details, track on the GPU (off by default: two CPU trackers are faster); About (vocabulary, held-out accuracy, size) and the privacy note. |
 
@@ -85,6 +86,24 @@ On Indian Sign Language (INCLUDE, 23 signs, 11 taught per episode, split by clip
 signers) the shipped 2,000-word model is right 87.5% / 95.1% / 96.5% with 1 / 3 / 5 examples, but at 0.55 about 37%
 of clips of untaught ISL signs also match a taught one: raise the threshold when teaching many signs of one other
 language. Vocabularies whose model has no embedding output show a one-line note on the Teach tab instead.
+
+End to end on the emulator without a camera: `adb shell am start -n ai.echogesture.app/.MainActivity --es bench
+teach --es words AXE,TWINS --ei examples 3 --es file teach_test.mp4` replays `files/teach_<word>_<n>.mp4` as the
+camera while an example is recorded exactly as the tab records one, saves each sign, then replays the test video
+through the live captions (a taught caption is logged with "taught") and deletes the signs again. With AXE and
+TWINS from three ASL Citizen signers each, all 4 clips of them by other signers in a 10-clip stream were captioned
+as the taught word and none of the other 6.
+
+### Learn a sign
+
+`app/.../data/Demos.kt` reads `assets/full/demos.bin` (from `scripts/make_demos.py`): for each of the 300 most
+frequent WLASL words, one train or val clip (the one the shipped classifier is surest of, with a hand seen in most
+of the sign, never a test clip), cut to the sign with a short lead-in, 24 steps of 51 points (pose, both hands) as
+bytes; 737 KB in all. The figure is scaled to each sign's own extent. While a word is practised,
+`SignEngine.practiceTarget` makes the spotter report, for each settled sign, the practised word's same-sign set's
+share of the evidence (`Spotter.watch`); at 0.5 or more the attempt passes. Check on a replayed video:
+`--es bench live --es practice DRINK --es file teach_test.mp4` logs one `attempt` line per sign (DRINK passed on its
+own clip and failed on the 9 others).
 
 ## Code
 
@@ -193,8 +212,8 @@ The build uses Gradle, the standard Android build tool (Android Studio runs the 
 Emulator: the debug build type adds the x86_64 ABI, so `gradle -p android :app:assembleDebug` installs on an
 x86_64 emulator image (tested on an Android 16 / API 36 Google APIs image: Live, Teach recording and its hand check,
 Videos with a DOCTOR test clip showing "same sign: PHYSICIAN", Chat, Settings, and the Reply permission and
-language-pack flow; the emulator has no microphone or signer, so a recognised reply and a saved taught sign need a
-phone). If `:app:mergeLibDexDebug` fails with a file "located outside the root directory", delete `android/.gradle`
+language-pack flow; the emulator has no microphone or signer, so a recognised reply needs a phone; taught signs and Learn are checked
+there with the replayed-video benches above). If `:app:mergeLibDexDebug` fails with a file "located outside the root directory", delete `android/.gradle`
 and `android/app/build/.transforms` (stale execution history from another checkout path).
 
 Release builds are minified by R8. `app/proguard-rules.pro` keeps `com.google.common.flogger`: MediaPipe's logger

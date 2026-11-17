@@ -89,7 +89,7 @@ val copyModels = tasks.register<Sync>("copyModels") {
     // the app, not to the scored predict() bundle, so it lives in android/models/<vocab>.
     val liveDir = rootProject.file("models")
     for (v in listOf("core", "full", "union").filter { File(liveDir, it).isDirectory }) {
-        from(File(liveDir, v)) { include("live_int8.onnx", "live.json"); into(v) }
+        from(File(liveDir, v)) { include("live_int8.onnx", "live.json", "demos.bin"); into(v) }
     }
 }
 tasks.named("preBuild") { dependsOn(copyModels) }
