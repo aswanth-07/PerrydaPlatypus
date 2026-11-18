@@ -183,7 +183,7 @@ private fun UseChoice(icon: ImageVector, title: String, body: String, selected: 
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
-            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(body, style = MaterialTheme.typography.bodyMedium, color = if (selected) Palette.LightAzure else MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (selected) {
             Spacer(Modifier.width(8.dp))

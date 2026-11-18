@@ -111,10 +111,10 @@ private fun LessonRow(lesson: Lesson, learned: Set<String>, current: Boolean, on
             Text(if (current) stringResource(R.string.lesson_lesson_up_next, lesson.number) else stringResource(R.string.lesson_lesson, lesson.number), style = MaterialTheme.typography.labelLarge,
                 color = if (current) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
             Text(lesson.words.joinToString(", ", transform = show), style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                color = if (current) Palette.LightAzure else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(8.dp))
-        Text("$done/${lesson.words.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("$done/${lesson.words.size}", style = MaterialTheme.typography.labelLarge, color = if (current) Palette.LightAzure else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
