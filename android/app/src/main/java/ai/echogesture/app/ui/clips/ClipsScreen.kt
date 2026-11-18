@@ -1,5 +1,9 @@
 package ai.echogesture.app.ui.clips
 
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.layout.calculateStartPadding
+import ai.echogesture.app.ui.components.TabHeader
+import ai.echogesture.app.ui.components.LocalTabBarInset
 import ai.echogesture.app.R
 import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -46,16 +50,25 @@ import androidx.compose.ui.unit.sp
 import ai.echogesture.app.ui.components.Metric
 import ai.echogesture.app.ui.theme.Palette
 
-/** Identify the sign in a saved video. [showTimings] (developer options) adds how long each step took. */
+/**
+ * The Videos tab: identify the sign in a short video from the gallery. [showTimings] (developer options) adds how
+ * long each step took.
+ */
 @Composable
-fun ClipsScreen(vm: MainViewModel, showTimings: Boolean) {
+fun ClipsScreen(vm: MainViewModel, showTimings: Boolean, onSettings: () -> Unit) {
     val clips by vm.clips.collectAsStateWithLifecycle()
     val progress by vm.clipProgress.collectAsStateWithLifecycle()
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::recognise) }
     val busy = progress != null && progress?.error == null
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    val bar = LocalTabBarInset.current
+    Column(Modifier.fillMaxSize().padding(start = bar.calculateStartPadding(LayoutDirection.Ltr))) {
+    TabHeader(stringResource(R.string.tab_videos), onSettings)
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp + bar.calculateBottomPadding()),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         item {
             Text(
                 stringResource(R.string.video_pick_a_short_video_of),
@@ -86,6 +99,7 @@ fun ClipsScreen(vm: MainViewModel, showTimings: Boolean) {
         if (clips.isNotEmpty()) item {
             TextButton(onClick = vm::clearClips, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.video_clear_results)) }
         }
+    }
     }
 }
 

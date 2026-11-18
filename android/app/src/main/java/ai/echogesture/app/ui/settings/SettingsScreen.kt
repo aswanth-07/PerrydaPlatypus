@@ -57,7 +57,9 @@ import ai.echogesture.app.ui.components.openAppSettings
 
 /** What a person using the app may want to change. Tuning lives in [DeveloperScreen]. */
 @Composable
-fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Unit, onSetUpAgain: () -> Unit) {
+fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Unit, onSetUpAgain: () -> Unit, onLicences: () -> Unit,
+    onHistory: () -> Unit,
+) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val voice by vm.engine.speaker.state.collectAsStateWithLifecycle()
     val reply by vm.engine.listener.state.collectAsStateWithLifecycle()
@@ -87,6 +89,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
                 stringResource(R.string.settings_writes_each_sign_as_a),
                 s.glossCaps,
             ) { v -> vm.update { it.copy(glossCaps = v) } }
+            ActionRow(stringResource(R.string.settings_past_conversations), stringResource(R.string.settings_past_conversations_help)) { onHistory() }
             ActionRow(stringResource(R.string.settings_delete_all_conversations), stringResource(R.string.settings_removes_every_conversation_in_history), danger = true) {
                 confirm = Confirm.CONVERSATIONS
             }
@@ -158,6 +161,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
                 stringResource(R.string.settings_trained_on_the_wlasl_and),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            ActionRow(stringResource(R.string.licences_open), stringResource(R.string.licences_intro)) { onLicences() }
             Spacer(Modifier.height(16.dp))
             OutlinedButton(onClick = onSetUpAgain, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.settings_set_up_again)) }
             Spacer(Modifier.height(24.dp))
@@ -208,7 +212,7 @@ private fun About(vm: MainViewModel, developer: Boolean, onDeveloper: () -> Unit
                             Toast.makeText(context, resources.getString(R.string.settings_developer_options_are_on), Toast.LENGTH_SHORT).show()
                         }
                         taps >= DEVELOPER_TAPS - 3 ->
-                            Toast.makeText(context, resources.getString(R.string.settings_more, DEVELOPER_TAPS - taps), Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, resources.getQuantityString(R.plurals.settings_taps_left, DEVELOPER_TAPS - taps, DEVELOPER_TAPS - taps), Toast.LENGTH_SHORT).show()
                     }
                 }.padding(vertical = 10.dp),
             ) {

@@ -1,8 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // AGP 9 compiles Kotlin itself; only the Compose compiler plugin is added.
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Release signing: android/keystore.properties (ignored by Git) names the Play upload key:
+//   storeFile=C:/keys/echogesture-upload.jks
+//   storePassword=…
+//   keyAlias=upload
+//   keyPassword=…
+// Without it a release build is signed with the debug key: installable for testing, not accepted by Play.
+val uploadKey: Properties? = rootProject.file("keystore.properties").takeIf { it.exists() }
+    ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
 
 android {
     namespace = "ai.echogesture.app"
@@ -16,9 +27,18 @@ android {
         applicationId = "ai.echogesture.app"
         minSdk = 28            // MediaMetadataRetriever.getFrameAtIndex for the clip screen
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.2"
+        versionCode = 2
+        versionName = "1.0"
         ndk { abiFilters += listOf("arm64-v8a") }
+    }
+
+    signingConfigs {
+        if (uploadKey != null) create("upload") {
+            storeFile = file(uploadKey.getProperty("storeFile"))
+            storePassword = uploadKey.getProperty("storePassword")
+            keyAlias = uploadKey.getProperty("keyAlias")
+            keyPassword = uploadKey.getProperty("keyPassword")
+        }
     }
 
     buildTypes {
@@ -29,7 +49,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")  // installable demo build
+            signingConfig = signingConfigs.findByName("upload") ?: signingConfigs.getByName("debug")
             // `-PemulatorAbi` also packs x86_64, so the shrunk release build can be tried on an x86_64 emulator
             // (arm64 ONNX Runtime crashes while loading under the emulator's ARM translation).
             if (providers.gradleProperty("emulatorAbi").isPresent) ndk { abiFilters += listOf("x86_64") }

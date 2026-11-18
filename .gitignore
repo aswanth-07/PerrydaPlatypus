@@ -13,5 +13,9 @@ __pycache__/
 android/**/build/
 android/.gradle/
 android/local.properties
+# Release signing: the upload key and its passwords never go into Git (app/build.gradle.kts reads them if present)
+android/keystore.properties
+*.jks
+*.keystore
 # Generated before every build from src/models and android/models (app/build.gradle.kts, copyModels)
 android/app/src/main/assets/

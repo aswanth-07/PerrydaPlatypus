@@ -34,7 +34,10 @@
     <!-- Tabs -->
     <string name="tab_talk">Talk</string>
     <string name="tab_learn">Learn</string>
-    <string name="tab_history">History</string>
+    <string name="tab_videos">Videos</string>
+    <string name="history_title">Past conversations</string>
+    <string name="settings_past_conversations">Past conversations</string>
+    <string name="settings_past_conversations_help">Read, copy, share or delete conversations kept on this phone.</string>
 
     <!-- History and conversations -->
     <string name="history_empty_title">No conversations yet</string>
@@ -80,7 +83,6 @@
     <!-- Screens -->
     <string name="screen_practise_any_sign">Practise any sign</string>
     <string name="screen_teach_the_app_a_sign">Teach the app a sign</string>
-    <string name="screen_identify_a_sign_in_a">Identify a sign in a video</string>
     <string name="video_pick_a_short_video_of">Pick a short video of one sign from your gallery. EchoGesture names the sign on this phone; the video is never uploaded.</string>
     <string name="video_working">Working…</string>
     <string name="video_choose_a_video">Choose a video</string>
@@ -236,7 +238,10 @@
     <string name="settings_delete_all">Delete all</string>
     <string name="settings_reset">Reset</string>
     <string name="settings_developer_options_are_on">Developer options are on</string>
-    <string name="settings_more">%1$d more</string>
+    <plurals name="settings_taps_left">
+        <item quantity="one">%d more tap</item>
+        <item quantity="other">%d more taps</item>
+    </plurals>
     <string name="settings_echogesture">EchoGesture %1$s</string>
     <string name="settings_recognises_about_2_000_asl">Recognises about 2,000 ASL signs. Works offline.</string>
     <string name="setup_step_of">Step %1$s of %2$s</string>
@@ -275,7 +280,6 @@
     <string name="learn_latest">Latest: %1$s</string>
     <string name="learn_pick_any_of_the_signs">Pick any of the signs with a demonstration and copy it. The camera checks whether you made it.</string>
     <string name="learn_add_a_sign_it_doesn">Add a sign it doesn\'t know, like a name sign, from a few examples.</string>
-    <string name="learn_pick_a_short_video_of">Pick a short video of one sign from your gallery.</string>
     <string name="learn_your_signs">Your signs</string>
     <string name="learn_signs_you_teach_the_app">Signs you teach the app appear here, and in captions like any other word.</string>
     <string name="learn_manage_your_signs">Manage your signs</string>
@@ -375,4 +379,28 @@
     <string name="teach_teach_another_sign">Teach another sign</string>
     <string name="practice_figure_note">The figure is a real signer\'s keypoints; no video is stored.</string>
     <string name="practice_figure_note_mirrored">The figure is a real signer\'s keypoints, mirrored like your camera; no video is stored.</string>
+
+    <!-- Open-source licences -->
+    <string name="licences_title">Open-source licences</string>
+    <string name="licences_open">Open-source licences</string>
+    <string name="licences_intro">EchoGesture is built with these open-source components. Tap one to read its licence.</string>
+    <string name="licences_show">Show the licence</string>
+    <string name="licences_hide">Hide the licence</string>
+    <string name="licences_datasets">The recognition model was trained on the WLASL and ASL Citizen sign language datasets, credited to their authors. No video from them is included in the app; the Learn demonstrations are keypoints taken from WLASL clips.</string>
+    <string name="licence_mediapipe">MediaPipe Tasks Vision (hand and body tracking)</string>
+    <string name="licence_onnxruntime">ONNX Runtime (sign recognition)</string>
+    <string name="licence_androidx">AndroidX: Jetpack Compose, CameraX, Navigation, DataStore</string>
+    <string name="licence_kotlin">Kotlin and kotlinx.coroutines</string>
+    <string name="licence_icons">Material icons</string>
+    <string name="licence_atkinson">Atkinson Hyperlegible (caption font)</string>
+    <string name="licence_manrope">Manrope (heading font)</string>
+    <string name="licence_holder_google">Google LLC</string>
+    <string name="licence_holder_microsoft">Microsoft Corporation</string>
+    <string name="licence_holder_aosp">The Android Open Source Project</string>
+    <string name="licence_holder_jetbrains">JetBrains s.r.o. and Kotlin contributors</string>
+    <string name="licence_holder_braille">Braille Institute of America, Inc.</string>
+    <string name="licence_holder_manrope">The Manrope Project Authors</string>
+    <string name="licence_apache">Apache License 2.0</string>
+    <string name="licence_mit">MIT License</string>
+    <string name="licence_ofl">SIL Open Font License 1.1</string>
 </resources>

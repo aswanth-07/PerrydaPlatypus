@@ -71,25 +71,23 @@ import ai.echogesture.app.ui.theme.Palette
 import java.text.DateFormat
 import java.util.Date
 
-/** The History tab: past conversations, newest first. A pause of over 30 minutes starts a new one. */
+/** Past conversations, newest first, opened from Talk or Settings. A pause of over 30 minutes starts a new one. */
 @Composable
-fun HistoryScreen(vm: MainViewModel, onOpen: (Long) -> Unit, onSettings: () -> Unit) {
+fun HistoryScreen(vm: MainViewModel, onOpen: (Long) -> Unit, onBack: () -> Unit) {
     val entries by vm.transcript.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val conversations = remember(entries) { Conversations.group(entries).asReversed() }
 
-    val bar = LocalTabBarInset.current
-    Column(Modifier.fillMaxSize().padding(start = bar.calculateStartPadding(LayoutDirection.Ltr))) {
-        TabHeader(stringResource(R.string.tab_history), onSettings)
+    SubScreen(stringResource(R.string.history_title), onBack) {
         if (conversations.isEmpty()) {
             EmptyState(
                 { ConversationArt() }, stringResource(R.string.history_empty_title), stringResource(R.string.history_empty_body),
                 Modifier.fillMaxSize(),
             )
-            return@Column
+            return@SubScreen
         }
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp + bar.calculateBottomPadding()),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(conversations, key = { it.start }) { c -> Box(Modifier.animateItem()) { ConversationCard(c) { onOpen(c.start) } } }

@@ -1,5 +1,7 @@
 package ai.echogesture.app.ui
 
+import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material.icons.outlined.VideoLibrary
 import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.R
 import ai.echogesture.app.ui.clips.ClipsScreen
@@ -16,6 +18,7 @@ import ai.echogesture.app.ui.history.ConversationScreen
 import ai.echogesture.app.ui.history.HistoryScreen
 import ai.echogesture.app.ui.live.LiveScreen
 import ai.echogesture.app.ui.settings.DeveloperScreen
+import ai.echogesture.app.ui.settings.LicencesScreen
 import ai.echogesture.app.ui.settings.SettingsScreen
 import ai.echogesture.app.ui.setup.SetupScreen
 import ai.echogesture.app.ui.teach.LearnHubScreen
@@ -54,12 +57,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FrontHand
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Videocam
-import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.MaterialTheme
@@ -87,13 +88,13 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 
 /**
- * The three tabs, in the bar's order: Learn, Talk in the middle (where the app opens), History. Everything else
- * (Settings, a conversation, Teach…) opens over them with a back arrow.
+ * The three tabs, in the bar's order: Learn, Talk in the middle (where the app opens), Videos. Everything else
+ * (Settings, past conversations, Teach…) opens over them with a back arrow.
  */
 private enum class Tab(val route: String, val label: Int, val icon: ImageVector, val selectedIcon: ImageVector) {
     Learn("learn", R.string.tab_learn, Icons.Outlined.School, Icons.Rounded.School),
     Talk("talk", R.string.tab_talk, Icons.Outlined.Videocam, Icons.Rounded.Videocam),
-    History("history", R.string.tab_history, Icons.Outlined.History, Icons.Rounded.History),
+    Videos("videos", R.string.tab_videos, Icons.Outlined.VideoLibrary, Icons.Rounded.VideoLibrary),
 }
 
 private fun tabIndex(route: String?) = Tab.entries.indexOfFirst { it.route == route }
@@ -101,13 +102,14 @@ private fun tabIndex(route: String?) = Tab.entries.indexOfFirst { it.route == ro
 private object Route {
     const val SETTINGS = "settings"
     const val DEVELOPER = "developer"
+    const val LICENCES = "licences"
     const val SETUP = "setup"
     const val PRACTICE = "practice"
     const val LESSONS = "lessons"
     const val LESSON = "lesson/{id}"
     fun lesson(id: String) = "lesson/$id"
     const val TEACH = "teach"
-    const val VIDEO = "video"
+    const val HISTORY = "history"
     const val CONVERSATION = "conversation/{start}"
     fun conversation(start: Long) = "conversation/$start"
 }
@@ -180,7 +182,7 @@ private fun Tabs(vm: MainViewModel) {
                 CameraGate(
                     Icons.Rounded.FrontHand, stringResource(R.string.gate_live_title), stringResource(R.string.gate_live_body),
                     listOf(Icons.Rounded.Lock to stringResource(R.string.gate_point_private), Icons.Rounded.Speed to stringResource(R.string.gate_point_realtime)),
-                ) { LiveScreen(vm, onSettings = openSettings, onHistory = { nav.toTab(Tab.History.route) }) }
+                ) { LiveScreen(vm, onSettings = openSettings, onHistory = { nav.navigate(Route.HISTORY) { launchSingleTop = true } }) }
             }
             composable(Tab.Learn.route) {
                 LearnHubScreen(
@@ -189,12 +191,14 @@ private fun Tabs(vm: MainViewModel) {
                     onLessons = { nav.navigate(Route.LESSONS) },
                     onPractise = { nav.navigate(Route.PRACTICE) },
                     onTeach = { nav.navigate(Route.TEACH) },
-                    onVideo = { nav.navigate(Route.VIDEO) },
                     onSettings = openSettings,
                 )
             }
-            composable(Tab.History.route) {
-                HistoryScreen(vm, onOpen = { nav.navigate(Route.conversation(it)) }, onSettings = openSettings)
+            composable(Tab.Videos.route) {
+                ClipsScreen(vm, showTimings = settings.developer, onSettings = openSettings)
+            }
+            composable(Route.HISTORY) {
+                Sub { HistoryScreen(vm, onOpen = { nav.navigate(Route.conversation(it)) }, onBack = { nav.popBackStack() }) }
             }
 
             composable(Route.PRACTICE) {
@@ -215,9 +219,6 @@ private fun Tabs(vm: MainViewModel) {
             composable(Route.TEACH) {
                 Sub { SubScreen(stringResource(R.string.screen_teach_the_app_a_sign), nav::popBackStack) { SignsCameraGate { TeachScreen(vm) } } }
             }
-            composable(Route.VIDEO) {
-                Sub { SubScreen(stringResource(R.string.screen_identify_a_sign_in_a), nav::popBackStack) { ClipsScreen(vm, showTimings = settings.developer) } }
-            }
             composable(Route.CONVERSATION, arguments = listOf(navArgument("start") { type = NavType.LongType })) { e ->
                 Sub { ConversationScreen(vm, e.arguments?.getLong("start") ?: 0L, onBack = { nav.popBackStack() }) }
             }
@@ -227,9 +228,12 @@ private fun Tabs(vm: MainViewModel) {
                         vm, onBack = { nav.popBackStack() },
                         onDeveloper = { nav.navigate(Route.DEVELOPER) },
                         onSetUpAgain = { nav.navigate(Route.SETUP) },
+                        onLicences = { nav.navigate(Route.LICENCES) },
+                        onHistory = { nav.navigate(Route.HISTORY) },
                     )
                 }
             }
+            composable(Route.LICENCES) { Sub { LicencesScreen(onBack = { nav.popBackStack() }) } }
             composable(Route.DEVELOPER) { Sub { DeveloperScreen(vm, onBack = { nav.popBackStack() }) } }
             composable(Route.SETUP) {
                 Sub { SetupScreen(vm, onDone = { nav.toTab(Tab.Talk.route) }) }

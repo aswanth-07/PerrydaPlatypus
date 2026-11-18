@@ -220,7 +220,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         var nextFrame = t0
         emit(out, JSONObject().put("bench", "live").put("event", "start").put("fps_target", fps).put("seconds", seconds)
             .put("gpu", lanes.any { it }).put("lanes", tag).put("blank", blank).put("gate", gate).put("replay_frames", frames.size).put("frame_w", frames[0].width).put("frame_h", frames[0].height)
-            .put("words", engine.labels().size).put("device", Build.MODEL).put("soc", Build.SOC_MODEL).put("android", Build.VERSION.RELEASE))
+            .put("words", engine.labels().size).put("device", Build.MODEL).put("soc", if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else Build.HARDWARE).put("android", Build.VERSION.RELEASE))
         try {
             while (true) {
                 val now = SystemClock.elapsedRealtime()
@@ -266,7 +266,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
                         .put("plugged", battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1)
                         .put("battery_c", (battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10.0)
                         .put("level", battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1)
-                        .put("thermal_status", pm.currentThermalStatus)
+                        .put("thermal_status", if (Build.VERSION.SDK_INT >= 29) pm.currentThermalStatus else -1)
                         .put("thermal_headroom_10s", if (Build.VERSION.SDK_INT >= 30) pm.getThermalHeadroom(10).toDouble() else -1.0)
                         .put("pss_mb", mem.totalPss / 1024.0))
                     _status.value = "Live replay at $fps fps: %.0f of %d s, %.1f fps, tracking p95 %.0f ms"

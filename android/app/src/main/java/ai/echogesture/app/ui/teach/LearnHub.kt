@@ -50,11 +50,11 @@ import ai.echogesture.app.ui.components.SectionTitle
 import ai.echogesture.app.ui.components.TabHeader
 import ai.echogesture.app.ui.theme.Palette
 
-/** The Learn tab: practise signs, teach the app a sign, or identify the sign in a saved video. */
+/** The Learn tab: lessons, practising any sign, and teaching the app a sign of your own. */
 @Composable
 fun LearnHubScreen(
     vm: MainViewModel, onLesson: (String) -> Unit, onLessons: () -> Unit, onPractise: () -> Unit, onTeach: () -> Unit,
-    onVideo: () -> Unit, onSettings: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     val progress by vm.progress.collectAsStateWithLifecycle()
     val teach by vm.engine.teach.collectAsStateWithLifecycle()
@@ -93,8 +93,6 @@ fun LearnHubScreen(
                 stringResource(R.string.learn_pick_any_of_the_signs), onPractise)
             Entry(Icons.Rounded.AddCircleOutline, stringResource(R.string.screen_teach_the_app_a_sign),
                 stringResource(R.string.learn_add_a_sign_it_doesn), onTeach)
-            Entry(Icons.Rounded.VideoLibrary, stringResource(R.string.screen_identify_a_sign_in_a),
-                stringResource(R.string.learn_pick_a_short_video_of), onVideo)
 
             SectionTitle(stringResource(R.string.learn_your_signs))
             if (teach.signs.isEmpty()) {
