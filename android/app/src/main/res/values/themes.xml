@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ink">#0A0E13</color>
+    <color name="ink">#000000</color>
 
     <!-- The app is always dark: the window is ink before Compose draws, so nothing flashes grey. -->
     <style name="Theme.EchoGesture" parent="android:Theme.Material.NoActionBar">

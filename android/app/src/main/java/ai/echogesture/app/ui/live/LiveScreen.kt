@@ -1,5 +1,16 @@
 package ai.echogesture.app.ui.live
 
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.layout.calculateStartPadding
+import ai.echogesture.app.ui.components.LocalTabBarInset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.material3.ripple
+import ai.echogesture.app.ui.components.rememberPress
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
@@ -225,7 +236,11 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
         // Scrims keep text legible over any background without boxing the whole video in.
         Box(Modifier.fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent))))
 
-        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(
+            Modifier.fillMaxWidth().statusBarsPadding()
+                .padding(start = LocalTabBarInset.current.calculateStartPadding(LayoutDirection.Ltr))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 val (text, colour) = status(state, back)
                 StatusPill(text, colour, Modifier.weight(1f, fill = false))
@@ -318,7 +333,11 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(320.dp)
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
                 )
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) { panel() }
+                // Above the floating tab bar, which the camera runs under.
+                Column(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(LocalTabBarInset.current)
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                ) { panel() }
             }
         }
     }
@@ -452,7 +471,7 @@ internal fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, 
 
 /**
  * The tracked hands, drawn with the same centre crop the full-bleed preview uses: a soft glow over each hand
- * (amber for the first, cyan for the second, as in the Learn figure) with a dot on each fingertip, so the person
+ * (white for the first, azure for the second, as in the Learn figure) with a dot on each fingertip, so the person
  * sees the app is following the hands without a wireframe over them. [skeleton] (developer options) adds the
  * bones and joints.
  */
@@ -472,7 +491,7 @@ internal fun HandOverlay(state: LiveState, mirror: Boolean, skeleton: Boolean, m
                 val x = hand[k * 3].let { if (mirror) 1 - it else it }
                 return Offset(left + x * w, top + hand[k * 3 + 1] * h)
             }
-            val colour = if (slot == 1) primary else Palette.Amber
+            val colour = if (slot == 1) primary else Palette.FirstHand
             // The palm's centre (wrist and the four knuckles) and the hand's reach from it.
             val palm = listOf(0, 5, 9, 13, 17).map(::pt)
             val centre = Offset(palm.map { it.x }.average().toFloat(), palm.map { it.y }.average().toFloat())
@@ -523,7 +542,8 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit, onShow: () -> Un
     ) {
         val listening = reply.listening
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.ReplyDeep.copy(alpha = 0.92f))
+            Modifier.fillMaxWidth().animateContentSize(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow))
+                .clip(RoundedCornerShape(24.dp)).background(Palette.ReplyDeep.copy(alpha = 0.94f))
                 .clickable(enabled = !listening, onClickLabel = stringResource(R.string.talk_dismiss_reply), onClick = onDismiss)
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
@@ -554,7 +574,7 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
     var reopen by remember { mutableIntStateOf(0) }
     val show = LocalCaption.current
     Column(
-        Modifier.fillMaxWidth().glass(RoundedCornerShape(24.dp))
+        Modifier.fillMaxWidth().animateContentSize(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)).glass(RoundedCornerShape(24.dp))
             .semantics { liveRegion = LiveRegionMode.Polite }
             .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 16.dp),
     ) {
@@ -622,7 +642,7 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
             state.lastAlso.isNotEmpty() -> stringResource(R.string.talk_same_sign, state.lastAlso.joinToString(" · ", transform = show))
             else -> null
         }
-        if (sub != null) Text(sub, style = MaterialTheme.typography.titleSmall, color = Palette.Amber, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (sub != null) Text(sub, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         // Other signs it could have been, offered when the model was not sure: one tap swaps the word, here, in the
         // conversation and aloud. They leave with the next word, or after a few seconds.
         var offer by remember { mutableStateOf(true) }
@@ -651,16 +671,18 @@ private const val UNDO_SHOWN_MS = 5_000L
 @Composable
 private fun LabelledControl(icon: ImageVector, label: String, active: Boolean, toggle: Boolean = false, onClick: () -> Unit) {
     val onOff = stringResource(if (active) R.string.talk_on else R.string.talk_off)
+    val press = rememberPress(0.9f)
+    val fill by animateColorAsState(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, tween(Motion.MEDIUM), label = "control")
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconButton(
-            onClick = onClick,
-            modifier = Modifier.size(56.dp).then(if (active) Modifier else Modifier.glass(CircleShape)).semantics {
+            onClick = onClick, interactionSource = press.interaction,
+            modifier = press.scale.size(56.dp).then(if (active) Modifier else Modifier.glass(CircleShape)).semantics {
                 contentDescription = label
                 if (toggle) stateDescription = onOff
             },
             colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-                contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else Palette.Text,
+                containerColor = fill,
+                contentColor = if (active) MaterialTheme.colorScheme.onPrimaryContainer else Palette.Text,
             ),
         ) { Icon(icon, contentDescription = null) }
         Spacer(Modifier.height(6.dp))
@@ -675,16 +697,32 @@ private fun MicControl(reply: ReplyState, onClick: () -> Unit) {
         initialValue = 1f, targetValue = 1.08f,
         animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "pulse",
     )
+    val press = rememberPress(0.9f)
+    // While listening, rings spread out from the button, so the person speaking can see the phone is hearing them.
+    val ring by rememberInfiniteTransition(label = "rings").animateFloat(
+        0f, 1f, infiniteRepeatable(tween(1400, easing = LinearEasing), RepeatMode.Restart), label = "ring",
+    )
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+      Box(contentAlignment = Alignment.Center) {
+        if (reply.listening) {
+            Canvas(Modifier.size(72.dp)) {
+                for (k in 0 until 2) {
+                    val t = (ring + k / 2f) % 1f
+                    drawCircle(Palette.LightAzure.copy(alpha = 0.45f * (1f - t)), radius = size.minDimension / 2 * (1f + 0.6f * t),
+                        style = Stroke(2.dp.toPx()))
+                }
+            }
+        }
         FilledIconButton(
-            onClick = onClick,
-            modifier = Modifier.size(72.dp).scale(if (reply.listening) pulse else 1f)
+            onClick = onClick, interactionSource = press.interaction,
+            modifier = press.scale.size(72.dp).scale(if (reply.listening) pulse else 1f)
                 .description(stringResource(if (reply.listening) R.string.talk_stop_listening else R.string.talk_reply_by_speaking)),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = if (reply.listening) Palette.Reply else MaterialTheme.colorScheme.primary,
                 contentColor = if (reply.listening) Palette.ReplyDeep else MaterialTheme.colorScheme.onPrimary,
             ),
         ) { Icon(if (reply.listening) Icons.Rounded.Stop else Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(32.dp)) }
+      }
         Spacer(Modifier.height(6.dp))
         Text(if (reply.listening) stringResource(R.string.talk_stop) else stringResource(R.string.talk_reply), style = MaterialTheme.typography.labelMedium, color = Palette.Text)
     }

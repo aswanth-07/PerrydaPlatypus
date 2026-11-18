@@ -1,5 +1,10 @@
 package ai.echogesture.app.ui.teach
 
+import ai.echogesture.app.ui.theme.Motion
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.material3.ripple
+import ai.echogesture.app.ui.components.rememberPress
 import ai.echogesture.app.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
@@ -23,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -72,7 +78,9 @@ fun LessonsScreen(vm: MainViewModel, onOpen: (String) -> Unit, onBack: () -> Uni
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                items(topic.lessons, key = { it.id }) { lesson -> LessonRow(lesson, learned, current = lesson.id == next?.id) { onOpen(lesson.id) } }
+                items(topic.lessons, key = { it.id }) { lesson ->
+                    Box(Modifier.animateItem()) { LessonRow(lesson, learned, current = lesson.id == next?.id) { onOpen(lesson.id) } }
+                }
             }
         }
     }
@@ -83,10 +91,12 @@ private fun LessonRow(lesson: Lesson, learned: Set<String>, current: Boolean, on
     val show = LocalCaption.current
     val done = lesson.words.count { it in learned }
     val all = done == lesson.words.size
+    val press = rememberPress()
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+        press.scale.fillMaxWidth().clip(RoundedCornerShape(18.dp))
             .background(if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
-            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.lesson_open_lesson), onClick = onClick)
+            .clickable(interactionSource = press.interaction, indication = ripple(), role = Role.Button,
+                onClickLabel = stringResource(R.string.lesson_open_lesson), onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -159,27 +169,33 @@ fun ContinueCard(vm: MainViewModel, onOpen: (String) -> Unit, onAll: () -> Unit)
     val total = topics.sumOf { t -> t.lessons.sumOf { it.words.size } }
     val learnedHere = topics.sumOf { t -> t.lessons.sumOf { l -> l.words.count { it in progress.learned } } }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(18.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.BrandDeep)
+            .border(1.dp, Palette.Hairline, RoundedCornerShape(24.dp)).padding(20.dp),
     ) {
         Text(if (next == null) stringResource(R.string.lesson_every_lesson_done) else if (learnedHere == 0) stringResource(R.string.lesson_start_learning) else stringResource(R.string.lesson_continue_learning),
-            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            style = MaterialTheme.typography.labelLarge, color = Palette.LightAzure)
         Spacer(Modifier.height(4.dp))
         if (next != null) {
             Text(stringResource(R.string.lesson_lesson_2, next.title, next.number), style = MaterialTheme.typography.titleLarge)
             Text(next.words.joinToString(", ", transform = show), style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                color = Palette.LightAzure, maxLines = 2, overflow = TextOverflow.Ellipsis)
         } else {
             Text(stringResource(R.string.lesson_you_have_signed_all_signs, total),
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MaterialTheme.typography.bodyMedium, color = Palette.LightAzure)
         }
         Spacer(Modifier.height(12.dp))
-        LinearProgressIndicator(progress = { if (total == 0) 0f else learnedHere / total.toFloat() }, modifier = Modifier.fillMaxWidth())
+        // The bar fills to the new value rather than jumping, so a sign just learned shows as progress.
+        val shown by animateFloatAsState(if (total == 0) 0f else learnedHere / total.toFloat(), tween(Motion.LONG, easing = Motion.Standard), label = "progress")
+        LinearProgressIndicator(
+            progress = { shown }, modifier = Modifier.fillMaxWidth(),
+            color = Palette.LightAzure, trackColor = Palette.PaperWhite.copy(alpha = 0.18f),
+        )
         Text(stringResource(R.string.lesson_of_signs, learnedHere, total), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+            color = Palette.LightAzure)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (next != null) Button(onClick = { onOpen(next.id) }) { Text(if (next.words.any { it in progress.learned }) stringResource(R.string.setup_continue) else stringResource(R.string.setup_start)) }
-            TextButton(onClick = onAll) { Text(stringResource(R.string.lesson_all_lessons)) }
+            TextButton(onClick = onAll, colors = ButtonDefaults.textButtonColors(contentColor = Palette.PaperWhite)) { Text(stringResource(R.string.lesson_all_lessons)) }
         }
     }
 }

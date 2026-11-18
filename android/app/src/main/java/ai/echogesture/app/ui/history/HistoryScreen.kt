@@ -1,5 +1,10 @@
 package ai.echogesture.app.ui.history
 
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.layout.calculateStartPadding
+import ai.echogesture.app.ui.components.LocalTabBarInset
+import androidx.compose.material3.ripple
+import ai.echogesture.app.ui.components.rememberPress
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -73,7 +78,8 @@ fun HistoryScreen(vm: MainViewModel, onOpen: (Long) -> Unit, onSettings: () -> U
     val settings by vm.settings.collectAsStateWithLifecycle()
     val conversations = remember(entries) { Conversations.group(entries).asReversed() }
 
-    Column(Modifier.fillMaxSize()) {
+    val bar = LocalTabBarInset.current
+    Column(Modifier.fillMaxSize().padding(start = bar.calculateStartPadding(LayoutDirection.Ltr))) {
         TabHeader(stringResource(R.string.tab_history), onSettings)
         if (conversations.isEmpty()) {
             EmptyState(
@@ -82,8 +88,11 @@ fun HistoryScreen(vm: MainViewModel, onOpen: (Long) -> Unit, onSettings: () -> U
             )
             return@Column
         }
-        LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(conversations, key = { it.start }) { c -> ConversationCard(c) { onOpen(c.start) } }
+        LazyColumn(
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp + bar.calculateBottomPadding()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(conversations, key = { it.start }) { c -> Box(Modifier.animateItem()) { ConversationCard(c) { onOpen(c.start) } } }
             item {
                 Text(
                     retentionNote(settings.keepDays),
@@ -104,9 +113,10 @@ private fun retentionNote(keepDays: Int): String = when (keepDays) {
 @Composable
 private fun ConversationCard(c: Conversation, onClick: () -> Unit) {
     val context = LocalContext.current
+    val press = rememberPress()
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
-            .clickable(onClickLabel = stringResource(R.string.history_open), onClick = onClick)
+        press.scale.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
+            .clickable(interactionSource = press.interaction, indication = ripple(), onClickLabel = stringResource(R.string.history_open), onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 14.dp),
     ) {
         Text(

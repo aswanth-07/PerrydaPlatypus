@@ -382,7 +382,7 @@ private fun DemoFigure(demo: Demo, slow: Boolean, mirror: Boolean, zoom: Boolean
         label = "step",
     )
     val body = Palette.TextMuted
-    val left = Palette.Amber
+    val left = Palette.FirstHand
     val right = MaterialTheme.colorScheme.primary
     // The box to fill: the whole sign with room for the head drawn around the nose, or just the hands.
     val target = remember(demo, zoom) { if (zoom) demo.handBounds.copyOf() else demo.bounds.copyOf().also { it[1] -= 0.07f } }

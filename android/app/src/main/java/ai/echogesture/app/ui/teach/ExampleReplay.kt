@@ -70,7 +70,7 @@ fun ExampleReplay(clip: Clip, mirror: Boolean, modifier: Modifier = Modifier, pl
             pt(0)?.let { nose -> drawCircle(body.copy(alpha = 0.7f), (sl - sr).getDistance() * 0.3f, nose, style = Stroke(2.dp.toPx())) }
         }
         for ((a, b) in ARMS) bone(a, b, body.copy(alpha = 0.85f), limb)
-        for ((base, colour) in listOf(Layout.LH to Palette.Amber, Layout.RH to right)) {
+        for ((base, colour) in listOf(Layout.LH to Palette.FirstHand, Layout.RH to right)) {
             val palm = listOf(0, 1, 5, 9, 13, 17).map { pt(base + it) }
             if (palm.all { it != null }) {
                 val path = Path().apply {

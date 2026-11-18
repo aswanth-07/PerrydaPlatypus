@@ -129,7 +129,7 @@ private fun ResultCard(r: ClipResult, showTimings: Boolean) {
             if (r.also.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Text(stringResource(R.string.video_same_sign, r.also.joinToString(" · ", transform = show)), style = MaterialTheme.typography.titleSmall,
-                    color = Palette.Amber)
+                    color = MaterialTheme.colorScheme.secondary)
             }
             Spacer(Modifier.height(14.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

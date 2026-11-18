@@ -1,5 +1,10 @@
 package ai.echogesture.app.ui.teach
 
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.layout.calculateStartPadding
+import ai.echogesture.app.ui.components.LocalTabBarInset
+import androidx.compose.material3.ripple
+import ai.echogesture.app.ui.components.rememberPress
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -56,7 +61,8 @@ fun LearnHubScreen(
     val streak = progress.streak()
     val show = LocalCaption.current
 
-    Column(Modifier.fillMaxSize()) {
+    val bar = LocalTabBarInset.current
+    Column(Modifier.fillMaxSize().padding(start = bar.calculateStartPadding(LayoutDirection.Ltr))) {
         TabHeader(stringResource(R.string.tab_learn), onSettings)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -75,7 +81,7 @@ fun LearnHubScreen(
                     }
                     if (streak > 0) {
                         Spacer(Modifier.width(12.dp))
-                        Icon(Icons.Rounded.LocalFireDepartment, null, tint = Palette.Amber)
+                        Icon(Icons.Rounded.LocalFireDepartment, null, tint = Palette.LightAzure)
                         Spacer(Modifier.width(4.dp))
                         Text(pluralStringResource(R.plurals.learn_streak, streak, streak), style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -106,16 +112,18 @@ fun LearnHubScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp + bar.calculateBottomPadding()))
         }
     }
 }
 
 @Composable
 private fun Entry(icon: ImageVector, title: String, body: String, onClick: () -> Unit) {
+    val press = rememberPress()
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
-            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 16.dp),
+        press.scale.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
+            .clickable(interactionSource = press.interaction, indication = ripple(), role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {

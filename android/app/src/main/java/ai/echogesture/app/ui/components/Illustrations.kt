@@ -70,7 +70,7 @@ fun ConversationArt(modifier: Modifier = Modifier) {
             }
         }
         bubble(4f, 6f, 88f, 46f, cyan, tailLeft = true, lines = 2)
-        bubble(56f, 58f, 86f, 36f, Palette.Amber, tailLeft = false, lines = 1)
+        bubble(56f, 58f, 86f, 36f, Palette.LightAzure, tailLeft = false, lines = 1)
     }
 }
 
@@ -87,8 +87,8 @@ fun VideoArt(modifier: Modifier = Modifier) {
         }
         val play = Path().apply { moveTo(40 * u, 40 * u); lineTo(40 * u, 72 * u); lineTo(64 * u, 56 * u); close() }
         drawPath(play, cyan, style = line(w))
-        // An open hand: palm and four fingers, in amber.
-        val a = Palette.Amber
+        // An open hand: palm and four fingers, in light azure.
+        val a = Palette.LightAzure
         drawRoundRect(a, Offset(88 * u, 56 * u), Size(26 * u, 26 * u), CornerRadius(9 * u), style = line(w))
         for ((i, h) in listOf(16f, 20f, 18f, 13f).withIndex()) {
             val x = (91 + i * 7) * u

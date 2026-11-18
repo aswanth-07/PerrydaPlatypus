@@ -24,6 +24,30 @@ import ai.echogesture.app.ui.teach.LessonScreen
 import ai.echogesture.app.ui.teach.LessonsScreen
 import ai.echogesture.app.ui.teach.TeachScreen
 import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import ai.echogesture.app.ui.components.FloatingTabBar
+import ai.echogesture.app.ui.components.LocalTabBarInset
+import ai.echogesture.app.ui.components.TabItem
+import ai.echogesture.app.ui.theme.Motion
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -38,15 +62,7 @@ import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Videocam
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
@@ -70,12 +86,17 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 
-/** The three tabs. Everything else (Settings, a conversation, Teach…) opens over them with a back arrow. */
+/**
+ * The three tabs, in the bar's order: Learn, Talk in the middle (where the app opens), History. Everything else
+ * (Settings, a conversation, Teach…) opens over them with a back arrow.
+ */
 private enum class Tab(val route: String, val label: Int, val icon: ImageVector, val selectedIcon: ImageVector) {
-    Talk("talk", R.string.tab_talk, Icons.Outlined.Videocam, Icons.Rounded.Videocam),
     Learn("learn", R.string.tab_learn, Icons.Outlined.School, Icons.Rounded.School),
+    Talk("talk", R.string.tab_talk, Icons.Outlined.Videocam, Icons.Rounded.Videocam),
     History("history", R.string.tab_history, Icons.Outlined.History, Icons.Rounded.History),
 }
+
+private fun tabIndex(route: String?) = Tab.entries.indexOfFirst { it.route == route }
 
 private object Route {
     const val SETTINGS = "settings"
@@ -121,58 +142,39 @@ private fun Tabs(vm: MainViewModel) {
     val current = entry?.destination?.route
     val settings by vm.settings.collectAsStateWithLifecycle()
     val onTab = Tab.entries.any { it.route == current }
-    // Landscape keeps the height for the camera: the tabs move to a rail on the left.
+    // Landscape keeps the height for the camera: the bar stands on its side at the left.
     val wide = LocalWindowInfo.current.containerSize.let { it.width > it.height }
+    val navBars = WindowInsets.navigationBars.asPaddingValues()
+    val cutout = WindowInsets.displayCutout.asPaddingValues()
+    val layout = LocalLayoutDirection.current
+    val inset = when {
+        !onTab -> PaddingValues(0.dp)
+        wide -> PaddingValues(start = cutout.calculateStartPadding(layout) + BAR_REACH)
+        else -> PaddingValues(bottom = navBars.calculateBottomPadding() + BAR_REACH)
+    }
+    val items = Tab.entries.map { TabItem(it.route, stringResource(it.label), it.icon, it.selectedIcon) }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0),   // each screen handles the status bar; Talk draws the camera under it
-        bottomBar = {
-            if (onTab && !wide) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Tab.entries.forEach { tab ->
-                        val selected = current == tab.route
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { nav.toTab(tab.route) },
-                            icon = { Icon(if (selected) tab.selectedIcon else tab.icon, null) },
-                            label = { Text(stringResource(tab.label)) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            ),
-                        )
-                    }
-                }
-            }
-        },
-    ) { padding ->
-      Row(Modifier.padding(padding)) {
-        if (onTab && wide) {
-            NavigationRail(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                modifier = Modifier.fillMaxHeight().displayCutoutPadding(),
-            ) {
-                Spacer(Modifier.weight(1f))
-                Tab.entries.forEach { tab ->
-                    val selected = current == tab.route
-                    NavigationRailItem(
-                        selected = selected,
-                        onClick = { nav.toTab(tab.route) },
-                        icon = { Icon(if (selected) tab.selectedIcon else tab.icon, null) },
-                        label = { Text(stringResource(tab.label)) },
-                        colors = NavigationRailItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                        ),
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-            }
-        }
-        NavHost(nav, startDestination = Tab.Talk.route, modifier = Modifier.weight(1f)) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+      CompositionLocalProvider(LocalTabBarInset provides inset) {
+        NavHost(
+            nav, startDestination = Tab.Talk.route, modifier = Modifier.fillMaxSize(),
+            // Between tabs the screens slide toward the tab picked; a screen opened over a tab slides in from the
+            // right while the tab recedes a little, and goes back the same way.
+            enterTransition = {
+                val from = tabIndex(initialState.destination.route)
+                val to = tabIndex(targetState.destination.route)
+                if (from >= 0 && to >= 0) slideInHorizontally(SLIDE) { w -> (if (to > from) w else -w) / 4 } + fadeIn(FADE)
+                else slideInHorizontally(SLIDE) { it / 3 } + fadeIn(FADE)
+            },
+            exitTransition = {
+                val from = tabIndex(initialState.destination.route)
+                val to = tabIndex(targetState.destination.route)
+                if (from >= 0 && to >= 0) slideOutHorizontally(SLIDE) { w -> (if (to > from) -w else w) / 4 } + fadeOut(FADE)
+                else scaleOut(SCALE, targetScale = 0.96f) + fadeOut(FADE)
+            },
+            popEnterTransition = { scaleIn(SCALE, initialScale = 0.96f) + fadeIn(FADE) },
+            popExitTransition = { slideOutHorizontally(SLIDE) { it / 3 } + fadeOut(FADE) },
+        ) {
             val openSettings = { nav.navigate(Route.SETTINGS) { launchSingleTop = true } }
             composable(Tab.Talk.route) {
                 CameraGate(
@@ -234,8 +236,30 @@ private fun Tabs(vm: MainViewModel) {
             }
         }
       }
+        // The floating bar, over the content (the camera runs underneath it on Talk).
+        AnimatedVisibility(
+            onTab && !wide,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 14.dp),
+            enter = slideInVertically(SLIDE_IN) { it } + fadeIn(FADE), exit = slideOutVertically(SLIDE_IN) { it } + fadeOut(FADE),
+        ) {
+            FloatingTabBar(items, current, onSelect = { nav.toTab(it) })
+        }
+        AnimatedVisibility(
+            onTab && wide,
+            modifier = Modifier.align(Alignment.CenterStart).displayCutoutPadding().padding(start = 12.dp),
+            enter = slideInHorizontally(SLIDE_IN) { -it } + fadeIn(FADE), exit = slideOutHorizontally(SLIDE_IN) { -it } + fadeOut(FADE),
+        ) {
+            FloatingTabBar(items, current, onSelect = { nav.toTab(it) }, vertical = true)
+        }
     }
 }
+
+/** How far the floating bar (64 dp) and its margin reach into a tab's screen. */
+private val BAR_REACH = 84.dp
+private val SLIDE = tween<IntOffset>(Motion.MEDIUM + 50, easing = Motion.Standard)
+private val SLIDE_IN = tween<IntOffset>(Motion.MEDIUM, easing = Motion.Enter)
+private val FADE = tween<Float>(Motion.MEDIUM)
+private val SCALE = tween<Float>(Motion.MEDIUM + 50, easing = Motion.Standard)
 
 /** Screens without the tab bar keep clear of the system navigation bar themselves. */
 @Composable

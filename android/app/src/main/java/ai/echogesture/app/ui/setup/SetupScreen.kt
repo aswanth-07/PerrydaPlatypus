@@ -1,5 +1,10 @@
 package ai.echogesture.app.ui.setup
 
+import ai.echogesture.app.ui.theme.Motion
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.material3.ripple
+import ai.echogesture.app.ui.components.rememberPress
 import ai.echogesture.app.R
 import androidx.compose.ui.res.stringResource
 import android.Manifest
@@ -160,11 +165,16 @@ private fun UseStep(back: Boolean, onChoose: (Boolean) -> Unit) {
 
 @Composable
 private fun UseChoice(icon: ImageVector, title: String, body: String, selected: Boolean, onClick: () -> Unit) {
+    val press = rememberPress()
+    val fill by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer, tween(Motion.MEDIUM), label = "choice",
+    )
+    val edge by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, tween(Motion.MEDIUM), label = "edge")
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
-            .border(2.dp, if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(20.dp))
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+        press.scale.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(fill)
+            .border(2.dp, edge, RoundedCornerShape(20.dp))
+            .selectable(selected = selected, interactionSource = press.interaction, indication = ripple(), role = Role.RadioButton, onClick = onClick)
             .padding(18.dp),
         verticalAlignment = Alignment.Top,
     ) {

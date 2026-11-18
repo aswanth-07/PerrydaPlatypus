@@ -14,7 +14,9 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -26,27 +28,51 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** A dark HUD palette: near-black ink, one cyan accent for "the system speaking", amber for attention. */
+/**
+ * EchoGesture's palette: Onyx black, Dark Azure as the brand colour, Azure and Light Azure for accents, Paper
+ * White for text, and the branding gradient (black to azure) for hero surfaces. Green, amber and red are kept
+ * only as status signals: ready, needs attention, error.
+ */
 object Palette {
-    val Ink = Color(0xFF0A0E13)
-    val Panel = Color(0xFF121821)
-    val PanelHigh = Color(0xFF1A2230)
-    val Line = Color(0xFF2A3544)        // decorative dividers only
-    // Borders of controls (switch thumbs, outlined and segmented buttons): at least 3:1 on every surface here.
-    val Outline = Color(0xFF66768C)
-    val Text = Color(0xFFE8EEF5)
-    val TextMuted = Color(0xFF93A1B2)
-    val Cyan = Color(0xFF5AD2F4)
-    val CyanDeep = Color(0xFF00313D)
-    val Amber = Color(0xFFFFB547)
-    val Green = Color(0xFF6BE38A)
-    val Red = Color(0xFFFF6B6B)
-    // Panels over live video: 88% ink keeps muted text above 4.5:1 even over a white wall (70% gave 2.8:1).
-    val Glass = Color(0xE00A0E13)
-    val GlassLight = Color(0x66121821)
-    val Hairline = Color(0x24FFFFFF)    // the edge of a glass panel, so it reads as a pane over dark video too
-    val Reply = Color(0xFFFFD58F)       // the hearing person's words: warm, distinct from the signer's cyan
-    val ReplyDeep = Color(0xFF2E2210)
+    // Brand colours.
+    val Onyx = Color(0xFF000000)          // the background
+    val Onyx2 = Color(0xFF141414)         // panels
+    val Charcoal = Color(0xFF2B2B2B)      // raised panels
+    val DarkAzure = Color(0xFF00638E)     // filled highlights: the selected tab, chosen options, replies
+    val DeepAzure = Color(0xFF004A6B)
+    val Azure = Color(0xFF8CB9CC)         // accent text and icons (9.6:1 on Onyx; Dark Azure is only 3.1:1)
+    val LightAzure = Color(0xFFBFD8E3)
+    val PaperWhite = Color(0xFFFFFFFF)
+
+    // Roles used across the screens.
+    val Ink = Onyx
+    val Panel = Onyx2
+    val PanelHigh = Color(0xFF1F1F1F)
+    val Line = Charcoal                   // decorative dividers only
+    // Borders of controls (switch thumbs, outlined and segmented buttons): at least 3:1 on Onyx, panels and Charcoal.
+    val Outline = Color(0xFF767676)
+    val Text = PaperWhite
+    val TextMuted = Color(0xFFA6A6A6)     // 5.8:1 on Charcoal, 8.6:1 on Onyx
+    val Cyan = Azure
+    val CyanDeep = Color(0xFF002536)
+    val Amber = Color(0xFFFFB547)         // status: needs attention
+    val Green = Color(0xFF6BE38A)         // status: ready, right
+    val Red = Color(0xFFFF6B6B)           // status: error, recording
+    // Panels over live video: 88% Onyx keeps muted text above 4.5:1 even over a white wall.
+    val Glass = Color(0xE0141414)
+    val GlassLight = Color(0x66141414)
+    val Hairline = Color(0x29FFFFFF)      // the edge of a glass panel, so it reads as a pane over dark video too
+    val Reply = PaperWhite                // the hearing person's words: white on Dark Azure (6.8:1)
+    val ReplyDeep = DarkAzure
+    val FirstHand = PaperWhite            // the two tracked hands: white and azure, on video and in the figure
+
+    /** The branding gradient, left to right: Onyx into Dark Azure into Azure. */
+    val Brand = Brush.linearGradient(listOf(Onyx, DeepAzure, DarkAzure, Azure))
+    /** The same, kept dark enough for white text across its whole width. */
+    val BrandDeep = Brush.linearGradient(
+        0f to Onyx, 0.55f to DeepAzure, 1f to DarkAzure,
+        start = Offset.Zero, end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
+    )
 }
 
 /** A glass panel over video: dark fill with a one-pixel light edge. */
@@ -79,29 +105,30 @@ private fun manrope(weight: Int) = Font(
 val Manrope = FontFamily(manrope(400), manrope(500), manrope(600), manrope(700), manrope(800))
 
 private val Scheme = darkColorScheme(
-    primary = Palette.Cyan,
+    primary = Palette.Azure,
     onPrimary = Palette.CyanDeep,
-    primaryContainer = Color(0xFF0E3A47),
-    onPrimaryContainer = Color(0xFFBDEBFA),
-    // Selections, slider tracks and chips use a quiet cyan tint; amber is kept for things that need attention.
-    secondary = Color(0xFF9CCFDD),
-    onSecondary = Color(0xFF00313D),
-    secondaryContainer = Color(0xFF173742),
-    onSecondaryContainer = Color(0xFFCDEFF8),
+    primaryContainer = Palette.DarkAzure,
+    onPrimaryContainer = Palette.PaperWhite,
+    secondary = Palette.LightAzure,
+    onSecondary = Color(0xFF00334A),
+    secondaryContainer = Palette.DeepAzure,
+    onSecondaryContainer = Palette.PaperWhite,
     tertiary = Palette.Green,
-    background = Palette.Ink,
+    background = Palette.Onyx,
     onBackground = Palette.Text,
-    surface = Palette.Ink,
+    surface = Palette.Onyx,
     onSurface = Palette.Text,
-    surfaceVariant = Palette.PanelHigh,
+    surfaceVariant = Palette.Charcoal,
     onSurfaceVariant = Palette.TextMuted,
-    surfaceContainerLowest = Palette.Ink,
-    surfaceContainerLow = Palette.Panel,
-    surfaceContainer = Palette.Panel,
-    surfaceContainerHigh = Palette.PanelHigh,
-    surfaceContainerHighest = Color(0xFF222C3B),
+    surfaceContainerLowest = Palette.Onyx,
+    surfaceContainerLow = Palette.Onyx2,
+    surfaceContainer = Color(0xFF1A1A1A),
+    surfaceContainerHigh = Color(0xFF222222),
+    surfaceContainerHighest = Palette.Charcoal,
+    inverseSurface = Palette.LightAzure,
+    inverseOnSurface = Palette.Onyx,
     outline = Palette.Outline,
-    outlineVariant = Color(0xFF1F2835),
+    outlineVariant = Color(0xFF262626),
     error = Palette.Red,
 )
 
