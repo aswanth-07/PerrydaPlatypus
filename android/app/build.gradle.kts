@@ -47,6 +47,10 @@ android {
 
     buildFeatures { compose = true }
 
+    testOptions {
+        unitTests.all { it.useJUnitPlatform() }
+    }
+
     androidResources {
         // MediaPipe memory-maps its bundle and ONNX Runtime reads the model whole; keep both uncompressed.
         noCompress += listOf("task", "onnx")
@@ -73,6 +77,10 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-view:1.6.2")
+
+    // JVM unit tests for the app's pure logic (conversations, progress, lessons, caption text).
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5:2.4.21")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 // Assets are generated, not kept in Git: before every build Sync copies the EchoGesture model, its labels, same-sign

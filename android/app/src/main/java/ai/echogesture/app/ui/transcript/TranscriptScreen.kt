@@ -44,6 +44,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.echogesture.app.MainViewModel
+import ai.echogesture.app.R
+import androidx.compose.ui.res.stringResource
 import ai.echogesture.app.engine.TranscriptEntry
 import ai.echogesture.app.engine.Who
 import ai.echogesture.app.ui.components.EmptyState
@@ -91,8 +93,8 @@ fun TranscriptScreen(vm: MainViewModel) {
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear the conversation?") },
-            text = { Text("Everything shown here is removed. It is not stored anywhere else.") },
+            title = { Text(stringResource(R.string.conversation_clear_title)) },
+            text = { Text(stringResource(R.string.conversation_clear_body)) },
             confirmButton = { TextButton(onClick = { confirmClear = false; vm.engine.clearTranscript() }) { Text("Clear") } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
         )

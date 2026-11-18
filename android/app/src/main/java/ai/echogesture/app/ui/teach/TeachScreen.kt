@@ -3,6 +3,7 @@ package ai.echogesture.app.ui.teach
 import android.app.Activity
 import android.view.WindowManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -216,13 +217,12 @@ fun TeachScreen(vm: MainViewModel) {
                     contentDescription = "${examples.size} of $MAX_EXAMPLES examples recorded"
                 }) {
                     repeat(MAX_EXAMPLES) { i ->
-                        Box(Modifier.size(12.dp).clip(CircleShape).background(
-                            when {
-                                i >= examples.size -> MaterialTheme.colorScheme.surfaceContainerHighest
-                                examples.size >= 3 -> Palette.Green
-                                else -> MaterialTheme.colorScheme.primary
-                            }
-                        ))
+                        // An empty slot is an outline in muted text colour (7:1), so all five read as places to fill.
+                        val dot = Modifier.size(12.dp).clip(CircleShape)
+                        Box(
+                            if (i >= examples.size) dot.border(1.5.dp, Palette.TextMuted, CircleShape)
+                            else dot.background(if (examples.size >= 3) Palette.Green else MaterialTheme.colorScheme.primary)
+                        )
                     }
                 }
             }

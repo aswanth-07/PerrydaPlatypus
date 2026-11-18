@@ -179,4 +179,21 @@ class SpotterTest {
         assertEquals(listOf("DRINK", "BIBLE"), spotter.caption.toList())
         model.close()
     }
+
+    @Test
+    fun removeLastTakesOnlyTheNewestWordAndUndoRestores() {
+        val la = JSONArray(File(dir, "../../src/models/labels.json").readText())
+        val model = SignModel(File(dir, "../../src/models/echogesture_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
+        val spotter = Spotter(model)
+        assertTrue(!spotter.removeLast("BOOK"), "nothing captioned yet")
+        listOf("HELLO", "DRINK", "BOOK").forEach(spotter.caption::addLast)
+        assertTrue(!spotter.removeLast("DRINK"), "only the newest word can be removed")
+        assertTrue(spotter.removeLast("BOOK"))
+        assertEquals(listOf("HELLO", "DRINK"), spotter.caption.toList())
+        spotter.restoreCaption(listOf("HELLO", "DRINK", "BOOK"))
+        assertEquals(listOf("HELLO", "DRINK", "BOOK"), spotter.caption.toList())
+        spotter.restoreCaption((1..10).map { "W$it" })
+        assertEquals((3..10).map { "W$it" }, spotter.caption.toList(), "restore keeps the eight-word limit")
+        model.close()
+    }
 }

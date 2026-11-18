@@ -446,6 +446,22 @@ class Spotter(
         return true
     }
 
+    /**
+     * The person removed the newest caption word. False when the caption has moved on (its last word is no longer
+     * `word`), so a late tap never removes a different word.
+     */
+    fun removeLast(word: String): Boolean {
+        if (caption.lastOrNull() != word) return false
+        caption.removeLast()
+        return true
+    }
+
+    /** Undo: the caption becomes `words` again (the newest last), keeping the same eight-word limit. */
+    fun restoreCaption(words: List<String>) {
+        caption.clear()
+        words.takeLast(8).forEach(caption::addLast)
+    }
+
     fun reset() {
         frames.clear()
         caption.clear()

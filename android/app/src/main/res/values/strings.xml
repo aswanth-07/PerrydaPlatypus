@@ -2,4 +2,37 @@
 <resources>
     <string name="app_name">EchoGesture</string>
     <color name="ic_launcher_background">#0A0E13</color>
+
+    <!-- Shared actions -->
+    <string name="action_open_settings">Open settings</string>
+    <string name="action_undo">Undo</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_clear">Clear</string>
+
+    <!-- Camera explanation before Android asks -->
+    <string name="gate_allow_camera">Allow camera</string>
+    <string name="gate_live_title">Live sign captions</string>
+    <string name="gate_live_body">Point the camera at someone signing and EchoGesture shows the words as captions.</string>
+    <string name="gate_signs_title">Practise signs with the camera</string>
+    <string name="gate_signs_body">Copy a sign in front of the camera and EchoGesture tells you whether it matched. You can also teach it signs of your own.</string>
+    <string name="gate_point_private">Video is processed on this phone and never uploaded</string>
+    <string name="gate_point_realtime">Hand tracking and recognition run in real time</string>
+    <string name="gate_point_keypoints">Only hand and body keypoints are kept, never video</string>
+    <string name="gate_camera_denied">Camera access was declined. You can still recognise a saved video on the Videos tab.</string>
+    <string name="gate_camera_blocked">Camera access is turned off for EchoGesture. Open settings, then Permissions, Camera, and choose Allow.</string>
+
+    <!-- Microphone for spoken replies -->
+    <string name="mic_denied">Allow the microphone to hear spoken replies.</string>
+    <string name="mic_blocked">Microphone access is turned off for EchoGesture. Turn it on in settings to hear spoken replies.</string>
+
+    <!-- Caption undo -->
+    <string name="undo_removed_word">Removed %1$s</string>
+    <string name="undo_cleared">Captions cleared</string>
+    <string name="caption_remove_last">Remove last word</string>
+    <string name="caption_clear_all">Clear all captions</string>
+
+    <!-- Conversation -->
+    <string name="conversation_clear_title">Clear the conversation?</string>
+    <string name="conversation_clear_body">The conversation is deleted from this phone. It was never stored anywhere else.</string>
 </resources>

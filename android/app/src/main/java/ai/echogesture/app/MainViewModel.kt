@@ -5,6 +5,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import ai.echogesture.app.data.Progress
+import ai.echogesture.app.data.ProgressRepository
 import ai.echogesture.app.data.Settings
 import ai.echogesture.app.data.SettingsRepository
 import ai.echogesture.app.engine.ClipResult
@@ -22,8 +24,15 @@ data class ClipProgress(val fraction: Float, val stage: String, val error: Strin
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     val engine = SignEngine(app)
     private val repo = SettingsRepository(app)
+    private val progressRepo = ProgressRepository(app)
 
     val settings: StateFlow<Settings> = repo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, Settings())
+    /** Signs learned and days practised, kept across restarts. */
+    val progress: StateFlow<Progress> = progressRepo.progress.stateIn(viewModelScope, SharingStarted.Eagerly, Progress())
+
+    fun markLearned(word: String) {
+        viewModelScope.launch { progressRepo.markLearned(word) }
+    }
     val live = engine.liveState
     val transcript = engine.transcript
 

@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import androidx.camera.core.ImageProxy
+import ai.echogesture.app.data.ConversationStore
+import ai.echogesture.app.data.Conversations
 import ai.echogesture.app.data.TaughtSign
 import ai.echogesture.app.data.TaughtStore
 import ai.echogesture.signcore.Clip
@@ -29,7 +31,13 @@ import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarker
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarkerResult
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.coroutineScope
@@ -81,7 +89,13 @@ data class LiveState(
     val gpu: Boolean = true,
     val lanes: Int = 1,                         // live landmarkers taking turns on frames
     val error: String? = null,
+    val undo: UndoOffer? = null,                // the person just removed a word or cleared the captions
 )
+
+/** What the person can take back: the word they removed from the caption, or all the captions they cleared. */
+data class UndoOffer(val kind: Kind, val word: String?, val at: Long) {
+    enum class Kind { REMOVED_WORD, CLEARED }
+}
 
 /**
  * Learn mode: one sign the learner made while practising [target]. [share] is how much of the sign's evidence was
@@ -292,6 +306,30 @@ class SignEngine(private val context: Context) : AutoCloseable {
     var info: ModelInfo? = null
         private set
 
+    // ---------- the conversation, kept on the phone across restarts ----------
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val conversations = ConversationStore(context.filesDir)
+    @Volatile private var keepDays: Int? = null
+
+    init {
+        scope.launch {
+            val saved = conversations.load()
+            _transcript.update { now -> Conversations.prune((saved + now).sortedBy { it.atMillis }, keepDays, System.currentTimeMillis()) }
+            @OptIn(FlowPreview::class)
+            _transcript.drop(1).debounce(400).collect { conversations.save(it) }
+        }
+    }
+
+    /** How long conversations are kept, in days; null until the person deletes them. Older ones go at once. */
+    fun setRetention(days: Int?) {
+        keepDays = days
+        _transcript.update { Conversations.prune(it, days, System.currentTimeMillis()) }
+    }
+
+    /** History: delete the one conversation that started at [start]. */
+    fun deleteConversation(start: Long) = _transcript.update { Conversations.without(it, start) }
+
     private val loading = Mutex()
     /** Loads the EchoGesture model (2,000 ASL words) and the live-caption model once; later calls return at once. */
     suspend fun load() = loading.withLock { loadOnce() }
@@ -495,7 +533,75 @@ class SignEngine(private val context: Context) : AutoCloseable {
         worker.execute { spotter?.reset() }
         _live.update {
             it.copy(caption = emptyList(), lastWord = null, top = emptyList(), lastAlso = emptyList(), lastTaught = false,
-                lastAlternatives = emptyList())
+                lastAlternatives = emptyList(), undo = null)
+        }
+    }
+
+    private var undoAction: (() -> Unit)? = null   // used on the spotter's thread only
+
+    /**
+     * The person removed the newest caption word (it was wrong): it leaves the screen and the conversation, and can
+     * be put back with [undo]. Runs after the frames already queued and does nothing if the caption is empty.
+     */
+    fun removeLastWord() {
+        worker.execute {
+            val before = _live.value
+            val word = before.caption.lastOrNull() ?: return@execute
+            if (spotter?.removeLast(word) != true) return@execute
+            var removed: TranscriptEntry? = null
+            _transcript.update { t ->
+                val k = t.indexOfLast { it.who == Who.SIGNER && it.word == word }
+                if (k < 0) t else { removed = t[k]; t.toMutableList().also { m -> m.removeAt(k) } }
+            }
+            val after = before.caption.dropLast(1)
+            _live.update {
+                it.copy(caption = after, lastWord = after.lastOrNull(), lastAlso = emptyList(), lastTaught = false,
+                    lastAlternatives = emptyList(), undo = UndoOffer(UndoOffer.Kind.REMOVED_WORD, word, SystemClock.uptimeMillis()))
+            }
+            undoAction = {
+                if (_live.value.caption == after) {   // nothing new was captioned meanwhile
+                    spotter?.restoreCaption(before.caption)
+                    removed?.let { e -> _transcript.update { t -> (t + e).sortedBy { it.atMillis } } }
+                    _live.update {
+                        it.copy(caption = before.caption, lastWord = before.lastWord, lastAlso = before.lastAlso,
+                            lastTaught = before.lastTaught)
+                    }
+                }
+            }
+        }
+    }
+
+    /** The person cleared all the captions on screen (the conversation keeps them); [undo] brings them back. */
+    fun clearCaptionByUser() {
+        worker.execute {
+            val before = _live.value
+            if (before.caption.isEmpty()) return@execute
+            spotter?.reset()
+            _live.update {
+                it.copy(caption = emptyList(), lastWord = null, top = emptyList(), lastAlso = emptyList(), lastTaught = false,
+                    lastAlternatives = emptyList(), undo = UndoOffer(UndoOffer.Kind.CLEARED, null, SystemClock.uptimeMillis()))
+            }
+            undoAction = {
+                if (_live.value.caption.isEmpty()) {
+                    spotter?.restoreCaption(before.caption)
+                    _live.update { it.copy(caption = before.caption, lastWord = before.lastWord, lastAlso = before.lastAlso, lastTaught = before.lastTaught) }
+                }
+            }
+        }
+    }
+
+    fun undo() {
+        worker.execute {
+            undoAction?.invoke()
+            undoAction = null
+            _live.update { it.copy(undo = null) }
+        }
+    }
+
+    fun dismissUndo() {
+        worker.execute {
+            undoAction = null
+            _live.update { it.copy(undo = null) }
         }
     }
 
@@ -832,6 +938,8 @@ class SignEngine(private val context: Context) : AutoCloseable {
     }
 
     override fun close() {
+        conversations.save(_transcript.value)
+        scope.cancel()
         stopLive()
         speaker.close()
         listener.close()

@@ -25,7 +25,8 @@ object Palette {
     val Amber = Color(0xFFFFB547)
     val Green = Color(0xFF6BE38A)
     val Red = Color(0xFFFF6B6B)
-    val Glass = Color(0xB30A0E13)       // panels over live video
+    // Panels over live video: 88% ink keeps muted text above 4.5:1 even over a white wall (70% gave 2.8:1).
+    val Glass = Color(0xE00A0E13)
     val GlassLight = Color(0x66121821)
     val Reply = Color(0xFFFFD58F)       // the hearing person's words: warm, distinct from the signer's cyan
     val ReplyDeep = Color(0xFF2E2210)

@@ -89,7 +89,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.echogesture.app.MainViewModel
+import ai.echogesture.app.R
 import ai.echogesture.app.engine.HAND_EDGES
+import ai.echogesture.app.engine.UndoOffer
+import ai.echogesture.app.ui.components.rememberPermission
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.res.stringResource
 import ai.echogesture.app.engine.LiveState
 import ai.echogesture.app.engine.ReplyState
 import ai.echogesture.app.engine.VoiceState
@@ -125,22 +132,27 @@ fun LiveScreen(vm: MainViewModel) {
     }
 
     // Reply: ask for the microphone the first time, then listen; tapping again stops and keeps what was heard.
+    // When Android will no longer ask, the note offers the app's settings page instead of failing silently.
     var note by remember { mutableStateOf<String?>(null) }
-    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) vm.engine.listener.start() else note = "Allow the microphone to hear spoken replies."
+    var noteOffersSettings by remember { mutableStateOf(false) }
+    val micDenied = stringResource(R.string.mic_denied)
+    val micBlocked = stringResource(R.string.mic_blocked)
+    val mic = rememberPermission(Manifest.permission.RECORD_AUDIO) { ok, blocked ->
+        if (ok) vm.engine.listener.start() else { note = if (blocked) micBlocked else micDenied; noteOffersSettings = blocked }
     }
     fun onReply() {
         when {
             reply.listening -> vm.engine.listener.stop()
-            !reply.available -> note = reply.note
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ->
-                vm.engine.listener.start()
-            else -> askMic.launch(Manifest.permission.RECORD_AUDIO)
+            !reply.available -> { note = reply.note; noteOffersSettings = false }
+            mic.granted -> vm.engine.listener.start()
+            mic.blocked -> { note = micBlocked; noteOffersSettings = true }
+            else -> mic.request()
         }
     }
     // Recogniser errors after an attempt; "unavailable" is explained only when Reply is tapped.
-    LaunchedEffect(reply.note) { if (reply.available) reply.note?.let { note = it } }
-    LaunchedEffect(note) { if (note != null) { delay(4500); note = null } }
+    LaunchedEffect(reply.note) { if (reply.available) reply.note?.let { note = it; noteOffersSettings = false } }
+    LaunchedEffect(note) { if (note != null) { delay(if (noteOffersSettings) 9000 else 4500); note = null } }
+    LaunchedEffect(state.undo?.at) { if (state.undo != null) { delay(UNDO_SHOWN_MS); vm.engine.dismissUndo() } }
     LaunchedEffect(reply.lastAt) { if (reply.last != null) { delay(15_000); vm.engine.listener.dismiss() } }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -177,14 +189,31 @@ fun LiveScreen(vm: MainViewModel) {
 
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
             AnimatedVisibility(note != null, enter = fadeIn(), exit = fadeOut()) {
-                Text(
-                    note.orEmpty(),
+                Row(
                     Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Glass)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    style = MaterialTheme.typography.bodyMedium, color = Palette.Text,
-                )
+                        .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(note.orEmpty(), Modifier.weight(1f).padding(vertical = 6.dp), style = MaterialTheme.typography.bodyMedium, color = Palette.Text)
+                    if (noteOffersSettings) TextButton(onClick = { mic.openSettings(); note = null }) { Text(stringResource(R.string.action_open_settings)) }
+                }
             }
-            CaptionCard(state, atRest = !settings.continuous, onClear = vm.engine::clearCaption, onCorrect = vm.engine::correctLast)
+            AnimatedVisibility(state.undo != null, enter = fadeIn(), exit = fadeOut()) {
+                val u = state.undo
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Glass)
+                        .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (u?.kind == UndoOffer.Kind.REMOVED_WORD) stringResource(R.string.undo_removed_word, u.word.orEmpty()) else stringResource(R.string.undo_cleared),
+                        Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = Palette.Text,
+                    )
+                    TextButton(onClick = vm.engine::undo) { Text(stringResource(R.string.action_undo)) }
+                }
+            }
+            CaptionCard(state, atRest = !settings.continuous, onRemoveLast = vm.engine::removeLastWord,
+                onClearAll = vm.engine::clearCaptionByUser, onCorrect = vm.engine::correctLast)
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
                 LabelledControl(
@@ -326,8 +355,9 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit, onCorrect: (String) -> Unit) {
+private fun CaptionCard(state: LiveState, atRest: Boolean, onRemoveLast: () -> Unit, onClearAll: () -> Unit, onCorrect: (String) -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Glass)
             .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 16.dp),
@@ -354,7 +384,7 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit, 
             val older = state.caption.dropLast(1).takeLast(4).joinToString(" ")
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 if (older.isNotEmpty()) {
-                    Text(older, style = CaptionStyle, color = Palette.Text.copy(alpha = 0.55f), maxLines = 1,
+                    Text(older, style = CaptionStyle, color = Palette.Text.copy(alpha = 0.72f), maxLines = 1,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     Spacer(Modifier.width(10.dp))
                 }
@@ -372,7 +402,15 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit, 
                         modifier = Modifier.weight(1f, fill = false))
                 }
             }
-            IconButton(onClick = onClear) { Icon(Icons.AutoMirrored.Outlined.Backspace, "Clear captions", tint = Palette.TextMuted) }
+            // Tap: remove the newest word (it was wrong). Long press: clear every caption. Both can be undone.
+            val removeLabel = stringResource(R.string.caption_remove_last)
+            val clearLabel = stringResource(R.string.caption_clear_all)
+            Box(
+                Modifier.size(48.dp).clip(CircleShape)
+                    .combinedClickable(onClickLabel = removeLabel, onLongClickLabel = clearLabel, onLongClick = onClearAll, onClick = onRemoveLast)
+                    .semantics { contentDescription = removeLabel },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.AutoMirrored.Outlined.Backspace, null, tint = Palette.TextMuted) }
         }
         // One sign, several names: WLASL lists the same signing under DOCTOR and PHYSICIAN, so show both.
         val sub = when {
@@ -404,6 +442,7 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onClear: () -> Unit, 
 }
 
 private const val ALTERNATIVES_SHOWN_MS = 8_000L
+private const val UNDO_SHOWN_MS = 5_000L
 
 @Composable
 private fun LabelledControl(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {

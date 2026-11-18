@@ -1,10 +1,13 @@
 package ai.echogesture.app.ui
 
 import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import ai.echogesture.app.R
+import ai.echogesture.app.ui.components.rememberPermission
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,10 +48,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -104,54 +105,64 @@ fun EchoApp(vm: MainViewModel = viewModel()) {
         },
     ) { padding ->
         NavHost(nav, startDestination = Tab.Live.route, modifier = Modifier.padding(padding)) {
-            composable(Tab.Live.route) { CameraGate { LiveScreen(vm) } }
+            composable(Tab.Live.route) {
+                CameraGate(
+                    Icons.Filled.FrontHand, stringResource(R.string.gate_live_title), stringResource(R.string.gate_live_body),
+                    listOf(Icons.Filled.Lock to stringResource(R.string.gate_point_private), Icons.Filled.Speed to stringResource(R.string.gate_point_realtime)),
+                ) { LiveScreen(vm) }
+            }
             composable(Tab.Clips.route) { ClipsScreen(vm) }
-            composable(Tab.Teach.route) { CameraGate { SignsScreen(vm) } }
+            composable(Tab.Teach.route) {
+                CameraGate(
+                    Icons.Filled.School, stringResource(R.string.gate_signs_title), stringResource(R.string.gate_signs_body),
+                    listOf(Icons.Filled.Lock to stringResource(R.string.gate_point_private), Icons.Filled.Lock to stringResource(R.string.gate_point_keypoints)),
+                ) { SignsScreen(vm) }
+            }
             composable(Tab.Chat.route) { TranscriptScreen(vm) }
             composable(Tab.Settings.route) { SettingsScreen(vm) }
         }
     }
 }
 
-/** Shows the camera screen once permission is granted, and a short explanation before asking. */
+/**
+ * Shows [content] once the camera is allowed, and before that a short explanation written for this screen. When
+ * Android will no longer show its dialog, the button opens the app's settings page instead of doing nothing.
+ */
 @Composable
-private fun CameraGate(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    var granted by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-    }
-    var denied by remember { mutableStateOf(false) }
-    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> granted = ok; denied = !ok }
-    if (granted) {
+private fun CameraGate(
+    icon: ImageVector, title: String, body: String, points: List<Pair<ImageVector, String>>,
+    content: @Composable () -> Unit,
+) {
+    val camera = rememberPermission(Manifest.permission.CAMERA)
+    if (camera.granted) {
         content()
         return
     }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
         Column(Modifier.widthIn(max = 420.dp).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 Modifier.size(88.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.FrontHand, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary) }
+            ) { Icon(icon, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary) }
             Spacer(Modifier.height(20.dp))
-            Text("Live sign captions", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+            Text(title, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
             Spacer(Modifier.height(10.dp))
-            Text(
-                "Point the camera at someone signing and EchoGesture shows the words as captions.",
-                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
-            )
+            Text(body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(20.dp))
-            Point(Icons.Filled.Lock, "Video is processed on this phone and never uploaded")
-            Point(Icons.Filled.Speed, "Hand tracking and recognition run in real time")
+            points.forEach { (i, t) -> Point(i, t) }
             Spacer(Modifier.height(24.dp))
-            Button(onClick = { ask.launch(Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("Allow camera")
+            Button(onClick = camera::request, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                Text(stringResource(if (camera.blocked) R.string.action_open_settings else R.string.gate_allow_camera))
             }
-            if (denied) {
+            val note = when {
+                camera.blocked -> R.string.gate_camera_blocked
+                camera.denied -> R.string.gate_camera_denied
+                else -> null
+            }
+            if (note != null) {
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    "Camera access was declined. You can still recognise saved videos on the Clips tab, or allow the camera in system settings.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, textAlign = TextAlign.Center,
-                )
+                Text(stringResource(note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary,
+                    textAlign = TextAlign.Center)
             }
         }
     }

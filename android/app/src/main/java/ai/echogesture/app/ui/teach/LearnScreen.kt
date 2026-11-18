@@ -117,7 +117,8 @@ fun LearnScreen(vm: MainViewModel) {
 
     var index by rememberSaveable { mutableIntStateOf(0) }
     var slow by rememberSaveable { mutableStateOf(false) }
-    var learned by rememberSaveable { mutableStateOf(listOf<String>()) }
+    val progress by vm.progress.collectAsStateWithLifecycle()   // kept on the phone, not just for this session
+    val learned = progress.learned
     var choosing by remember { mutableStateOf(false) }
     // Practice faces the learner, so Learn starts on the front camera whatever the Live tab uses.
     var front by rememberSaveable { mutableStateOf(true) }
@@ -138,7 +139,7 @@ fun LearnScreen(vm: MainViewModel) {
     LaunchedEffect(word) { vm.engine.practiceTarget = word }
     LaunchedEffect(attempt?.at) {
         val a = attempt ?: return@LaunchedEffect
-        if (a.correct && a.target !in learned) learned = learned + a.target
+        if (a.correct) vm.markLearned(a.target)
     }
 
     if (word == null) {
@@ -221,7 +222,7 @@ fun LearnScreen(vm: MainViewModel) {
             Spacer(Modifier.height(12.dp))
             Text(
                 if (learned.isEmpty()) "${words.size} signs to learn. The figure is a real signer's keypoints${if (front) ", mirrored like your camera" else ""}; no video is stored."
-                else "${learned.size} learned this session: " + learned.takeLast(6).joinToString(", "),
+                else "${learned.size} learned: " + learned.takeLast(6).joinToString(", "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Spoken replies from the hearing person, recognised on the device only. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <!-- Deliberately no INTERNET permission: video, audio and keypoints never leave the device. -->
+    <!-- Deliberately no INTERNET permission: video, audio and keypoints never leave the device. Libraries ask for
+         network access in their own manifests (onnxruntime-android for telemetry, MediaPipe through Google's
+         datatransport uploader); these lines take it out of the merged manifest, so nothing can be sent. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
     <!-- The phone's installed text-to-speech engine and speech recogniser; this lets the app find them. -->
     <queries>

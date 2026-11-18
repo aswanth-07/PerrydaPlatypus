@@ -171,7 +171,8 @@ fun SettingsScreen(vm: MainViewModel) {
                 Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 Spacer(Modifier.width(14.dp))
                 Text(
-                    "Everything runs on this phone. The app has no internet permission, so video, audio and keypoints cannot leave it.",
+                    "Everything runs on this phone. The app has no internet permission, so video, audio and keypoints cannot leave it. " +
+                        "Conversations are kept on this phone until you clear them.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
