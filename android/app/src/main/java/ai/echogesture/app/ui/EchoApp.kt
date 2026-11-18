@@ -51,7 +51,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -122,7 +122,7 @@ private fun Tabs(vm: MainViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val onTab = Tab.entries.any { it.route == current }
     // Landscape keeps the height for the camera: the tabs move to a rail on the left.
-    val wide = LocalConfiguration.current.let { it.screenWidthDp > it.screenHeightDp }
+    val wide = LocalWindowInfo.current.containerSize.let { it.width > it.height }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -196,7 +196,7 @@ private fun Tabs(vm: MainViewModel) {
             }
 
             composable(Route.PRACTICE) {
-                Sub { SubScreen("Practise any sign", nav::popBackStack) { SignsCameraGate { LearnScreen(vm) } } }
+                Sub { SubScreen(stringResource(R.string.screen_practise_any_sign), nav::popBackStack) { SignsCameraGate { LearnScreen(vm) } } }
             }
             composable(Route.LESSONS) {
                 Sub { LessonsScreen(vm, onOpen = { nav.navigate(Route.lesson(it)) }, onBack = { nav.popBackStack() }) }
@@ -211,10 +211,10 @@ private fun Tabs(vm: MainViewModel) {
                 }
             }
             composable(Route.TEACH) {
-                Sub { SubScreen("Teach the app a sign", nav::popBackStack) { SignsCameraGate { TeachScreen(vm) } } }
+                Sub { SubScreen(stringResource(R.string.screen_teach_the_app_a_sign), nav::popBackStack) { SignsCameraGate { TeachScreen(vm) } } }
             }
             composable(Route.VIDEO) {
-                Sub { SubScreen("Identify a sign in a video", nav::popBackStack) { ClipsScreen(vm, showTimings = settings.developer) } }
+                Sub { SubScreen(stringResource(R.string.screen_identify_a_sign_in_a), nav::popBackStack) { ClipsScreen(vm, showTimings = settings.developer) } }
             }
             composable(Route.CONVERSATION, arguments = listOf(navArgument("start") { type = NavType.LongType })) { e ->
                 Sub { ConversationScreen(vm, e.arguments?.getLong("start") ?: 0L, onBack = { nav.popBackStack() }) }

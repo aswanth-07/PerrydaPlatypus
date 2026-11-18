@@ -1,5 +1,7 @@
 package ai.echogesture.app.ui.clips
 
+import ai.echogesture.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -56,8 +58,7 @@ fun ClipsScreen(vm: MainViewModel, showTimings: Boolean) {
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Text(
-                "Pick a short video of one sign from your gallery. EchoGesture names the sign on this phone; the video is " +
-                    "never uploaded.",
+                stringResource(R.string.video_pick_a_short_video_of),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
@@ -68,22 +69,22 @@ fun ClipsScreen(vm: MainViewModel, showTimings: Boolean) {
             ) {
                 Icon(Icons.Rounded.VideoLibrary, null)
                 Spacer(Modifier.width(10.dp))
-                Text(if (busy) "Working…" else "Choose a video")
+                Text(if (busy) stringResource(R.string.video_working) else stringResource(R.string.video_choose_a_video))
             }
         }
         progress?.let { p -> item { ProgressCard(p, onDismiss = vm::dismissClipError) } }
         if (clips.isEmpty() && progress == null) {
             item {
                 EmptyState(
-                    { VideoArt() }, "No videos yet",
-                    "Each result shows the sign and the other signs it was closest to.",
+                    { VideoArt() }, stringResource(R.string.video_no_videos_yet),
+                    stringResource(R.string.video_each_result_shows_the_sign),
                     Modifier.fillMaxWidth(),
                 )
             }
         }
         items(clips, key = { it.atMillis }) { ResultCard(it, showTimings) }
         if (clips.isNotEmpty()) item {
-            TextButton(onClick = vm::clearClips, modifier = Modifier.fillMaxWidth()) { Text("Clear results") }
+            TextButton(onClick = vm::clearClips, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.video_clear_results)) }
         }
     }
 }
@@ -96,11 +97,11 @@ private fun ProgressCard(p: ClipProgress, onDismiss: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(10.dp))
-                    Text("Could not recognise this clip", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.video_could_not_recognise_this_clip), style = MaterialTheme.typography.titleMedium)
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(p.error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = onDismiss) { Text("Dismiss") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.video_dismiss)) }
             } else {
                 Text(p.stage, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
@@ -115,19 +116,19 @@ private fun ResultCard(r: ClipResult, showTimings: Boolean) {
     val show = LocalCaption.current
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(20.dp)) {
-            Text(if (showTimings) "${r.name} · ${r.frames} frames" else r.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(if (showTimings) stringResource(R.string.video_frames, r.name, r.frames) else r.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(show(r.word), style = CaptionStyle.copy(fontSize = 36.sp, lineHeight = 44.sp), color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
-                Text(if (r.taught) "taught sign · match %.2f".format(r.confidence) else "${(100 * r.confidence).toInt()}% sure",
+                Text(if (r.taught) stringResource(R.string.video_taught_sign_match_2f).format(r.confidence) else stringResource(R.string.video_sure, (100 * r.confidence).toInt()),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
             }
             if (r.also.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text("Same sign: " + r.also.joinToString(" · ", transform = show), style = MaterialTheme.typography.titleSmall,
+                Text(stringResource(R.string.video_same_sign, r.also.joinToString(" · ", transform = show)), style = MaterialTheme.typography.titleSmall,
                     color = Palette.Amber)
             }
             Spacer(Modifier.height(14.dp))

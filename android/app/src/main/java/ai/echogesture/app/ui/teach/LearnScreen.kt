@@ -1,5 +1,7 @@
 package ai.echogesture.app.ui.teach
 
+import ai.echogesture.app.R
+import androidx.compose.ui.res.stringResource
 import android.app.Activity
 import android.view.WindowManager
 import androidx.compose.animation.core.LinearEasing
@@ -89,6 +91,7 @@ import ai.echogesture.app.data.Lesson
 import ai.echogesture.app.data.Lessons
 import ai.echogesture.app.data.Topic
 import ai.echogesture.app.ui.components.TrackingError
+import ai.echogesture.app.ui.components.description
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -170,7 +173,7 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
     if (word == null) {
         Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
             Text(
-                if (demos.isEmpty()) "This build has no sign demonstrations packed." else "Loading the model…",
+                if (demos.isEmpty()) stringResource(R.string.practice_this_build_has_no_sign) else stringResource(R.string.practice_loading_the_model),
                 style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -181,14 +184,14 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
 
     val watch: @Composable (Modifier) -> Unit = { m ->
         Box(m.clip(RoundedCornerShape(24.dp)).background(Palette.Panel)
-            .semantics { contentDescription = "Demonstration of the sign ${show(word)}" }) {
+            .description(stringResource(R.string.practice_demonstration_of_the_sign, show(word)))) {
             DemoFigure(demo, slow, mirror = front, zoom = zoom, Modifier.fillMaxSize().padding(top = 44.dp, bottom = 52.dp))
-            Tag("Watch", Modifier.align(Alignment.TopStart).padding(10.dp))
+            Tag(stringResource(R.string.practice_watch), Modifier.align(Alignment.TopStart).padding(10.dp))
             // The chips wrap onto two lines when the text is large, rather than breaking a word.
             FlowRow(Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = slow, onClick = { slow = !slow }, label = { Text("Slow", maxLines = 1, softWrap = false) })
-                FilterChip(selected = zoom, onClick = { zoom = !zoom }, label = { Text("Hands", maxLines = 1, softWrap = false) },
-                    modifier = Modifier.semantics { contentDescription = "Zoom on hands" })
+                FilterChip(selected = slow, onClick = { slow = !slow }, label = { Text(stringResource(R.string.practice_slow), maxLines = 1, softWrap = false) })
+                FilterChip(selected = zoom, onClick = { zoom = !zoom }, label = { Text(stringResource(R.string.practice_hands), maxLines = 1, softWrap = false) },
+                    modifier = Modifier.description(stringResource(R.string.practice_zoom_on_hands)))
             }
         }
     }
@@ -198,11 +201,11 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
             if (settings.showLandmarks) HandOverlay(live, mirror = front, skeleton = settings.developer && settings.skeleton, modifier = Modifier.fillMaxSize())
             StatusPill(
                 when {
-                    live.error != null -> "Hand tracking unavailable"
-                    live.signing -> "Signing"
-                    live.handsVisible -> "Ready"
-                    live.bodyVisible -> "Raise your hands"
-                    else -> "Step back"
+                    live.error != null -> stringResource(R.string.talk_hand_tracking_unavailable)
+                    live.signing -> stringResource(R.string.talk_signing)
+                    live.handsVisible -> stringResource(R.string.practice_ready)
+                    live.bodyVisible -> stringResource(R.string.practice_raise_your_hands)
+                    else -> stringResource(R.string.talk_step_back)
                 },
                 when {
                     live.error != null -> Palette.Red
@@ -215,7 +218,7 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
                 onClick = { front = !front },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(48.dp).glass(CircleShape),
                 colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Transparent, contentColor = Palette.Text),
-            ) { Icon(Icons.Rounded.Cameraswitch, "Switch camera") }
+            ) { Icon(Icons.Rounded.Cameraswitch, stringResource(R.string.practice_switch_camera)) }
             TrackingError(live, settings.gpu, onRetry = vm.engine::retryLive, onSwitch = { vm.update { it.copy(gpu = !it.gpu) } },
                 modifier = Modifier.align(Alignment.Center).padding(12.dp))
         }
@@ -225,20 +228,20 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
             if (lesson != null) LessonSteps(words, index, learned)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Sign this", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.practice_sign_this), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(show(word), style = CaptionStyle, color = MaterialTheme.colorScheme.primary,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                if (word in learned) DrawnCheck(word, 32.dp, modifier = Modifier.semantics { contentDescription = "Learned" })
+                if (word in learned) DrawnCheck(word, 32.dp, modifier = Modifier.description(stringResource(R.string.practice_learned)))
             }
             Spacer(Modifier.height(10.dp))
             // What the recogniser made of the last try.
             val (text, colour) = when {
-                attempt == null && live.pending != null -> "Looking…" to Palette.TextMuted
-                attempt == null -> "Watch the figure, then make the sign in front of the camera." to Palette.TextMuted
-                attempt.correct -> "Yes, that was “${show(word)}”." to Palette.Green
-                attempt.share >= 0.2f -> "Close. It looked a little more like “${show(attempt.seen)}”. Watch once more and try again." to Palette.Amber
-                else -> "That looked like “${show(attempt.seen)}”. Watch once more and try again." to Palette.Amber
+                attempt == null && live.pending != null -> stringResource(R.string.practice_looking) to Palette.TextMuted
+                attempt == null -> stringResource(R.string.practice_watch_the_figure_then_make) to Palette.TextMuted
+                attempt.correct -> stringResource(R.string.practice_yes_that_was, show(word)) to Palette.Green
+                attempt.share >= 0.2f -> stringResource(R.string.practice_close_it_looked_a_little, show(attempt.seen)) to Palette.Amber
+                else -> stringResource(R.string.practice_that_looked_like_watch_once, show(attempt.seen)) to Palette.Amber
             }
             Box(Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
                 .semantics { liveRegion = LiveRegionMode.Polite }
@@ -254,27 +257,27 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
                     Icon(if (last) Icons.Rounded.Flag else Icons.Rounded.SkipNext, null)
                     Spacer(Modifier.width(6.dp))
                     Text(when {
-                        last -> "Finish lesson"
-                        attempt?.correct == true -> "Next sign"
-                        else -> "Skip"
+                        last -> stringResource(R.string.practice_finish_lesson)
+                        attempt?.correct == true -> stringResource(R.string.practice_next_sign)
+                        else -> stringResource(R.string.practice_skip)
                     })
                 }
                 if (lesson == null) {
                     OutlinedButton(onClick = { choosing = true }, modifier = Modifier.heightIn(min = 48.dp)) {
                         Icon(Icons.Rounded.Search, null)
                         Spacer(Modifier.width(6.dp))
-                        Text("Choose")
+                        Text(stringResource(R.string.practice_choose))
                     }
                 } else if (index > 0) {
-                    OutlinedButton(onClick = { index-- }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Previous") }
+                    OutlinedButton(onClick = { index-- }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.practice_previous)) }
                 }
             }
             Spacer(Modifier.height(12.dp))
             Text(
                 when {
                     lesson != null || learned.isEmpty() ->
-                        "The figure is a real signer's keypoints${if (front) ", mirrored like your camera" else ""}; no video is stored."
-                    else -> "${learned.size} learned: " + learned.takeLast(6).joinToString(", ", transform = show)
+                        stringResource(if (front) R.string.practice_figure_note_mirrored else R.string.practice_figure_note)
+                    else -> stringResource(R.string.practice_learned_2, learned.size, learned.takeLast(6).joinToString(", ", transform = show))
                 },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -306,25 +309,25 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
         val shown = remember(query, words) { words.filter { show(it).contains(query.trim(), ignoreCase = true) } }
         AlertDialog(
             onDismissRequest = { choosing = false },
-            title = { Text("Choose a sign") },
+            title = { Text(stringResource(R.string.practice_choose_a_sign)) },
             text = {
                 Column {
-                    OutlinedTextField(query, { query = it.take(24) }, singleLine = true, label = { Text("Search") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(query, { query = it.take(24) }, singleLine = true, label = { Text(stringResource(R.string.practice_search)) }, modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(8.dp))
                     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
                         items(shown) { w ->
                             Row(Modifier.fillMaxWidth().clickable { index = words.indexOf(w); choosing = false }.heightIn(min = 48.dp)
                                 .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(show(w), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                                if (w in learned) Icon(Icons.Rounded.CheckCircle, "Learned", Modifier.size(20.dp), tint = Palette.Green)
+                                if (w in learned) Icon(Icons.Rounded.CheckCircle, stringResource(R.string.practice_learned), Modifier.size(20.dp), tint = Palette.Green)
                             }
                         }
                     }
-                    if (shown.isEmpty()) Text("No sign with a demonstration matches.", style = MaterialTheme.typography.bodyMedium,
+                    if (shown.isEmpty()) Text(stringResource(R.string.practice_no_sign_with_a_demonstration), style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
-            confirmButton = { TextButton(onClick = { choosing = false }) { Text("Close") } },
+            confirmButton = { TextButton(onClick = { choosing = false }) { Text(stringResource(R.string.practice_close)) } },
         )
     }
 }
@@ -333,7 +336,7 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
 @Composable
 private fun LessonSteps(words: List<String>, index: Int, learned: List<String>) {
     Row(Modifier.padding(bottom = 8.dp).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-        Text("Sign ${index + 1} of ${words.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.practice_sign_of, index + 1, words.size), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             words.forEachIndexed { i, w ->

@@ -1,5 +1,7 @@
 package ai.echogesture.app.ui.setup
 
+import ai.echogesture.app.R
+import androidx.compose.ui.res.stringResource
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -68,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.ui.components.FramingGuide
+import ai.echogesture.app.ui.components.description
 import ai.echogesture.app.ui.components.rememberPermission
 import ai.echogesture.app.ui.live.CameraPreview
 import ai.echogesture.app.ui.theme.Palette
@@ -88,7 +91,7 @@ fun SetupScreen(vm: MainViewModel, onDone: () -> Unit) {
 
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Step ${step + 1} of $STEPS", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(stringResource(R.string.setup_step_of, step + 1, STEPS), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 repeat(STEPS) { i ->
@@ -107,7 +110,7 @@ fun SetupScreen(vm: MainViewModel, onDone: () -> Unit) {
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (step > 0) TextButton(onClick = { step-- }) { Text("Back") }
+            if (step > 0) TextButton(onClick = { step-- }) { Text(stringResource(R.string.common_back)) }
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = {
@@ -121,9 +124,9 @@ fun SetupScreen(vm: MainViewModel, onDone: () -> Unit) {
             ) {
                 Text(
                     when {
-                        step == STEPS - 1 -> "Start"
-                        step == 1 && !camera.granted -> "Skip for now"
-                        else -> "Continue"
+                        step == STEPS - 1 -> stringResource(R.string.setup_start)
+                        step == 1 && !camera.granted -> stringResource(R.string.setup_skip_for_now)
+                        else -> stringResource(R.string.setup_continue)
                     }
                 )
             }
@@ -141,16 +144,16 @@ private fun StepTitle(title: String, body: String) {
 
 @Composable
 private fun UseStep(back: Boolean, onChoose: (Boolean) -> Unit) {
-    StepTitle("How will you use EchoGesture?", "You can change this later on the Talk tab or in Settings.")
+    StepTitle(stringResource(R.string.setup_how_will_you_use_echogesture), stringResource(R.string.setup_you_can_change_this_later))
     UseChoice(
-        Icons.Rounded.Videocam, "I'm talking with someone who signs",
-        "Hold the phone with its back camera toward them. Their signs appear as captions, and you can reply by speaking.",
+        Icons.Rounded.Videocam, stringResource(R.string.setup_i_m_talking_with_someone),
+        stringResource(R.string.setup_hold_the_phone_with_its),
         selected = back,
     ) { onChoose(true) }
     Spacer(Modifier.height(12.dp))
     UseChoice(
-        Icons.Rounded.FrontHand, "I sign, and the phone faces me",
-        "Prop the phone up facing you. Your signs appear as captions and can be spoken aloud.",
+        Icons.Rounded.FrontHand, stringResource(R.string.setup_i_sign_and_the_phone),
+        stringResource(R.string.setup_prop_the_phone_up_facing),
         selected = !back,
     ) { onChoose(false) }
 }
@@ -182,27 +185,27 @@ private fun UseChoice(icon: ImageVector, title: String, body: String, selected: 
 @Composable
 private fun FramingStep(vm: MainViewModel, back: Boolean, granted: Boolean, blocked: Boolean, request: () -> Unit) {
     StepTitle(
-        if (back) "Frame the signer" else "Frame yourself",
-        if (back) "Hands are found from the body, so the app needs to see their head, shoulders and both hands."
-        else "Hands are found from the body, so the app needs to see your head, shoulders and both hands.",
+        if (back) stringResource(R.string.setup_frame_the_signer) else stringResource(R.string.setup_frame_yourself),
+        if (back) stringResource(R.string.setup_hands_are_found_from_the)
+        else stringResource(R.string.setup_hands_are_found_from_the_2),
     )
     if (!granted) {
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.PhotoCamera, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
-                Text("EchoGesture needs the camera to see signs.", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.setup_echogesture_needs_the_camera_to), style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.height(8.dp))
-            Text("Video is processed on this phone and never uploaded or stored.", style = MaterialTheme.typography.bodyMedium,
+            Text(stringResource(R.string.setup_video_is_processed_on_this), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(16.dp))
             Button(onClick = request, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(if (blocked) "Open settings" else "Allow camera")
+                Text(if (blocked) stringResource(R.string.action_open_settings) else stringResource(R.string.gate_allow_camera))
             }
             if (blocked) {
                 Spacer(Modifier.height(8.dp))
-                Text("Camera access is turned off for EchoGesture. In settings, open Permissions, Camera, and choose Allow.",
+                Text(stringResource(R.string.setup_camera_access_is_turned_off),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -215,14 +218,14 @@ private fun FramingStep(vm: MainViewModel, back: Boolean, granted: Boolean, bloc
         onDispose { vm.engine.releaseLive() }
     }
     val (text, colour) = when {
-        !live.ready -> "Loading on-device models…" to Palette.TextMuted
-        live.bodyVisible && live.handsVisible -> (if (back) "Their hands are in view. You're set." else "Your hands are in view. You're set.") to Palette.Green
-        live.bodyVisible -> (if (back) "Good distance. Their hands are tracked once they're raised." else "Good distance. Raise your hands to sign.") to Palette.Green
-        else -> (if (back) "Step back until their head and shoulders fit the outline." else "Move back until your head and shoulders fit the outline.") to Palette.Amber
+        !live.ready -> stringResource(R.string.setup_loading_on_device_models) to Palette.TextMuted
+        live.bodyVisible && live.handsVisible -> (if (back) stringResource(R.string.setup_their_hands_are_in_view) else stringResource(R.string.setup_your_hands_are_in_view)) to Palette.Green
+        live.bodyVisible -> (if (back) stringResource(R.string.setup_good_distance_their_hands_are) else stringResource(R.string.setup_good_distance_raise_your_hands)) to Palette.Green
+        else -> (if (back) stringResource(R.string.setup_step_back_until_their_head) else stringResource(R.string.setup_move_back_until_your_head)) to Palette.Amber
     }
     Box(
         Modifier.fillMaxWidth().widthIn(max = 420.dp).aspectRatio(3f / 4f).clip(RoundedCornerShape(24.dp)).background(Color.Black)
-            .semantics { contentDescription = "Camera preview. $text" },
+            .description(stringResource(R.string.setup_camera_preview, text)),
     ) {
         CameraPreview(backCamera = back, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
         FramingGuide(ok = live.bodyVisible, modifier = Modifier.fillMaxSize().padding(24.dp))
@@ -237,7 +240,7 @@ private fun VoiceStep(vm: MainViewModel) {
     val voice by vm.engine.speaker.state.collectAsStateWithLifecycle()
     val reply by vm.engine.listener.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    StepTitle("Voice and replies", "Both use what is installed on this phone, so they work without a connection.")
+    StepTitle(stringResource(R.string.setup_voice_and_replies), stringResource(R.string.setup_both_use_what_is_installed))
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(18.dp)) {
         Row(
@@ -245,13 +248,13 @@ private fun VoiceStep(vm: MainViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Speak signed words aloud", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.settings_speak_signed_words_aloud), style = MaterialTheme.typography.titleMedium)
                 Text(
                     when {
                         voice.error != null -> voice.error!!
-                        !voice.ready -> "Starting the phone's text-to-speech."
-                        voice.onDevice -> "An installed voice is ready."
-                        else -> "No installed English voice was found. Add one to keep speech offline."
+                        !voice.ready -> stringResource(R.string.settings_starting_the_phone_s_text)
+                        voice.onDevice -> stringResource(R.string.setup_an_installed_voice_is_ready)
+                        else -> stringResource(R.string.setup_no_installed_english_voice_was)
                     },
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -261,7 +264,7 @@ private fun VoiceStep(vm: MainViewModel) {
         }
         if (voice.ready && !voice.onDevice || voice.error != null) {
             OutlinedButton(onClick = { context.openSystem("com.android.settings.TTS_SETTINGS") }, modifier = Modifier.padding(top = 10.dp)) {
-                Text("Text-to-speech settings")
+                Text(stringResource(R.string.setup_text_to_speech_settings))
             }
         }
     }
@@ -270,17 +273,17 @@ private fun VoiceStep(vm: MainViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.RecordVoiceOver, null, tint = if (reply.available) Palette.Green else Palette.Amber)
             Spacer(Modifier.width(12.dp))
-            Text("Spoken replies", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_spoken_replies), style = MaterialTheme.typography.titleMedium)
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            if (reply.available) "Ready. Tap Reply on the Talk tab and speak; your words appear large for the signer to read."
-            else reply.note ?: "Checking for on-device speech recognition.",
+            if (reply.available) stringResource(R.string.setup_ready_tap_reply_on_the)
+            else reply.note ?: stringResource(R.string.settings_checking_for_on_device_speech),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!reply.available && reply.note != null) {
             OutlinedButton(onClick = { context.openSystem(Settings.ACTION_VOICE_INPUT_SETTINGS) }, modifier = Modifier.padding(top = 10.dp)) {
-                Text("Speech recognition settings")
+                Text(stringResource(R.string.setup_speech_recognition_settings))
             }
         }
     }
@@ -288,7 +291,7 @@ private fun VoiceStep(vm: MainViewModel) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.Lock, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(8.dp))
-        Text("EchoGesture has no internet access. Video, audio and keypoints stay on this phone.",
+        Text(stringResource(R.string.setup_echogesture_has_no_internet_access),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

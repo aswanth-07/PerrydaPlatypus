@@ -1,5 +1,8 @@
 package ai.echogesture.app.ui.teach
 
+import ai.echogesture.app.R
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import android.app.Activity
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedContent
@@ -94,6 +97,8 @@ import ai.echogesture.app.ui.components.LocalHaptics
 import ai.echogesture.app.ui.components.SectionTitle
 import ai.echogesture.app.ui.components.StatusPill
 import ai.echogesture.app.ui.components.TrackingError
+import ai.echogesture.app.ui.components.description
+import androidx.annotation.StringRes
 import ai.echogesture.app.ui.live.CameraPreview
 import ai.echogesture.app.ui.live.HandOverlay
 import ai.echogesture.app.ui.theme.Manrope
@@ -113,7 +118,7 @@ private const val CONSISTENT = 0.5f   // an example this far from the earlier on
 /** One recorded example, and whether it was recorded with the front camera (its replay is mirrored to match). */
 private class Recorded(val example: TeachExample, val front: Boolean)
 
-private enum class Step(val title: String) { NAME("Name"), RECORD("Record"), REVIEW("Review"), TRY("Try it") }
+private enum class Step(@StringRes val title: Int) { NAME(R.string.teach_name), RECORD(R.string.teach_record), REVIEW(R.string.teach_review), TRY(R.string.teach_try_it) }
 
 /**
  * Teach the app a sign it does not know, one step at a time: name it, record it 3 to 5 times (each example plays
@@ -137,6 +142,12 @@ fun TeachScreen(vm: MainViewModel) {
     var countdown by remember { mutableStateOf<Int?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    // Read here: the recording and saving below run in coroutines, where resources cannot be read by Compose.
+    val noHands = stringResource(R.string.teach_no_hands_were_seen_in)
+    val cannotLearn = stringResource(R.string.teach_this_model_cannot_learn_new)
+    val looksDifferent = stringResource(R.string.teach_that_one_looked_different_from)
+    val recordingFailed = stringResource(R.string.teach_recording_failed)
+    val saveFailed = stringResource(R.string.teach_could_not_save_the_sign)
 
     DisposableEffect(Unit) {
         vm.engine.setPaused(false)   // a pause left on the Talk tab would starve the recorder of frames
@@ -164,16 +175,16 @@ fun TeachScreen(vm: MainViewModel) {
             val emb = ex.example.embedding
             val earlier = examples.mapNotNull { it.example.embedding }
             when {
-                ex.example.handFraction < MIN_HAND_FRACTION -> message = "No hands were seen in that example. Keep your hands in view and record it again."
-                emb == null -> message = "This model cannot learn new signs."
+                ex.example.handFraction < MIN_HAND_FRACTION -> message = noHands
+                emb == null -> message = cannotLearn
                 earlier.isNotEmpty() && Embeddings.cosine(emb, Embeddings.prototype(earlier)) < CONSISTENT -> {
                     pending = ex
-                    message = "That one looked different from the earlier examples. Keep it, or record it again?"
+                    message = looksDifferent
                 }
                 else -> examples += ex
             }
         } catch (e: Exception) {
-            message = e.message ?: "Recording failed"
+            message = e.message ?: recordingFailed
         } finally {
             countdown = null
             busy = false
@@ -182,7 +193,7 @@ fun TeachScreen(vm: MainViewModel) {
 
     if (!teach.supported) {
         Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
-            Text(teach.note ?: "Loading the model…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(teach.note ?: stringResource(R.string.practice_loading_the_model), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
@@ -195,9 +206,9 @@ fun TeachScreen(vm: MainViewModel) {
                 vm, live, front, onFlip = { front = !front },
                 overlay = { CountdownAndProgress(countdown, live) },
             ) {
-                Text("Sign “${word.trim()}”", style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.teach_sign, word.trim()), style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "Record it $MIN_EXAMPLES to $MAX_EXAMPLES times, a little differently each time: nearer, further, faster.",
+                    stringResource(R.string.teach_record_it_to_times_a, MIN_EXAMPLES, MAX_EXAMPLES),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(12.dp))
@@ -208,8 +219,8 @@ fun TeachScreen(vm: MainViewModel) {
                 }
                 pending?.let { ex ->
                     Row {
-                        TextButton(onClick = { examples += ex; pending = null; message = null }) { Text("Keep it") }
-                        TextButton(onClick = { pending = null; message = null }) { Text("Discard") }
+                        TextButton(onClick = { examples += ex; pending = null; message = null }) { Text(stringResource(R.string.teach_keep_it)) }
+                        TextButton(onClick = { pending = null; message = null }) { Text(stringResource(R.string.teach_discard)) }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -221,16 +232,16 @@ fun TeachScreen(vm: MainViewModel) {
                     ) {
                         Icon(Icons.Rounded.FiberManualRecord, null, tint = Palette.Red)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (examples.isEmpty()) "Record" else "Record example ${examples.size + 1}")
+                        Text(if (examples.isEmpty()) stringResource(R.string.teach_record) else stringResource(R.string.teach_record_example, examples.size + 1))
                     }
                     OutlinedButton(onClick = { step = Step.REVIEW }, enabled = !busy && examples.size >= MIN_EXAMPLES,
-                        modifier = Modifier.heightIn(min = 48.dp)) { Text("Review") }
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.teach_review)) }
                 }
                 if (examples.size < MIN_EXAMPLES) {
-                    Text("${MIN_EXAMPLES - examples.size} more to go before saving.", Modifier.padding(top = 6.dp),
+                    Text(stringResource(R.string.teach_more_to_go_before_saving, MIN_EXAMPLES - examples.size), Modifier.padding(top = 6.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TextButton(onClick = { step = Step.NAME }, enabled = !busy) { Text("Change the name") }
+                TextButton(onClick = { step = Step.NAME }, enabled = !busy) { Text(stringResource(R.string.teach_change_the_name)) }
             }
             Step.REVIEW -> ReviewStep(word, examples, busy, message,
                 onDelete = { examples.remove(it); if (examples.size < MIN_EXAMPLES) step = Step.RECORD },
@@ -241,7 +252,7 @@ fun TeachScreen(vm: MainViewModel) {
                         val w = word
                         runCatching { vm.engine.saveTaught(w, examples.map { it.example.clip }) }
                             .onSuccess { examples.clear(); message = null; haptics.confirm(); vm.engine.clearCaption(); step = Step.TRY }
-                            .onFailure { message = it.message ?: "Could not save the sign" }
+                            .onFailure { message = it.message ?: saveFailed }
                         busy = false
                     }
                 },
@@ -258,7 +269,7 @@ fun TeachScreen(vm: MainViewModel) {
 private fun Stepper(current: Step) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
-            .semantics(mergeDescendants = true) { contentDescription = "Step ${current.ordinal + 1} of 4: ${current.title}" },
+            .description(stringResource(R.string.teach_step_of_4, current.ordinal + 1, stringResource(current.title)), merge = true),
         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
         Step.entries.forEach { s ->
@@ -267,7 +278,7 @@ private fun Stepper(current: Step) {
                 .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest))
         }
         Spacer(Modifier.width(6.dp))
-        Text(current.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text(stringResource(current.title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }
 
@@ -289,49 +300,49 @@ private fun NameStep(vm: MainViewModel, word: String, signs: List<TaughtSign>, o
     val again = signs.any { it.word == name }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
-        Text("What does the sign mean?", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.teach_what_does_the_sign_mean), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
         Text(
-            "Usually a name sign, or a word EchoGesture doesn't know yet. It is captioned and spoken as you write it here.",
+            stringResource(R.string.teach_usually_a_name_sign_or),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(14.dp))
         OutlinedTextField(
             value = word, onValueChange = { onWord(it.take(24)) }, singleLine = true,
-            label = { Text("Word or name") },
+            label = { Text(stringResource(R.string.teach_word_or_name)) },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
             keyboardActions = KeyboardActions(onNext = { if (word.isNotBlank()) onNext() }),
             modifier = Modifier.fillMaxWidth(),
         )
         val note = when {
-            again -> "You already taught “${show(name)}”. These examples are added as another way to sign it."
-            known -> "EchoGesture already knows “${show(name)}”. Teaching it adds your own way of signing it."
+            again -> stringResource(R.string.teach_you_already_taught_these_examples, show(name))
+            known -> stringResource(R.string.teach_echogesture_already_knows_teaching_it, show(name))
             else -> null
         }
         note?.let { Text(it, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary) }
         Spacer(Modifier.height(14.dp))
-        Button(onClick = onNext, enabled = word.isNotBlank(), modifier = Modifier.heightIn(min = 48.dp)) { Text("Next: record it") }
+        Button(onClick = onNext, enabled = word.isNotBlank(), modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.teach_next_record_it)) }
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.Lock, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
-            Text("Only hand, body and face keypoints are stored on this phone, never video.",
+            Text(stringResource(R.string.teach_only_hand_body_and_face),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        SectionTitle("Taught on this phone")
+        SectionTitle(stringResource(R.string.teach_taught_on_this_phone))
         if (signs.isEmpty()) {
-            Text("None yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.teach_none_yet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         signs.forEach { sign ->
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(show(sign.word), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${sign.examples} example" + if (sign.examples == 1) "" else "s",
+                        Text(pluralStringResource(R.plurals.teach_examples, sign.examples, sign.examples),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    IconButton(onClick = { renaming = sign }) { Icon(Icons.Rounded.Edit, "Rename ${show(sign.word)}") }
-                    IconButton(onClick = { deleting = sign }) { Icon(Icons.Rounded.Delete, "Delete ${show(sign.word)}") }
+                    IconButton(onClick = { renaming = sign }) { Icon(Icons.Rounded.Edit, stringResource(R.string.teach_rename, show(sign.word))) }
+                    IconButton(onClick = { deleting = sign }) { Icon(Icons.Rounded.Delete, stringResource(R.string.teach_delete, show(sign.word))) }
                 }
             }
         }
@@ -342,7 +353,7 @@ private fun NameStep(vm: MainViewModel, word: String, signs: List<TaughtSign>, o
         var newName by remember(sign.id) { mutableStateOf(show(sign.word)) }
         AlertDialog(
             onDismissRequest = { renaming = null },
-            title = { Text("Rename sign") },
+            title = { Text(stringResource(R.string.teach_rename_sign)) },
             text = {
                 OutlinedTextField(newName, { newName = it.take(24) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
@@ -352,18 +363,18 @@ private fun NameStep(vm: MainViewModel, word: String, signs: List<TaughtSign>, o
                     val n = newName
                     renaming = null
                     if (n.isNotBlank()) scope.launch { vm.engine.renameTaught(sign.id, n) }
-                }) { Text("Rename") }
+                }) { Text(stringResource(R.string.teach_rename_2)) }
             },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
     deleting?.let { sign ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete “${show(sign.word)}”?") },
-            text = { Text("Its ${sign.examples} recorded examples are removed from this phone.") },
-            confirmButton = { TextButton(onClick = { deleting = null; scope.launch { vm.engine.deleteTaught(sign.id) } }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            title = { Text(stringResource(R.string.teach_delete_2, show(sign.word))) },
+            text = { Text(stringResource(R.string.teach_its_recorded_examples_are_removed, sign.examples)) },
+            confirmButton = { TextButton(onClick = { deleting = null; scope.launch { vm.engine.deleteTaught(sign.id) } }) { Text(stringResource(R.string.action_delete)) } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -385,11 +396,11 @@ private fun CameraStep(
             if (settings.showLandmarks) HandOverlay(live, mirror = front, skeleton = settings.developer && settings.skeleton, modifier = Modifier.fillMaxSize())
             StatusPill(
                 when {
-                    live.error != null -> "Hand tracking unavailable"
-                    live.recording != null -> "Recording"
-                    live.handsVisible -> "Hands in view"
-                    live.bodyVisible -> "Show your hands"
-                    else -> "Step back"
+                    live.error != null -> stringResource(R.string.talk_hand_tracking_unavailable)
+                    live.recording != null -> stringResource(R.string.talk_recording)
+                    live.handsVisible -> stringResource(R.string.teach_hands_in_view)
+                    live.bodyVisible -> stringResource(R.string.talk_show_your_hands)
+                    else -> stringResource(R.string.talk_step_back)
                 },
                 when {
                     live.error != null || live.recording != null -> Palette.Red
@@ -402,7 +413,7 @@ private fun CameraStep(
                 onClick = onFlip,
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp).glass(CircleShape),
                 colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Transparent, contentColor = Palette.Text),
-            ) { Icon(Icons.Rounded.Cameraswitch, "Switch camera") }
+            ) { Icon(Icons.Rounded.Cameraswitch, stringResource(R.string.practice_switch_camera)) }
             overlay()
             TrackingError(live, settings.gpu, onRetry = vm.engine::retryLive, onSwitch = { vm.update { it.copy(gpu = !it.gpu) } },
                 modifier = Modifier.align(Alignment.Center).padding(12.dp))
@@ -446,9 +457,7 @@ private fun CountdownAndProgress(countdown: Int?, live: LiveState) {
 /** The examples so far, each playing back from its keypoints, with a delete button; empty places for the rest. */
 @Composable
 private fun ExampleStrip(examples: List<Recorded>, onDelete: (Recorded) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.semantics(mergeDescendants = false) {
-        contentDescription = "${examples.size} of $MAX_EXAMPLES examples recorded"
-    }) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.description(stringResource(R.string.teach_of_examples_recorded, examples.size, MAX_EXAMPLES))) {
         repeat(MAX_EXAMPLES) { i ->
             val ex = examples.getOrNull(i)
             Box(
@@ -464,7 +473,7 @@ private fun ExampleStrip(examples: List<Recorded>, onDelete: (Recorded) -> Unit)
                 } else {
                     ExampleReplay(ex.example.clip, mirror = ex.front, modifier = Modifier.fillMaxSize().padding(4.dp))
                     IconButton(onClick = { onDelete(ex) }, modifier = Modifier.align(Alignment.TopEnd).size(32.dp)) {
-                        Icon(Icons.Rounded.Close, "Delete example ${i + 1}", Modifier.size(18.dp))
+                        Icon(Icons.Rounded.Close, stringResource(R.string.teach_delete_example, i + 1), Modifier.size(18.dp))
                     }
                 }
             }
@@ -479,9 +488,9 @@ private fun ReviewStep(
     onDelete: (Recorded) -> Unit, onMore: () -> Unit, onSave: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
-        Text("Check your examples", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.teach_check_your_examples), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
         Text(
-            "Each one plays back from the keypoints that are kept. Delete any that missed a hand or show a different movement.",
+            stringResource(R.string.teach_each_one_plays_back_from),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
@@ -493,7 +502,7 @@ private fun ReviewStep(
                         ExampleReplay(ex.example.clip, mirror = ex.front, modifier = Modifier.fillMaxSize().padding(10.dp))
                         Text("$n", Modifier.align(Alignment.TopStart).padding(10.dp), style = MaterialTheme.typography.labelLarge)
                         IconButton(onClick = { onDelete(ex) }, modifier = Modifier.align(Alignment.TopEnd)) {
-                            Icon(Icons.Rounded.Delete, "Delete example $n")
+                            Icon(Icons.Rounded.Delete, stringResource(R.string.teach_delete_example, n))
                         }
                     }
                 }
@@ -503,9 +512,9 @@ private fun ReviewStep(
         message?.let { Text(it, Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodyMedium, color = Palette.Amber) }
         ActionRow {
             Button(onClick = onSave, enabled = !busy && examples.size >= MIN_EXAMPLES, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Save “${word.trim()}”")
+                Text(stringResource(R.string.teach_save, word.trim()))
             }
-            if (examples.size < MAX_EXAMPLES) OutlinedButton(onClick = onMore, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Record another") }
+            if (examples.size < MAX_EXAMPLES) OutlinedButton(onClick = onMore, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.teach_record_another)) }
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -527,17 +536,17 @@ private fun TryStep(vm: MainViewModel, live: LiveState, word: String, front: Boo
     CameraStep(vm, live, front, onFlip) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Saved. Now try it", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-                Text("Sign “$shown” once, as you recorded it.", style = MaterialTheme.typography.bodyMedium,
+                Text(stringResource(R.string.teach_saved_now_try_it), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.teach_sign_once_as_you_recorded, shown), style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (worked) DrawnCheck("tried-$word", 40.dp, modifier = Modifier.semantics { contentDescription = "It worked" })
+            if (worked) DrawnCheck("tried-$word", 40.dp, modifier = Modifier.description(stringResource(R.string.teach_it_worked)))
         }
         Spacer(Modifier.height(12.dp))
         val (text, colour) = when {
-            worked -> "It works: “$shown” appears in captions and is spoken like any other word." to Palette.Green
-            live.lastWord != null && tries > 0 -> "That was captioned as “${LocalCaption.current(live.lastWord!!)}”. Try once more, or record more examples later." to Palette.Amber
-            else -> "Waiting for the sign…" to Palette.TextMuted
+            worked -> stringResource(R.string.teach_it_works_appears_in_captions, shown) to Palette.Green
+            live.lastWord != null && tries > 0 -> stringResource(R.string.teach_that_was_captioned_as_try, LocalCaption.current(live.lastWord!!)) to Palette.Amber
+            else -> stringResource(R.string.teach_waiting_for_the_sign) to Palette.TextMuted
         }
         Box(Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
             .semantics { liveRegion = LiveRegionMode.Polite }.padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
@@ -545,7 +554,7 @@ private fun TryStep(vm: MainViewModel, live: LiveState, word: String, front: Boo
         }
         Spacer(Modifier.height(12.dp))
         ActionRow {
-            Button(onClick = onAnother, modifier = Modifier.heightIn(min = 48.dp)) { Text("Teach another sign") }
+            Button(onClick = onAnother, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.teach_teach_another_sign)) }
         }
     }
 }

@@ -1,5 +1,7 @@
 package ai.echogesture.app.ui.settings
 
+import ai.echogesture.app.R
+import androidx.compose.ui.res.stringResource
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
@@ -43,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,78 +64,78 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
     val context = LocalContext.current
     var confirm by remember { mutableStateOf<Confirm?>(null) }
 
-    SubScreen("Settings", onBack) {
+    SubScreen(stringResource(R.string.common_settings), onBack) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-            SectionTitle("Conversation", Modifier.padding(top = 4.dp))
+            SectionTitle(stringResource(R.string.settings_conversation), Modifier.padding(top = 4.dp))
             Choice(
-                "Captions appear", listOf("As they sign", "After each sign"), if (s.continuous) 0 else 1,
-                if (s.continuous) "Each word shows while the signer's hands stay up between signs."
-                else "One word per sign, shown when the signer's hands come to rest.",
+                stringResource(R.string.settings_captions_appear), listOf(stringResource(R.string.settings_as_they_sign), stringResource(R.string.settings_after_each_sign)), if (s.continuous) 0 else 1,
+                if (s.continuous) stringResource(R.string.settings_each_word_shows_while_the)
+                else stringResource(R.string.settings_one_word_per_sign_shown),
             ) { i -> vm.update { it.copy(continuous = i == 0) } }
             Choice(
-                "Caption style", listOf("More words", "Balanced", "Fewer, surer"), s.caution,
-                "More words shows more of what was signed, some of it wrong. Fewer, surer shows only words the app is confident about.",
+                stringResource(R.string.settings_caption_style), listOf(stringResource(R.string.settings_more_words), stringResource(R.string.settings_balanced), stringResource(R.string.settings_fewer_surer)), s.caution,
+                stringResource(R.string.settings_more_words_shows_more_of),
                 enabled = s.continuous,
             ) { i -> vm.update { it.copy(caution = i) } }
             val keep = listOf(1, 30, Settings.KEEP_FOREVER)
             Choice(
-                "Keep conversations", listOf("1 day", "30 days", "Until I delete"), keep.indexOf(s.keepDays).coerceAtLeast(0),
-                "Older conversations are deleted from History automatically.",
+                stringResource(R.string.settings_keep_conversations), listOf(stringResource(R.string.settings_1_day), stringResource(R.string.settings_30_days), stringResource(R.string.settings_until_i_delete)), keep.indexOf(s.keepDays).coerceAtLeast(0),
+                stringResource(R.string.settings_older_conversations_are_deleted_from),
             ) { i -> vm.update { it.copy(keepDays = keep[i]) } }
             SwitchSetting(
-                "Show signs in capitals",
-                "Writes each sign as a gloss, the way sign language dictionaries do (HELLO), instead of an ordinary word (hello).",
+                stringResource(R.string.settings_show_signs_in_capitals),
+                stringResource(R.string.settings_writes_each_sign_as_a),
                 s.glossCaps,
             ) { v -> vm.update { it.copy(glossCaps = v) } }
-            ActionRow("Delete all conversations", "Removes every conversation in History from this phone.", danger = true) {
+            ActionRow(stringResource(R.string.settings_delete_all_conversations), stringResource(R.string.settings_removes_every_conversation_in_history), danger = true) {
                 confirm = Confirm.CONVERSATIONS
             }
 
-            SectionTitle("Voice")
+            SectionTitle(stringResource(R.string.settings_voice))
             SwitchSetting(
-                "Speak signed words aloud",
+                stringResource(R.string.settings_speak_signed_words_aloud),
                 when {
                     voice.error != null -> voice.error!!
-                    !voice.ready -> "Starting the phone's text-to-speech."
-                    voice.onDevice -> "Uses a voice installed on this phone, so it works offline."
-                    else -> "No installed English voice was found. Add one in the phone's text-to-speech settings to keep speech offline."
+                    !voice.ready -> stringResource(R.string.settings_starting_the_phone_s_text)
+                    voice.onDevice -> stringResource(R.string.settings_uses_a_voice_installed_on)
+                    else -> stringResource(R.string.settings_no_installed_english_voice_was)
                 },
                 s.speak,
             ) { v -> vm.update { it.copy(speak = v) } }
             AnimatedVisibility(s.speak) {
                 SliderSetting(
-                    "Speaking speed", "%.2f×".format(s.speechRate), "Faster keeps up with quick signing.",
+                    stringResource(R.string.settings_speaking_speed), "%.2f×".format(s.speechRate), stringResource(R.string.settings_faster_keeps_up_with_quick),
                     s.speechRate, 0.8f..1.8f, 9,
                 ) { v -> vm.update { it.copy(speechRate = v) } }
             }
             InfoLine(
-                "Spoken replies",
-                if (reply.available) "Tap Reply on the Talk tab and speak; your words appear large for the signer. Recognised on this phone only."
-                else reply.note ?: "Checking for on-device speech recognition.",
+                stringResource(R.string.settings_spoken_replies),
+                if (reply.available) stringResource(R.string.settings_tap_reply_on_the_talk)
+                else reply.note ?: stringResource(R.string.settings_checking_for_on_device_speech),
             )
 
-            SectionTitle("Camera")
+            SectionTitle(stringResource(R.string.settings_camera))
             Choice(
-                "Camera on the Talk tab", listOf("Back: facing them", "Front: facing me"), if (s.backCamera) 0 else 1,
-                "Back when you hold the phone toward someone signing; front when you sign to the phone yourself.",
+                stringResource(R.string.settings_camera_on_the_talk_tab), listOf(stringResource(R.string.settings_back_facing_them), stringResource(R.string.settings_front_facing_me)), if (s.backCamera) 0 else 1,
+                stringResource(R.string.settings_back_when_you_hold_the),
             ) { i -> vm.update { it.copy(backCamera = i == 0) } }
-            SwitchSetting("Highlight tracked hands", "Draws the hands the app is following over the video.", s.showLandmarks) { v ->
+            SwitchSetting(stringResource(R.string.settings_highlight_tracked_hands), stringResource(R.string.settings_draws_the_hands_the_app), s.showLandmarks) { v ->
                 vm.update { it.copy(showLandmarks = v) }
             }
 
-            SectionTitle("Feedback")
+            SectionTitle(stringResource(R.string.settings_feedback))
             SwitchSetting(
-                "Vibration",
-                "A short tap when a word appears, a correction is made, recording starts and stops, and a sign is learned.",
+                stringResource(R.string.settings_vibration),
+                stringResource(R.string.settings_a_short_tap_when_a),
                 s.vibrate,
             ) { v -> vm.update { it.copy(vibrate = v) } }
 
-            SectionTitle("Learning")
-            ActionRow("Reset learning progress", "Forgets which signs you have learned and your practice days.", danger = true) {
+            SectionTitle(stringResource(R.string.settings_learning))
+            ActionRow(stringResource(R.string.settings_reset_learning_progress), stringResource(R.string.settings_forgets_which_signs_you_have), danger = true) {
                 confirm = Confirm.PROGRESS
             }
 
-            SectionTitle("About")
+            SectionTitle(stringResource(R.string.settings_about))
             About(vm, s.developer, onDeveloper)
             Spacer(Modifier.height(12.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -141,24 +144,22 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
                         Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         Spacer(Modifier.width(14.dp))
                         Text(
-                            "Everything runs on this phone. EchoGesture has no internet access, so video, audio and keypoints " +
-                                "cannot leave it. Conversations and taught signs are stored only here.",
+                            stringResource(R.string.settings_everything_runs_on_this_phone),
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
                     TextButton(onClick = { context.openAppSettings() }, modifier = Modifier.padding(start = 26.dp)) {
-                        Text("App permissions")
+                        Text(stringResource(R.string.settings_app_permissions))
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Trained on the WLASL and ASL Citizen sign language datasets. Hand tracking by MediaPipe; recognition runs " +
-                    "with ONNX Runtime.",
+                stringResource(R.string.settings_trained_on_the_wlasl_and),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
-            OutlinedButton(onClick = onSetUpAgain, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Set up again") }
+            OutlinedButton(onClick = onSetUpAgain, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.settings_set_up_again)) }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -166,20 +167,20 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
     confirm?.let { c ->
         AlertDialog(
             onDismissRequest = { confirm = null },
-            title = { Text(if (c == Confirm.CONVERSATIONS) "Delete all conversations?" else "Reset learning progress?") },
+            title = { Text(if (c == Confirm.CONVERSATIONS) stringResource(R.string.settings_delete_all_conversations_2) else stringResource(R.string.settings_reset_learning_progress_2)) },
             text = {
                 Text(
-                    if (c == Confirm.CONVERSATIONS) "Every conversation in History is deleted from this phone. This can't be undone."
-                    else "Signs you have learned and your practice streak are forgotten. Taught signs are kept."
+                    if (c == Confirm.CONVERSATIONS) stringResource(R.string.settings_every_conversation_in_history_is)
+                    else stringResource(R.string.settings_signs_you_have_learned_and)
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     confirm = null
                     if (c == Confirm.CONVERSATIONS) vm.engine.clearTranscript() else vm.resetProgress()
-                }) { Text(if (c == Confirm.CONVERSATIONS) "Delete all" else "Reset") }
+                }) { Text(if (c == Confirm.CONVERSATIONS) stringResource(R.string.settings_delete_all) else stringResource(R.string.settings_reset)) }
             },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -194,6 +195,7 @@ private fun About(vm: MainViewModel, developer: Boolean, onDeveloper: () -> Unit
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
     }
     var taps by remember { mutableIntStateOf(0) }
+    val resources = LocalResources.current
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
             Column(
@@ -203,15 +205,15 @@ private fun About(vm: MainViewModel, developer: Boolean, onDeveloper: () -> Unit
                     when {
                         taps >= DEVELOPER_TAPS -> {
                             vm.update { it.copy(developer = true) }
-                            Toast.makeText(context, "Developer options are on", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, resources.getString(R.string.settings_developer_options_are_on), Toast.LENGTH_SHORT).show()
                         }
                         taps >= DEVELOPER_TAPS - 3 ->
-                            Toast.makeText(context, "${DEVELOPER_TAPS - taps} more", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, resources.getString(R.string.settings_more, DEVELOPER_TAPS - taps), Toast.LENGTH_SHORT).show()
                     }
                 }.padding(vertical = 10.dp),
             ) {
-                Text("EchoGesture $version", style = MaterialTheme.typography.bodyLarge)
-                Text("Recognises about 2,000 ASL signs. Works offline.", style = MaterialTheme.typography.bodySmall,
+                Text(stringResource(R.string.settings_echogesture, version), style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_recognises_about_2_000_asl), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (developer) {
@@ -220,7 +222,7 @@ private fun About(vm: MainViewModel, developer: Boolean, onDeveloper: () -> Unit
                     Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onDeveloper).padding(vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Developer options", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.dev_developer_options), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null)
                 }
             }

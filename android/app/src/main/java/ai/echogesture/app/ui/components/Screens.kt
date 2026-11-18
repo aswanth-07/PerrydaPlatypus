@@ -45,11 +45,19 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+
+/**
+ * A content description for a non-text element. Semantics blocks are not composable, so the text (usually from
+ * stringResource) is read where the modifier is built and passed in.
+ */
+fun Modifier.description(text: String, merge: Boolean = false): Modifier =
+    semantics(mergeDescendants = merge) { contentDescription = text }
 
 /** A screen reached from a tab (Settings, a conversation, Teach…): a back arrow, a title and optional actions. */
 @Composable
@@ -64,7 +72,7 @@ fun SubScreen(
             Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(start = 4.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back)) }
             Spacer(Modifier.width(4.dp))
             Text(
                 title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge,
@@ -85,7 +93,7 @@ fun TabHeader(title: String, onSettings: () -> Unit, actions: @Composable RowSco
     ) {
         Text(title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineMedium)
         actions()
-        IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
+        IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, stringResource(R.string.common_settings)) }
     }
 }
 

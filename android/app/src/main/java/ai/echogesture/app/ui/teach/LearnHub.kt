@@ -1,5 +1,6 @@
 package ai.echogesture.app.ui.teach
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -56,7 +57,7 @@ fun LearnHubScreen(
     val show = LocalCaption.current
 
     Column(Modifier.fillMaxSize()) {
-        TabHeader("Learn", onSettings)
+        TabHeader(stringResource(R.string.tab_learn), onSettings)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (progress.learned.isNotEmpty()) {
@@ -68,7 +69,7 @@ fun LearnHubScreen(
                     Column(Modifier.weight(1f)) {
                         Text(pluralStringResource(R.plurals.learn_learned, progress.learned.size, progress.learned.size),
                             style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Text("Latest: " + progress.learned.takeLast(4).asReversed().joinToString(", ", transform = show),
+                        Text(stringResource(R.string.learn_latest, progress.learned.takeLast(4).asReversed().joinToString(", ", transform = show)),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
@@ -82,20 +83,20 @@ fun LearnHubScreen(
                 }
             }
             ContinueCard(vm, onOpen = onLesson, onAll = onLessons)
-            Entry(Icons.Rounded.School, "Practise any sign",
-                "Pick any of the signs with a demonstration and copy it. The camera checks whether you made it.", onPractise)
-            Entry(Icons.Rounded.AddCircleOutline, "Teach the app a sign",
-                "Add a sign it doesn't know, like a name sign, from a few examples.", onTeach)
-            Entry(Icons.Rounded.VideoLibrary, "Identify a sign in a video",
-                "Pick a short video of one sign from your gallery.", onVideo)
+            Entry(Icons.Rounded.School, stringResource(R.string.screen_practise_any_sign),
+                stringResource(R.string.learn_pick_any_of_the_signs), onPractise)
+            Entry(Icons.Rounded.AddCircleOutline, stringResource(R.string.screen_teach_the_app_a_sign),
+                stringResource(R.string.learn_add_a_sign_it_doesn), onTeach)
+            Entry(Icons.Rounded.VideoLibrary, stringResource(R.string.screen_identify_a_sign_in_a),
+                stringResource(R.string.learn_pick_a_short_video_of), onVideo)
 
-            SectionTitle("Your signs")
+            SectionTitle(stringResource(R.string.learn_your_signs))
             if (teach.signs.isEmpty()) {
-                Text("Signs you teach the app appear here, and in captions like any other word.",
+                Text(stringResource(R.string.learn_signs_you_teach_the_app),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
-                    .clickable(role = Role.Button, onClickLabel = "Manage your signs", onClick = onTeach).padding(horizontal = 18.dp, vertical = 12.dp)) {
+                    .clickable(role = Role.Button, onClickLabel = stringResource(R.string.learn_manage_your_signs), onClick = onTeach).padding(horizontal = 18.dp, vertical = 12.dp)) {
                     teach.signs.forEach { sign ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(show(sign.word), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)

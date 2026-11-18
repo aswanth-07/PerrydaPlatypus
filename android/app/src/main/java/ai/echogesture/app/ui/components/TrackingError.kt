@@ -1,5 +1,7 @@
 package ai.echogesture.app.ui.components
 
+import ai.echogesture.app.R
+import androidx.compose.ui.res.stringResource
 import ai.echogesture.app.engine.LiveState
 import ai.echogesture.app.ui.theme.Palette
 import ai.echogesture.app.ui.theme.glass
@@ -49,12 +51,11 @@ fun TrackingError(state: LiveState, gpu: Boolean, onRetry: () -> Unit, onSwitch:
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.ErrorOutline, null, tint = Palette.Red)
                 Spacer(Modifier.width(10.dp))
-                Text("Hand tracking couldn't start", style = MaterialTheme.typography.titleMedium, color = Palette.Text)
+                Text(stringResource(R.string.tracking_hand_tracking_couldn_t_start), style = MaterialTheme.typography.titleMedium, color = Palette.Text)
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "No captions can appear until it runs. Try again, or switch to " + (if (gpu) "the CPU" else "the GPU") +
-                    " if this keeps happening on this phone.",
+                stringResource(if (gpu) R.string.tracking_body_cpu else R.string.tracking_body_gpu),
                 style = MaterialTheme.typography.bodyMedium, color = Palette.TextMuted,
             )
             state.error?.let {
@@ -62,9 +63,9 @@ fun TrackingError(state: LiveState, gpu: Boolean, onRetry: () -> Unit, onSwitch:
             }
             Spacer(Modifier.height(12.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) { Text("Try again") }
+                Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.tracking_try_again)) }
                 OutlinedButton(onClick = onSwitch, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(if (gpu) "Track on the CPU" else "Track on the GPU")
+                    Text(if (gpu) stringResource(R.string.tracking_track_on_the_cpu) else stringResource(R.string.tracking_track_on_the_gpu))
                 }
             }
         }

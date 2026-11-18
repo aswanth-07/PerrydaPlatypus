@@ -51,9 +51,9 @@ private fun DrawScope.line(width: Float) = Stroke(width = width, cap = StrokeCap
 
 /** Two speech bubbles, the signer's (cyan, left) and the reply (amber, right): History with nothing in it yet. */
 @Composable
-fun ConversationArt(modifier: Modifier = Modifier.size(width = 148.dp, height = 112.dp)) {
+fun ConversationArt(modifier: Modifier = Modifier) {
     val cyan = MaterialTheme.colorScheme.primary
-    Canvas(modifier.clearAndSetSemantics { }) {
+    Canvas(modifier.size(width = 148.dp, height = 112.dp).clearAndSetSemantics { }) {
         val u = size.width / 148f
         val w = 2.5.dp.toPx()
         fun bubble(x: Float, y: Float, bw: Float, bh: Float, colour: Color, tailLeft: Boolean, lines: Int) {
@@ -76,9 +76,9 @@ fun ConversationArt(modifier: Modifier = Modifier.size(width = 148.dp, height = 
 
 /** A video frame with a play mark and an open hand: no video has been identified yet. */
 @Composable
-fun VideoArt(modifier: Modifier = Modifier.size(width = 148.dp, height = 112.dp)) {
+fun VideoArt(modifier: Modifier = Modifier) {
     val cyan = MaterialTheme.colorScheme.primary
-    Canvas(modifier.clearAndSetSemantics { }) {
+    Canvas(modifier.size(width = 148.dp, height = 112.dp).clearAndSetSemantics { }) {
         val u = size.width / 148f
         val w = 2.5.dp.toPx()
         drawRoundRect(cyan, Offset(10 * u, 10 * u), Size(128 * u, 88 * u), CornerRadius(14 * u), style = line(w))
@@ -100,7 +100,7 @@ fun VideoArt(modifier: Modifier = Modifier.size(width = 148.dp, height = 112.dp)
 
 /** A tick in a circle that draws itself on once, for a sign just learned. */
 @Composable
-fun DrawnCheck(key: Any?, size: Dp, colour: Color = Palette.Green, modifier: Modifier = Modifier) {
+fun DrawnCheck(key: Any?, size: Dp, modifier: Modifier = Modifier, colour: Color = Palette.Green) {
     val progress = remember(key) { Animatable(0f) }
     LaunchedEffect(key) { progress.animateTo(1f, tween(Motion.LONG, easing = Motion.Standard)) }
     Canvas(modifier.size(size)) {

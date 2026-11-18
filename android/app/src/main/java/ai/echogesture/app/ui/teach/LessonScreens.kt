@@ -1,5 +1,7 @@
 package ai.echogesture.app.ui.teach
 
+import ai.echogesture.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,7 +56,7 @@ fun LessonsScreen(vm: MainViewModel, onOpen: (String) -> Unit, onBack: () -> Uni
     val topics = rememberTopics(vm)
     val progress by vm.progress.collectAsStateWithLifecycle()
     val learned = progress.learned.toSet()
-    SubScreen("Lessons", onBack) {
+    SubScreen(stringResource(R.string.lesson_lessons), onBack) {
         if (topics.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             return@SubScreen
@@ -66,7 +68,7 @@ fun LessonsScreen(vm: MainViewModel, onOpen: (String) -> Unit, onBack: () -> Uni
                     val words = topic.lessons.flatMap { it.words }
                     Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 2.dp, start = 4.dp), verticalAlignment = Alignment.Bottom) {
                         Text(topic.title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-                        Text("${words.count { it in learned }} of ${words.size}", style = MaterialTheme.typography.labelMedium,
+                        Text(stringResource(R.string.lesson_of, words.count { it in learned }, words.size), style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -84,7 +86,7 @@ private fun LessonRow(lesson: Lesson, learned: Set<String>, current: Boolean, on
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
             .background(if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
-            .clickable(role = Role.Button, onClickLabel = "Open lesson", onClick = onClick)
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.lesson_open_lesson), onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -96,7 +98,7 @@ private fun LessonRow(lesson: Lesson, learned: Set<String>, current: Boolean, on
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(if (current) "Lesson ${lesson.number} · up next" else "Lesson ${lesson.number}", style = MaterialTheme.typography.labelLarge,
+            Text(if (current) stringResource(R.string.lesson_lesson_up_next, lesson.number) else stringResource(R.string.lesson_lesson, lesson.number), style = MaterialTheme.typography.labelLarge,
                 color = if (current) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
             Text(lesson.words.joinToString(", ", transform = show), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -113,7 +115,7 @@ fun LessonScreen(vm: MainViewModel, id: String, onBack: () -> Unit, onNext: (Str
     val progress by vm.progress.collectAsStateWithLifecycle()
     val lesson = Lessons.find(topics, id)
     var finished by rememberSaveable(id) { mutableStateOf(false) }
-    SubScreen(lesson?.let { "${it.title} · Lesson ${it.number}" } ?: "Lesson", onBack) {
+    SubScreen(lesson?.let { stringResource(R.string.lesson_lesson_2, it.title, it.number) } ?: stringResource(R.string.lesson_lesson_3), onBack) {
         if (lesson == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             return@SubScreen
@@ -127,21 +129,21 @@ fun LessonScreen(vm: MainViewModel, id: String, onBack: () -> Unit, onNext: (Str
             onDismissRequest = { finished = false },
             // A tick only when something was signed: "done" with nothing matched would not be true.
             icon = if (got > 0) ({ DrawnCheck("done-$id", 48.dp) }) else null,
-            title = { Text(if (got > 0) "Lesson done" else "End of the lesson") },
+            title = { Text(if (got > 0) stringResource(R.string.lesson_lesson_done) else stringResource(R.string.lesson_end_of_the_lesson)) },
             text = {
                 Text(
                     when (got) {
-                        lesson.words.size -> "You signed all ${lesson.words.size} signs in this lesson."
-                        0 -> "None of these signs was matched yet. Go through the lesson again whenever you like, or carry on."
-                        else -> "You signed $got of ${lesson.words.size}. The ones you skipped stay in this lesson for another time."
+                        lesson.words.size -> stringResource(R.string.lesson_you_signed_all_signs_in, lesson.words.size)
+                        0 -> stringResource(R.string.lesson_none_of_these_signs_was)
+                        else -> stringResource(R.string.lesson_you_signed_of_the_ones, got, lesson.words.size)
                     }
                 )
             },
             confirmButton = {
-                if (next != null) Button(onClick = { finished = false; onNext(next.id) }) { Text("Next lesson") }
-                else Button(onClick = { finished = false; onBack() }) { Text("Done") }
+                if (next != null) Button(onClick = { finished = false; onNext(next.id) }) { Text(stringResource(R.string.lesson_next_lesson)) }
+                else Button(onClick = { finished = false; onBack() }) { Text(stringResource(R.string.talk_done)) }
             },
-            dismissButton = { if (next != null) TextButton(onClick = { finished = false; onBack() }) { Text("Back to Learn") } },
+            dismissButton = { if (next != null) TextButton(onClick = { finished = false; onBack() }) { Text(stringResource(R.string.lesson_back_to_learn)) } },
         )
     }
 }
@@ -159,25 +161,25 @@ fun ContinueCard(vm: MainViewModel, onOpen: (String) -> Unit, onAll: () -> Unit)
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(18.dp),
     ) {
-        Text(if (next == null) "Every lesson done" else if (learnedHere == 0) "Start learning" else "Continue learning",
+        Text(if (next == null) stringResource(R.string.lesson_every_lesson_done) else if (learnedHere == 0) stringResource(R.string.lesson_start_learning) else stringResource(R.string.lesson_continue_learning),
             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(4.dp))
         if (next != null) {
-            Text("${next.title} · Lesson ${next.number}", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.lesson_lesson_2, next.title, next.number), style = MaterialTheme.typography.titleLarge)
             Text(next.words.joinToString(", ", transform = show), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         } else {
-            Text("You have signed all $total signs with a demonstration. Practise any of them again from the list.",
+            Text(stringResource(R.string.lesson_you_have_signed_all_signs, total),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.height(12.dp))
         LinearProgressIndicator(progress = { if (total == 0) 0f else learnedHere / total.toFloat() }, modifier = Modifier.fillMaxWidth())
-        Text("$learnedHere of $total signs", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium,
+        Text(stringResource(R.string.lesson_of_signs, learnedHere, total), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (next != null) Button(onClick = { onOpen(next.id) }) { Text(if (next.words.any { it in progress.learned }) "Continue" else "Start") }
-            TextButton(onClick = onAll) { Text("All lessons") }
+            if (next != null) Button(onClick = { onOpen(next.id) }) { Text(if (next.words.any { it in progress.learned }) stringResource(R.string.setup_continue) else stringResource(R.string.setup_start)) }
+            TextButton(onClick = onAll) { Text(stringResource(R.string.lesson_all_lessons)) }
         }
     }
 }

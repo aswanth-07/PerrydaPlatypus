@@ -114,6 +114,7 @@ import ai.echogesture.app.ui.components.LocalHaptics
 import ai.echogesture.app.ui.theme.Motion
 import ai.echogesture.app.ui.theme.glass
 import ai.echogesture.app.ui.components.FramingGuide
+import ai.echogesture.app.ui.components.description
 import ai.echogesture.app.ui.history.ConversationBubbles
 import ai.echogesture.app.ui.history.conversationText
 import ai.echogesture.app.ui.history.copyText
@@ -230,12 +231,12 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
                 StatusPill(text, colour, Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GlassIconButton(Icons.Rounded.Forum, "Conversation so far") { conversationOpen = true }
-                    GlassIconButton(Icons.Rounded.Cameraswitch, if (back) "Switch to the front camera" else "Switch to the back camera") {
+                    GlassIconButton(Icons.Rounded.Forum, stringResource(R.string.talk_conversation_so_far)) { conversationOpen = true }
+                    GlassIconButton(Icons.Rounded.Cameraswitch, if (back) stringResource(R.string.talk_switch_to_the_front_camera) else stringResource(R.string.talk_switch_to_the_back_camera)) {
                         vm.update { it.copy(backCamera = !it.backCamera) }
                         vm.engine.clearCaption()
                     }
-                    GlassIconButton(Icons.Rounded.Settings, "Settings", onClick = onSettings)
+                    GlassIconButton(Icons.Rounded.Settings, stringResource(R.string.common_settings), onClick = onSettings)
                 }
             }
             if (settings.showDetails) {
@@ -252,7 +253,7 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
-                Text("Loading on-device models", color = Palette.Text)
+                Text(stringResource(R.string.talk_loading_on_device_models), color = Palette.Text)
             }
         }
     }
@@ -289,12 +290,12 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
             // A toggle named for its action; the fill shows whether it is on.
             LabelledControl(
                 if (settings.speak) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
-                "Speak words", active = settings.speak, toggle = true,
+                stringResource(R.string.talk_speak_words), active = settings.speak, toggle = true,
             ) { vm.update { it.copy(speak = !it.speak) } }
             MicControl(reply, onClick = ::onReply)
             LabelledControl(
                 if (state.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                if (state.paused) "Resume" else "Pause", active = state.paused,
+                if (state.paused) stringResource(R.string.talk_resume) else stringResource(R.string.talk_pause), active = state.paused,
             ) { vm.engine.setPaused(!state.paused) }
         }
     }
@@ -344,14 +345,15 @@ private fun ConversationSheet(entries: List<TranscriptEntry>, onAll: () -> Unit)
     val current = remember(entries) { Conversations.current(entries, System.currentTimeMillis()) }
     Column(Modifier.fillMaxWidth().fillMaxHeight(0.75f)) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("This conversation", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            val text = conversationText(current, LocalCaption.current)
-            IconButton(onClick = { copyText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Rounded.ContentCopy, "Copy conversation") }
-            IconButton(onClick = { shareText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Rounded.Share, "Share conversation") }
+            Text(stringResource(R.string.talk_this_conversation), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            val text = conversationText(current, LocalCaption.current,
+                stringResource(R.string.history_line_signed), stringResource(R.string.history_line_said))
+            IconButton(onClick = { copyText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.conversation_copy)) }
+            IconButton(onClick = { shareText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Rounded.Share, stringResource(R.string.conversation_share)) }
         }
         if (current.isEmpty()) {
             Text(
-                "Signed words and spoken replies appear here as you talk. A pause of more than 30 minutes starts a new conversation.",
+                stringResource(R.string.talk_signed_words_and_spoken_replies),
                 Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -360,7 +362,7 @@ private fun ConversationSheet(entries: List<TranscriptEntry>, onAll: () -> Unit)
             ConversationBubbles(current, rememberLazyListState(), Modifier.weight(1f))
         }
         TextButton(onClick = onAll, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp)) {
-            Text("All conversations")
+            Text(stringResource(R.string.talk_all_conversations))
         }
     }
 }
@@ -384,24 +386,25 @@ private fun ReplyForSigner(text: String, onClose: () -> Unit) {
                 OutlinedButton(onClick = { flipped = !flipped }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Icon(Icons.Rounded.ScreenRotation, null, tint = Palette.Reply)
                     Spacer(Modifier.width(8.dp))
-                    Text("Rotate", color = Palette.Reply)
+                    Text(stringResource(R.string.talk_rotate), color = Palette.Reply)
                 }
-                Button(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) { Text("Done") }
+                Button(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.talk_done)) }
             }
         }
     }
 }
 
 /** The status pill, worded for who is in front of the camera: someone else (back camera) or the person holding it. */
+@Composable
 private fun status(state: LiveState, back: Boolean): Pair<String, Color> = when {
-    state.error != null -> "Hand tracking unavailable" to Palette.Red
-    !state.ready -> "Loading" to Palette.TextMuted
-    state.paused -> "Paused" to Palette.TextMuted
-    state.recording != null -> "Recording" to Palette.Red
-    state.signing -> "Signing" to Palette.Green
-    state.handsVisible -> "Watching" to Palette.Green
-    state.bodyVisible -> (if (back) "Their hands aren't in view" else "Show your hands") to Palette.Amber
-    else -> (if (back) "Ask them to step back" else "Step back") to Palette.Amber
+    state.error != null -> stringResource(R.string.talk_hand_tracking_unavailable) to Palette.Red
+    !state.ready -> stringResource(R.string.talk_loading) to Palette.TextMuted
+    state.paused -> stringResource(R.string.talk_paused) to Palette.TextMuted
+    state.recording != null -> stringResource(R.string.talk_recording) to Palette.Red
+    state.signing -> stringResource(R.string.talk_signing) to Palette.Green
+    state.handsVisible -> stringResource(R.string.talk_watching) to Palette.Green
+    state.bodyVisible -> (if (back) stringResource(R.string.talk_their_hands_aren_t_in) else stringResource(R.string.talk_show_your_hands)) to Palette.Amber
+    else -> (if (back) stringResource(R.string.talk_ask_them_to_step_back) else stringResource(R.string.talk_step_back)) to Palette.Amber
 }
 
 @Composable
@@ -499,11 +502,11 @@ private fun Details(state: LiveState, voice: VoiceState?) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            "%.0f fps · tracking %.0f ms · model %.1f ms · %d %s tracker%s".format(state.fps, state.landmarksMs, state.modelMs, state.lanes, if (state.gpu) "GPU" else "CPU", if (state.lanes == 1) "" else "s"),
+            "%.0f fps · tracking %.0f ms · model %.1f ms · %d %s tracker%s".format(state.fps, state.landmarksMs, state.modelMs, state.lanes, if (state.gpu) stringResource(R.string.talk_gpu) else stringResource(R.string.talk_cpu), if (state.lanes == 1) "" else "s"),
             style = MaterialTheme.typography.labelMedium, color = Palette.TextMuted,
         )
         if (voice != null && voice.spoken > 0) {
-            Text("voice %.0f ms after the frame · median %.0f ms".format(voice.lastMs, voice.medianMs),
+            Text(stringResource(R.string.talk_voice_0f_ms_after_the).format(voice.lastMs, voice.medianMs),
                 style = MaterialTheme.typography.labelMedium, color = Palette.TextMuted)
         }
         state.top.forEachIndexed { i, (word, p) -> ConfidenceRow(word, p, highlight = i == 0) }
@@ -521,16 +524,16 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit, onShow: () -> Un
         val listening = reply.listening
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.ReplyDeep.copy(alpha = 0.92f))
-                .clickable(enabled = !listening, onClickLabel = "Dismiss reply", onClick = onDismiss)
+                .clickable(enabled = !listening, onClickLabel = stringResource(R.string.talk_dismiss_reply), onClick = onDismiss)
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (listening) "Listening…" else "They said", style = MaterialTheme.typography.labelLarge, color = Palette.Reply,
+                Text(if (listening) stringResource(R.string.talk_listening) else stringResource(R.string.talk_they_said), style = MaterialTheme.typography.labelLarge, color = Palette.Reply,
                     modifier = Modifier.weight(1f))
-                if (!listening) Icon(Icons.Rounded.Close, "Dismiss", tint = Palette.Reply.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                if (!listening) Icon(Icons.Rounded.Close, stringResource(R.string.video_dismiss), tint = Palette.Reply.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
             }
             Spacer(Modifier.height(6.dp))
-            val text = if (listening) reply.partial.ifEmpty { "Speak now" } else reply.last.orEmpty()
+            val text = if (listening) reply.partial.ifEmpty { stringResource(R.string.talk_speak_now) } else reply.last.orEmpty()
             Text(text, style = ReplyStyle, color = if (listening && reply.partial.isEmpty()) Palette.Reply.copy(alpha = 0.6f) else Palette.Reply,
                 maxLines = 4, overflow = TextOverflow.Ellipsis)
             if (!listening) {
@@ -538,7 +541,7 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit, onShow: () -> Un
                 TextButton(onClick = onShow, modifier = Modifier.offset(x = (-12).dp)) {
                     Icon(Icons.Rounded.Fullscreen, null, tint = Palette.Reply)
                     Spacer(Modifier.width(6.dp))
-                    Text("Show to signer", color = Palette.Reply)
+                    Text(stringResource(R.string.talk_show_to_signer), color = Palette.Reply)
                 }
             }
         }
@@ -563,13 +566,13 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
         if (state.caption.isEmpty()) {
             Text(
                 when {
-                    state.paused -> "Paused"
-                    !state.bodyVisible && back -> "Hold the phone so their head, shoulders and both hands are in view."
-                    !state.bodyVisible -> "Keep your head, shoulders and both hands in view."
-                    atRest && back -> "Each word appears when their hands come to rest after a sign."
-                    atRest -> "Sign, then lower your hands. The word appears as they come to rest."
-                    back -> "Captions appear here as they sign, one word at a time."
-                    else -> "Sign one word after another. Each appears as you make it; keep your hands up."
+                    state.paused -> stringResource(R.string.talk_paused)
+                    !state.bodyVisible && back -> stringResource(R.string.talk_hold_the_phone_so_their)
+                    !state.bodyVisible -> stringResource(R.string.talk_keep_your_head_shoulders_and)
+                    atRest && back -> stringResource(R.string.talk_each_word_appears_when_their)
+                    atRest -> stringResource(R.string.talk_sign_then_lower_your_hands)
+                    back -> stringResource(R.string.talk_captions_appear_here_as_they)
+                    else -> stringResource(R.string.talk_sign_one_word_after_another)
                 },
                 Modifier.padding(end = 12.dp, top = 4.dp),
                 style = MaterialTheme.typography.titleMedium, color = Palette.TextMuted,
@@ -592,7 +595,7 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
                         (slideInVertically(Motion.wordSpring) { it / 2 } + fadeIn(tween(Motion.SHORT))) togetherWith fadeOut(tween(Motion.SHORT))
                     },
                     label = "word",
-                    modifier = if (canOffer) Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClickLabel = "Show other signs it could be") { reopen++ } else Modifier,
+                    modifier = if (canOffer) Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClickLabel = stringResource(R.string.talk_show_other_signs_it_could)) { reopen++ } else Modifier,
                 ) { (word, _) ->
                     Text(show(word), style = CaptionStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1)
                 }
@@ -615,8 +618,8 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
         }
         // One sign, several names: WLASL lists the same signing under DOCTOR and PHYSICIAN, so show both.
         val sub = when {
-            state.lastTaught -> "taught on this phone"
-            state.lastAlso.isNotEmpty() -> "same sign: " + state.lastAlso.joinToString(" · ", transform = show)
+            state.lastTaught -> stringResource(R.string.talk_taught_on_this_phone)
+            state.lastAlso.isNotEmpty() -> stringResource(R.string.talk_same_sign, state.lastAlso.joinToString(" · ", transform = show))
             else -> null
         }
         if (sub != null) Text(sub, style = MaterialTheme.typography.titleSmall, color = Palette.Amber, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -626,11 +629,11 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
         LaunchedEffect(state.lastWordAt, reopen) { offer = true; delay(ALTERNATIVES_SHOWN_MS); offer = false }
         AnimatedVisibility(offer && state.lastAlternatives.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
             Row(Modifier.padding(top = 8.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Not right?", style = MaterialTheme.typography.titleSmall, color = Palette.TextMuted)
+                Text(stringResource(R.string.talk_not_right), style = MaterialTheme.typography.titleSmall, color = Palette.TextMuted)
                 for (w in state.lastAlternatives) {
                     Box(
                         Modifier.weight(1f, fill = false).clip(RoundedCornerShape(50)).background(Palette.PanelHigh)
-                            .clickable(onClickLabel = "Change the last word to ${show(w)}") { onCorrect(w) }
+                            .clickable(onClickLabel = stringResource(R.string.talk_change_the_last_word_to, show(w))) { onCorrect(w) }
                             .heightIn(min = 44.dp).padding(horizontal = 16.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -647,12 +650,13 @@ private const val UNDO_SHOWN_MS = 5_000L
 
 @Composable
 private fun LabelledControl(icon: ImageVector, label: String, active: Boolean, toggle: Boolean = false, onClick: () -> Unit) {
+    val onOff = stringResource(if (active) R.string.talk_on else R.string.talk_off)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconButton(
             onClick = onClick,
             modifier = Modifier.size(56.dp).then(if (active) Modifier else Modifier.glass(CircleShape)).semantics {
                 contentDescription = label
-                if (toggle) stateDescription = if (active) "On" else "Off"
+                if (toggle) stateDescription = onOff
             },
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
@@ -675,14 +679,14 @@ private fun MicControl(reply: ReplyState, onClick: () -> Unit) {
         FilledIconButton(
             onClick = onClick,
             modifier = Modifier.size(72.dp).scale(if (reply.listening) pulse else 1f)
-                .semantics { contentDescription = if (reply.listening) "Stop listening" else "Reply by speaking" },
+                .description(stringResource(if (reply.listening) R.string.talk_stop_listening else R.string.talk_reply_by_speaking)),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = if (reply.listening) Palette.Reply else MaterialTheme.colorScheme.primary,
                 contentColor = if (reply.listening) Palette.ReplyDeep else MaterialTheme.colorScheme.onPrimary,
             ),
         ) { Icon(if (reply.listening) Icons.Rounded.Stop else Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(32.dp)) }
         Spacer(Modifier.height(6.dp))
-        Text(if (reply.listening) "Stop" else "Reply", style = MaterialTheme.typography.labelMedium, color = Palette.Text)
+        Text(if (reply.listening) stringResource(R.string.talk_stop) else stringResource(R.string.talk_reply), style = MaterialTheme.typography.labelMedium, color = Palette.Text)
     }
 }
 

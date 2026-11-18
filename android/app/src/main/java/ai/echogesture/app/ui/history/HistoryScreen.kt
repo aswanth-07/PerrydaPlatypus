@@ -135,7 +135,8 @@ fun ConversationScreen(vm: MainViewModel, start: Long, onBack: () -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
     LaunchedEffect(conversation == null) { if (conversation == null) onBack() }
     conversation ?: return
-    val text = conversationText(conversation.entries, LocalCaption.current)
+    val text = conversationText(conversation.entries, LocalCaption.current,
+        stringResource(R.string.history_line_signed), stringResource(R.string.history_line_said))
 
     SubScreen(
         dayLabel(context, start) + ", " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(start)),
@@ -228,9 +229,9 @@ fun dayLabel(context: Context, at: Long): String = when {
     else -> DateUtils.formatDateTime(context, at, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_ABBREV_ALL)
 }
 
-/** Plain text for copying or sharing: one line per bubble. */
-fun conversationText(entries: List<TranscriptEntry>, show: (String) -> String): String =
-    lines(entries).joinToString("\n") { (if (it.who == Who.SIGNER) "Signed: " else "Said: ") + it.text(show) }
+/** Plain text for copying or sharing: one line per bubble, "Signed: …" ([signed]) or "Said: …" ([said]). */
+fun conversationText(entries: List<TranscriptEntry>, show: (String) -> String, signed: String, said: String): String =
+    lines(entries).joinToString("\n") { (if (it.who == Who.SIGNER) signed else said).format(it.text(show)) }
 
 fun copyText(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
