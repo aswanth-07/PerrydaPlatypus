@@ -526,7 +526,18 @@ class SignEngine(private val context: Context) : AutoCloseable {
         }
         synchronized(order) { inFlight.clear(); ready.clear(); lastResultTs = 0L }
         lanes = made
-        _live.update { it.copy(running = made.isNotEmpty(), gpu = made.any { l -> l.gpu }, lanes = made.size) }
+        _live.update {
+            it.copy(running = made.isNotEmpty(), gpu = made.any { l -> l.gpu }, lanes = made.size,
+                error = if (made.isEmpty()) it.error else null)
+        }
+    }
+
+    /** Hand tracking failed to start: try again with the current settings, for the screens that need it now. */
+    fun retryLive() {
+        liveControl.execute {
+            _live.update { it.copy(error = null) }
+            if (liveUsers > 0) { stopLive(); startLive() }
+        }
     }
 
     private fun stopLive() {

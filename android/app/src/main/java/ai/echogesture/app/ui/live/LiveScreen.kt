@@ -72,13 +72,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -103,6 +106,10 @@ import ai.echogesture.app.engine.VoiceState
 import ai.echogesture.app.engine.TranscriptEntry
 import ai.echogesture.app.ui.components.ConfidenceRow
 import ai.echogesture.app.ui.components.LocalCaption
+import ai.echogesture.app.ui.components.TrackingError
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ColumnScope
 import ai.echogesture.app.ui.components.LocalHaptics
 import ai.echogesture.app.ui.theme.Motion
 import ai.echogesture.app.ui.theme.glass
@@ -201,7 +208,8 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
     val firstWordAt = remember { state.lastWordAt }
     LaunchedEffect(state.lastWordAt) { if (state.lastWordAt != firstWordAt && state.caption.isNotEmpty()) haptics.tick() }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // The video and everything drawn over it.
+    val stage: @Composable BoxScope.() -> Unit = {
         // A benchmark replaying a video through this screen (--ez ui true) needs no camera.
         if (!vm.engine.replayOnly) {
             CameraPreview(backCamera = settings.backCamera, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
@@ -215,10 +223,6 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
 
         // Scrims keep text legible over any background without boxing the whole video in.
         Box(Modifier.fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent))))
-        Box(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(320.dp)
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
-        )
 
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -242,53 +246,78 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
             ReplyArea(reply, onDismiss = vm.engine.listener::dismiss, onShow = { showReply = true })
         }
 
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
-            AnimatedVisibility(note != null, enter = fadeIn(), exit = fadeOut()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(bottom = 10.dp).glass(RoundedCornerShape(14.dp))
-                        .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(note.orEmpty(), Modifier.weight(1f).padding(vertical = 6.dp), style = MaterialTheme.typography.bodyMedium, color = Palette.Text)
-                    if (noteOffersSettings) TextButton(onClick = { mic.openSettings(); note = null }) { Text(stringResource(R.string.action_open_settings)) }
-                }
-            }
-            AnimatedVisibility(state.undo != null, enter = fadeIn(), exit = fadeOut()) {
-                val u = state.undo
-                Row(
-                    Modifier.fillMaxWidth().padding(bottom = 10.dp).glass(RoundedCornerShape(14.dp))
-                        .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        if (u?.kind == UndoOffer.Kind.REMOVED_WORD) stringResource(R.string.undo_removed_word, u.word.orEmpty()) else stringResource(R.string.undo_cleared),
-                        Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = Palette.Text,
-                    )
-                    TextButton(onClick = vm.engine::undo) { Text(stringResource(R.string.action_undo)) }
-                }
-            }
-            CaptionCard(state, back = back, atRest = !settings.continuous, onRemoveLast = vm.engine::removeLastWord,
-                onClearAll = vm.engine::clearCaptionByUser, onCorrect = { w -> haptics.confirm(); vm.engine.correctLast(w) })
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
-                // A toggle named for its action; the fill shows whether it is on.
-                LabelledControl(
-                    if (settings.speak) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
-                    "Speak words", active = settings.speak, toggle = true,
-                ) { vm.update { it.copy(speak = !it.speak) } }
-                MicControl(reply, onClick = ::onReply)
-                LabelledControl(
-                    if (state.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                    if (state.paused) "Resume" else "Pause", active = state.paused,
-                ) { vm.engine.setPaused(!state.paused) }
-            }
-        }
-
+        TrackingError(state, settings.gpu, onRetry = vm.engine::retryLive, onSwitch = { vm.update { it.copy(gpu = !it.gpu) } },
+            modifier = Modifier.align(Alignment.Center).padding(16.dp))
         if (!state.ready) {
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
                 Text("Loading on-device models", color = Palette.Text)
+            }
+        }
+    }
+    // Notes, the undo offer, the captions and the three controls.
+    val panel: @Composable ColumnScope.() -> Unit = {
+        AnimatedVisibility(note != null, enter = fadeIn(), exit = fadeOut()) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp).glass(RoundedCornerShape(14.dp))
+                    .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(note.orEmpty(), Modifier.weight(1f).padding(vertical = 6.dp), style = MaterialTheme.typography.bodyMedium, color = Palette.Text)
+                if (noteOffersSettings) TextButton(onClick = { mic.openSettings(); note = null }) { Text(stringResource(R.string.action_open_settings)) }
+            }
+        }
+        AnimatedVisibility(state.undo != null, enter = fadeIn(), exit = fadeOut()) {
+            val u = state.undo
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp).glass(RoundedCornerShape(14.dp))
+                    .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (u?.kind == UndoOffer.Kind.REMOVED_WORD) stringResource(R.string.undo_removed_word, u.word.orEmpty()) else stringResource(R.string.undo_cleared),
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = Palette.Text,
+                )
+                TextButton(onClick = vm.engine::undo) { Text(stringResource(R.string.action_undo)) }
+            }
+        }
+        CaptionCard(state, back = back, atRest = !settings.continuous, onRemoveLast = vm.engine::removeLastWord,
+            onClearAll = vm.engine::clearCaptionByUser, onCorrect = { w -> haptics.confirm(); vm.engine.correctLast(w) })
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
+            // A toggle named for its action; the fill shows whether it is on.
+            LabelledControl(
+                if (settings.speak) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+                "Speak words", active = settings.speak, toggle = true,
+            ) { vm.update { it.copy(speak = !it.speak) } }
+            MicControl(reply, onClick = ::onReply)
+            LabelledControl(
+                if (state.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                if (state.paused) "Resume" else "Pause", active = state.paused,
+            ) { vm.engine.setPaused(!state.paused) }
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        if (maxWidth > maxHeight) {
+            // Landscape: the video on the left, captions and controls in a panel beside it, so neither covers the other.
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f).fillMaxHeight()) { stage() }
+                Column(
+                    Modifier.width(380.dp).fillMaxHeight().background(Palette.Ink).statusBarsPadding()
+                        .verticalScroll(rememberScrollState()).padding(12.dp),
+                    verticalArrangement = Arrangement.Bottom,
+                ) { panel() }
+            }
+        } else {
+            Box(Modifier.fillMaxSize()) {
+                stage()
+                Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(320.dp)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
+                )
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) { panel() }
             }
         }
     }
@@ -387,17 +416,22 @@ internal fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, 
     }
     val executor = remember { Executors.newSingleThreadExecutor() }
     DisposableEffect(Unit) { onDispose { executor.shutdown() } }
+    // The app handles rotation itself, so the use cases are bound again with the new display rotation; otherwise
+    // analysis frames reach the tracker sideways in landscape and no body is found.
+    LocalConfiguration.current
+    val rotation = LocalView.current.display?.rotation ?: android.view.Surface.ROTATION_0
 
-    DisposableEffect(backCamera, owner) {
+    DisposableEffect(backCamera, owner, rotation) {
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             val provider = future.get()
             val fourThree = ResolutionSelector.Builder()
                 .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY).build()
-            val preview = Preview.Builder().setResolutionSelector(fourThree).build()
+            val preview = Preview.Builder().setResolutionSelector(fourThree).setTargetRotation(rotation).build()
             preview.setSurfaceProvider(previewView.surfaceProvider)
             val analysis = ImageAnalysis.Builder()
                 .setResolutionSelector(fourThree)
+                .setTargetRotation(rotation)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .build()
@@ -408,7 +442,9 @@ internal fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, 
         }, ContextCompat.getMainExecutor(context))
         onDispose { future.addListener({ future.get().unbindAll() }, ContextCompat.getMainExecutor(context)) }
     }
-    androidx.compose.ui.viewinterop.AndroidView(factory = { previewView }, modifier = modifier)
+    // Clipped: the preview's TextureView is scaled to fill (centre crop) and otherwise draws past its own box,
+    // over the tab rail beside it in landscape.
+    androidx.compose.ui.viewinterop.AndroidView(factory = { previewView }, modifier = modifier.clipToBounds())
 }
 
 /**

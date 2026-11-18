@@ -46,7 +46,10 @@ import ai.echogesture.app.ui.theme.Palette
 
 /** The Learn tab: practise signs, teach the app a sign, or identify the sign in a saved video. */
 @Composable
-fun LearnHubScreen(vm: MainViewModel, onPractise: () -> Unit, onTeach: () -> Unit, onVideo: () -> Unit, onSettings: () -> Unit) {
+fun LearnHubScreen(
+    vm: MainViewModel, onLesson: (String) -> Unit, onLessons: () -> Unit, onPractise: () -> Unit, onTeach: () -> Unit,
+    onVideo: () -> Unit, onSettings: () -> Unit,
+) {
     val progress by vm.progress.collectAsStateWithLifecycle()
     val teach by vm.engine.teach.collectAsStateWithLifecycle()
     val streak = progress.streak()
@@ -78,8 +81,9 @@ fun LearnHubScreen(vm: MainViewModel, onPractise: () -> Unit, onTeach: () -> Uni
                     }
                 }
             }
-            Entry(Icons.Rounded.School, "Practise signs",
-                "Copy a sign from a moving figure. The camera checks whether you made it.", onPractise)
+            ContinueCard(vm, onOpen = onLesson, onAll = onLessons)
+            Entry(Icons.Rounded.School, "Practise any sign",
+                "Pick any of the signs with a demonstration and copy it. The camera checks whether you made it.", onPractise)
             Entry(Icons.Rounded.AddCircleOutline, "Teach the app a sign",
                 "Add a sign it doesn't know, like a name sign, from a few examples.", onTeach)
             Entry(Icons.Rounded.VideoLibrary, "Identify a sign in a video",

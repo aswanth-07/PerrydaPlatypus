@@ -20,6 +20,8 @@ import ai.echogesture.app.ui.settings.SettingsScreen
 import ai.echogesture.app.ui.setup.SetupScreen
 import ai.echogesture.app.ui.teach.LearnHubScreen
 import ai.echogesture.app.ui.teach.LearnScreen
+import ai.echogesture.app.ui.teach.LessonScreen
+import ai.echogesture.app.ui.teach.LessonsScreen
 import ai.echogesture.app.ui.teach.TeachScreen
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -41,7 +43,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,6 +82,9 @@ private object Route {
     const val DEVELOPER = "developer"
     const val SETUP = "setup"
     const val PRACTICE = "practice"
+    const val LESSONS = "lessons"
+    const val LESSON = "lesson/{id}"
+    fun lesson(id: String) = "lesson/$id"
     const val TEACH = "teach"
     const val VIDEO = "video"
     const val CONVERSATION = "conversation/{start}"
@@ -108,12 +121,14 @@ private fun Tabs(vm: MainViewModel) {
     val current = entry?.destination?.route
     val settings by vm.settings.collectAsStateWithLifecycle()
     val onTab = Tab.entries.any { it.route == current }
+    // Landscape keeps the height for the camera: the tabs move to a rail on the left.
+    val wide = LocalConfiguration.current.let { it.screenWidthDp > it.screenHeightDp }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),   // each screen handles the status bar; Talk draws the camera under it
         bottomBar = {
-            if (onTab) {
+            if (onTab && !wide) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Tab.entries.forEach { tab ->
                         val selected = current == tab.route
@@ -133,7 +148,31 @@ private fun Tabs(vm: MainViewModel) {
             }
         },
     ) { padding ->
-        NavHost(nav, startDestination = Tab.Talk.route, modifier = Modifier.padding(padding)) {
+      Row(Modifier.padding(padding)) {
+        if (onTab && wide) {
+            NavigationRail(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxHeight().displayCutoutPadding(),
+            ) {
+                Spacer(Modifier.weight(1f))
+                Tab.entries.forEach { tab ->
+                    val selected = current == tab.route
+                    NavigationRailItem(
+                        selected = selected,
+                        onClick = { nav.toTab(tab.route) },
+                        icon = { Icon(if (selected) tab.selectedIcon else tab.icon, null) },
+                        label = { Text(stringResource(tab.label)) },
+                        colors = NavigationRailItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        ),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+            }
+        }
+        NavHost(nav, startDestination = Tab.Talk.route, modifier = Modifier.weight(1f)) {
             val openSettings = { nav.navigate(Route.SETTINGS) { launchSingleTop = true } }
             composable(Tab.Talk.route) {
                 CameraGate(
@@ -144,6 +183,8 @@ private fun Tabs(vm: MainViewModel) {
             composable(Tab.Learn.route) {
                 LearnHubScreen(
                     vm,
+                    onLesson = { nav.navigate(Route.lesson(it)) },
+                    onLessons = { nav.navigate(Route.LESSONS) },
                     onPractise = { nav.navigate(Route.PRACTICE) },
                     onTeach = { nav.navigate(Route.TEACH) },
                     onVideo = { nav.navigate(Route.VIDEO) },
@@ -155,7 +196,19 @@ private fun Tabs(vm: MainViewModel) {
             }
 
             composable(Route.PRACTICE) {
-                Sub { SubScreen("Practise signs", nav::popBackStack) { SignsCameraGate { LearnScreen(vm) } } }
+                Sub { SubScreen("Practise any sign", nav::popBackStack) { SignsCameraGate { LearnScreen(vm) } } }
+            }
+            composable(Route.LESSONS) {
+                Sub { LessonsScreen(vm, onOpen = { nav.navigate(Route.lesson(it)) }, onBack = { nav.popBackStack() }) }
+            }
+            composable(Route.LESSON, arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
+                Sub {
+                    LessonScreen(
+                        vm, e.arguments?.getString("id").orEmpty(), onBack = { nav.popBackStack() },
+                        onNext = { next -> nav.navigate(Route.lesson(next)) { popUpTo(Route.LESSON) { inclusive = true } } },
+                        gate = { content -> SignsCameraGate(content) },
+                    )
+                }
             }
             composable(Route.TEACH) {
                 Sub { SubScreen("Teach the app a sign", nav::popBackStack) { SignsCameraGate { TeachScreen(vm) } } }
@@ -180,6 +233,7 @@ private fun Tabs(vm: MainViewModel) {
                 Sub { SetupScreen(vm, onDone = { nav.toTab(Tab.Talk.route) }) }
             }
         }
+      }
     }
 }
 

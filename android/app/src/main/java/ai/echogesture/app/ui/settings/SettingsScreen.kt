@@ -26,7 +26,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -233,10 +237,27 @@ internal fun Choice(
     Column(Modifier.padding(vertical = 8.dp)) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(8.dp))
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            options.forEachIndexed { i, name ->
-                SegmentedButton(selected = selected == i, onClick = { onSelect(i) }, enabled = enabled,
-                    shape = SegmentedButtonDefaults.itemShape(i, options.size)) { Text(name, maxLines = 1) }
+        if (LocalDensity.current.fontScale > 1.3f) {
+            // Large text: segments would cut their labels off ("After each…"), so the choices become a list.
+            Column(Modifier.selectableGroup()) {
+                options.forEachIndexed { i, name ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .selectable(selected = selected == i, enabled = enabled, role = Role.RadioButton) { onSelect(i) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = selected == i, onClick = null, enabled = enabled)
+                        Spacer(Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        } else {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                options.forEachIndexed { i, name ->
+                    SegmentedButton(selected = selected == i, onClick = { onSelect(i) }, enabled = enabled,
+                        shape = SegmentedButtonDefaults.itemShape(i, options.size)) { Text(name, maxLines = 1) }
+                }
             }
         }
         if (help != null) {
