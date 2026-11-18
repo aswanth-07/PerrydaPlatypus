@@ -100,7 +100,39 @@ import androidx.compose.ui.res.stringResource
 import ai.echogesture.app.engine.LiveState
 import ai.echogesture.app.engine.ReplyState
 import ai.echogesture.app.engine.VoiceState
+import ai.echogesture.app.engine.TranscriptEntry
 import ai.echogesture.app.ui.components.ConfidenceRow
+import ai.echogesture.app.ui.components.FramingGuide
+import ai.echogesture.app.ui.history.ConversationBubbles
+import ai.echogesture.app.ui.history.conversationText
+import ai.echogesture.app.ui.history.copyText
+import ai.echogesture.app.data.Conversations
+import ai.echogesture.app.ui.history.shareText
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import ai.echogesture.app.ui.components.StatusPill
 import ai.echogesture.app.ui.theme.CaptionStyle
 import ai.echogesture.app.ui.theme.Palette
@@ -109,12 +141,14 @@ import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
 
 /**
- * The conversation screen: the camera fills the screen, the signer's words appear in the caption card at the
- * bottom (and are spoken when Voice is on), and the hearing person taps Reply to speak back; their words appear
- * large at the top for the signer to read. Timings and best guesses appear only when "Show details" is on.
+ * The Talk tab: the camera fills the screen, the signer's words appear in the caption card at the bottom (and are
+ * spoken when Speak words is on), and the hearing person taps Reply to speak back; their words appear large at the
+ * top, and full screen for the signer with Show to signer. The conversation so far pulls up from the top bar.
+ * Timings and best guesses appear only with developer options' "Show details".
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LiveScreen(vm: MainViewModel) {
+fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit) {
     val state by vm.live.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val voice by vm.engine.speaker.state.collectAsStateWithLifecycle()
@@ -153,7 +187,11 @@ fun LiveScreen(vm: MainViewModel) {
     LaunchedEffect(reply.note) { if (reply.available) reply.note?.let { note = it; noteOffersSettings = false } }
     LaunchedEffect(note) { if (note != null) { delay(if (noteOffersSettings) 9000 else 4500); note = null } }
     LaunchedEffect(state.undo?.at) { if (state.undo != null) { delay(UNDO_SHOWN_MS); vm.engine.dismissUndo() } }
-    LaunchedEffect(reply.lastAt) { if (reply.last != null) { delay(15_000); vm.engine.listener.dismiss() } }
+    // A reply shown full screen stays until it is closed; otherwise it leaves after 15 s.
+    var showReply by remember { mutableStateOf(false) }
+    LaunchedEffect(reply.lastAt, showReply) { if (reply.last != null && !showReply) { delay(15_000); vm.engine.listener.dismiss() } }
+    var conversationOpen by remember { mutableStateOf(false) }
+    val back = settings.backCamera
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // A benchmark replaying a video through this screen (--ez ui true) needs no camera.
@@ -161,6 +199,11 @@ fun LiveScreen(vm: MainViewModel) {
             CameraPreview(backCamera = settings.backCamera, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
         }
         if (settings.showLandmarks) HandOverlay(state, mirror = !settings.backCamera, modifier = Modifier.fillMaxSize())
+        // No body in view means no hands and no captions: show where the signer's head and shoulders should be.
+        AnimatedVisibility(
+            state.ready && state.running && !state.paused && state.error == null && !state.bodyVisible,
+            enter = fadeIn(), exit = fadeOut(),
+        ) { FramingGuide(ok = false, modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 120.dp)) }
 
         // Scrims keep text legible over any background without boxing the whole video in.
         Box(Modifier.fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent))))
@@ -171,12 +214,16 @@ fun LiveScreen(vm: MainViewModel) {
 
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                val (text, colour) = status(state)
-                StatusPill(text + (vm.engine.info?.takeIf { state.ready }?.let { "  ·  %,d signs".format(it.words) } ?: ""), colour, Modifier.weight(1f, fill = false))
+                val (text, colour) = status(state, back)
+                StatusPill(text, colour, Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(8.dp))
-                GlassIconButton(Icons.Filled.Cameraswitch, "Switch camera") {
-                    vm.update { it.copy(backCamera = !it.backCamera) }
-                    vm.engine.clearCaption()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GlassIconButton(Icons.Filled.Forum, "Conversation so far") { conversationOpen = true }
+                    GlassIconButton(Icons.Filled.Cameraswitch, if (back) "Switch to the front camera" else "Switch to the back camera") {
+                        vm.update { it.copy(backCamera = !it.backCamera) }
+                        vm.engine.clearCaption()
+                    }
+                    GlassIconButton(Icons.Filled.Settings, "Settings", onClick = onSettings)
                 }
             }
             if (settings.showDetails) {
@@ -184,7 +231,7 @@ fun LiveScreen(vm: MainViewModel) {
                 Details(state, if (settings.speak) voice else null)
             }
             Spacer(Modifier.height(12.dp))
-            ReplyArea(reply, onDismiss = vm.engine.listener::dismiss)
+            ReplyArea(reply, onDismiss = vm.engine.listener::dismiss, onShow = { showReply = true })
         }
 
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
@@ -212,13 +259,14 @@ fun LiveScreen(vm: MainViewModel) {
                     TextButton(onClick = vm.engine::undo) { Text(stringResource(R.string.action_undo)) }
                 }
             }
-            CaptionCard(state, atRest = !settings.continuous, onRemoveLast = vm.engine::removeLastWord,
+            CaptionCard(state, back = back, atRest = !settings.continuous, onRemoveLast = vm.engine::removeLastWord,
                 onClearAll = vm.engine::clearCaptionByUser, onCorrect = vm.engine::correctLast)
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
+                // A toggle named for its action; the fill shows whether it is on.
                 LabelledControl(
                     if (settings.speak) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
-                    if (settings.speak) "Voice on" else "Voice off", active = settings.speak,
+                    "Speak words", active = settings.speak, toggle = true,
                 ) { vm.update { it.copy(speak = !it.speak) } }
                 MicControl(reply, onClick = ::onReply)
                 LabelledControl(
@@ -236,17 +284,87 @@ fun LiveScreen(vm: MainViewModel) {
             }
         }
     }
+
+    if (showReply && reply.last != null) {
+        ReplyForSigner(reply.last.orEmpty(), onClose = { showReply = false; vm.engine.listener.dismiss() })
+    }
+    if (conversationOpen) {
+        val entries by vm.transcript.collectAsStateWithLifecycle()
+        ModalBottomSheet(
+            onDismissRequest = { conversationOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            ConversationSheet(entries, onAll = { conversationOpen = false; onHistory() })
+        }
+    }
 }
 
-private fun status(state: LiveState): Pair<String, Color> = when {
+/** The conversation under way, pulled up over the camera: copy or share it, or open History for older ones. */
+@Composable
+private fun ConversationSheet(entries: List<TranscriptEntry>, onAll: () -> Unit) {
+    val context = LocalContext.current
+    val current = remember(entries) { Conversations.current(entries, System.currentTimeMillis()) }
+    Column(Modifier.fillMaxWidth().fillMaxHeight(0.75f)) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("This conversation", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            val text = conversationText(current)
+            IconButton(onClick = { copyText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Filled.ContentCopy, "Copy conversation") }
+            IconButton(onClick = { shareText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Filled.Share, "Share conversation") }
+        }
+        if (current.isEmpty()) {
+            Text(
+                "Signed words and spoken replies appear here as you talk. A pause of more than 30 minutes starts a new conversation.",
+                Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+        } else {
+            ConversationBubbles(current, rememberLazyListState(), Modifier.weight(1f))
+        }
+        TextButton(onClick = onAll, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp)) {
+            Text("All conversations")
+        }
+    }
+}
+
+/**
+ * The reply full screen, for the signer to read. Rotate turns it upside down, for a signer across a table from
+ * the person holding the phone.
+ */
+@Composable
+private fun ReplyForSigner(text: String, onClose: () -> Unit) {
+    var flipped by remember { mutableStateOf(false) }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(Modifier.fillMaxSize().background(Palette.ReplyDeep).statusBarsPadding().navigationBarsPadding()) {
+            Box(Modifier.fillMaxSize().padding(bottom = 80.dp).rotate(if (flipped) 180f else 0f), contentAlignment = Alignment.Center) {
+                Text(
+                    text, Modifier.padding(28.dp).verticalScroll(rememberScrollState()),
+                    style = ReplyStyle.copy(fontSize = 44.sp, lineHeight = 54.sp), color = Palette.Reply,
+                )
+            }
+            Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                OutlinedButton(onClick = { flipped = !flipped }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Filled.ScreenRotation, null, tint = Palette.Reply)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Rotate", color = Palette.Reply)
+                }
+                Button(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) { Text("Done") }
+            }
+        }
+    }
+}
+
+/** The status pill, worded for who is in front of the camera: someone else (back camera) or the person holding it. */
+private fun status(state: LiveState, back: Boolean): Pair<String, Color> = when {
     state.error != null -> "Hand tracking unavailable" to Palette.Red
     !state.ready -> "Loading" to Palette.TextMuted
     state.paused -> "Paused" to Palette.TextMuted
     state.recording != null -> "Recording" to Palette.Red
     state.signing -> "Signing" to Palette.Green
     state.handsVisible -> "Watching" to Palette.Green
-    state.bodyVisible -> "Show your hands" to Palette.Amber
-    else -> "Step back" to Palette.Amber
+    state.bodyVisible -> (if (back) "Their hands aren't in view" else "Show your hands") to Palette.Amber
+    else -> (if (back) "Ask them to step back" else "Step back") to Palette.Amber
 }
 
 @Composable
@@ -330,7 +448,7 @@ private fun Details(state: LiveState, voice: VoiceState?) {
 
 /** The hearing person's side: "Listening…" with the words so far, then the finished reply, large. */
 @Composable
-private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit) {
+private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit, onShow: () -> Unit) {
     AnimatedVisibility(
         visible = reply.listening || reply.last != null,
         enter = fadeIn() + slideInVertically { -it / 3 },
@@ -351,15 +469,25 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit) {
             val text = if (listening) reply.partial.ifEmpty { "Speak now" } else reply.last.orEmpty()
             Text(text, style = ReplyStyle, color = if (listening && reply.partial.isEmpty()) Palette.Reply.copy(alpha = 0.6f) else Palette.Reply,
                 maxLines = 4, overflow = TextOverflow.Ellipsis)
+            if (!listening) {
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = onShow, modifier = Modifier.offset(x = (-12).dp)) {
+                    Icon(Icons.Filled.Fullscreen, null, tint = Palette.Reply)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Show to signer", color = Palette.Reply)
+                }
+            }
         }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CaptionCard(state: LiveState, atRest: Boolean, onRemoveLast: () -> Unit, onClearAll: () -> Unit, onCorrect: (String) -> Unit) {
+private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemoveLast: () -> Unit, onClearAll: () -> Unit, onCorrect: (String) -> Unit) {
+    var reopen by remember { mutableIntStateOf(0) }
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Glass)
+            .semantics { liveRegion = LiveRegionMode.Polite }
             .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 16.dp),
     ) {
         if (state.caption.isEmpty() && state.pending != null) {
@@ -371,8 +499,11 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onRemoveLast: () -> U
             Text(
                 when {
                     state.paused -> "Paused"
-                    !state.bodyVisible -> "Hands are found from the body: keep your head, shoulders and both hands in view."
+                    !state.bodyVisible && back -> "Hold the phone so their head, shoulders and both hands are in view."
+                    !state.bodyVisible -> "Keep your head, shoulders and both hands in view."
+                    atRest && back -> "Each word appears when their hands come to rest after a sign."
                     atRest -> "Sign, then lower your hands. The word appears as they come to rest."
+                    back -> "Captions appear here as they sign, one word at a time."
                     else -> "Sign one word after another. Each appears as you make it; keep your hands up."
                 },
                 Modifier.padding(end = 12.dp, top = 4.dp),
@@ -388,10 +519,13 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onRemoveLast: () -> U
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     Spacer(Modifier.width(10.dp))
                 }
+                // Tapping the newest word brings back the other signs it could have been.
+                val canOffer = state.lastAlternatives.isNotEmpty()
                 AnimatedContent(
                     targetState = state.caption.last() to state.lastWordAt,
                     transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith fadeOut() },
                     label = "word",
+                    modifier = if (canOffer) Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClickLabel = "Show other signs it could be") { reopen++ } else Modifier,
                 ) { (word, _) ->
                     Text(word, style = CaptionStyle, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 }
@@ -422,10 +556,10 @@ private fun CaptionCard(state: LiveState, atRest: Boolean, onRemoveLast: () -> U
         // Other signs it could have been, offered when the model was not sure: one tap swaps the word, here, in the
         // conversation and aloud. They leave with the next word, or after a few seconds.
         var offer by remember { mutableStateOf(true) }
-        LaunchedEffect(state.lastWordAt) { offer = true; delay(ALTERNATIVES_SHOWN_MS); offer = false }
+        LaunchedEffect(state.lastWordAt, reopen) { offer = true; delay(ALTERNATIVES_SHOWN_MS); offer = false }
         AnimatedVisibility(offer && state.lastAlternatives.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
             Row(Modifier.padding(top = 8.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("or", style = MaterialTheme.typography.titleSmall, color = Palette.TextMuted)
+                Text("Not right?", style = MaterialTheme.typography.titleSmall, color = Palette.TextMuted)
                 for (w in state.lastAlternatives) {
                     Box(
                         Modifier.weight(1f, fill = false).clip(RoundedCornerShape(50)).background(Palette.PanelHigh)
@@ -445,11 +579,14 @@ private const val ALTERNATIVES_SHOWN_MS = 8_000L
 private const val UNDO_SHOWN_MS = 5_000L
 
 @Composable
-private fun LabelledControl(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+private fun LabelledControl(icon: ImageVector, label: String, active: Boolean, toggle: Boolean = false, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconButton(
             onClick = onClick,
-            modifier = Modifier.size(56.dp).semantics { contentDescription = label },
+            modifier = Modifier.size(56.dp).semantics {
+                contentDescription = label
+                if (toggle) stateDescription = if (active) "On" else "Off"
+            },
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Palette.Glass,
                 contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else Palette.Text,

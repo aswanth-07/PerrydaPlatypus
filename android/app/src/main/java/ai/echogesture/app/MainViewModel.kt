@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -27,11 +28,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val progressRepo = ProgressRepository(app)
 
     val settings: StateFlow<Settings> = repo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, Settings())
+    /** False until the saved settings are read, so the first screen is not chosen from the defaults. */
+    val settingsLoaded: StateFlow<Boolean> = repo.settings.map { true }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     /** Signs learned and days practised, kept across restarts. */
     val progress: StateFlow<Progress> = progressRepo.progress.stateIn(viewModelScope, SharingStarted.Eagerly, Progress())
 
     fun markLearned(word: String) {
         viewModelScope.launch { progressRepo.markLearned(word) }
+    }
+
+    fun resetProgress() {
+        viewModelScope.launch { progressRepo.reset() }
     }
     val live = engine.liveState
     val transcript = engine.transcript
@@ -44,6 +51,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             settings.collect { s ->
+                engine.setRetention(s.keepDays.takeIf { it != Settings.KEEP_FOREVER })
                 engine.load()   // the first call loads the model; later calls return at once
                 engine.configure(s.threshold, s.agree, (s.windowSec * 1000).toLong(), s.gpu, s.continuous, s.caution)
                 engine.setSpeech(s.speak, s.speechRate)

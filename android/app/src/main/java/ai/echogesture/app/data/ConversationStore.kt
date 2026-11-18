@@ -76,6 +76,10 @@ object Conversations {
         return out
     }
 
+    /** The conversation under way: the newest one, if its last line is within [gapMs] of [now]; else none. */
+    fun current(entries: List<TranscriptEntry>, now: Long, gapMs: Long = GAP_MS): List<TranscriptEntry> =
+        group(entries, gapMs).lastOrNull()?.takeIf { now - it.end <= gapMs }?.entries.orEmpty()
+
     /** The entries without the conversation that started at [start]. */
     fun without(entries: List<TranscriptEntry>, start: Long, gapMs: Long = GAP_MS): List<TranscriptEntry> {
         val drop = group(entries, gapMs).firstOrNull { it.start == start }?.entries?.toSet() ?: return entries

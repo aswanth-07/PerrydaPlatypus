@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,21 +40,20 @@ import ai.echogesture.app.ui.components.EmptyState
 import ai.echogesture.app.ui.components.Metric
 import ai.echogesture.app.ui.theme.Palette
 
+/** Identify the sign in a saved video. [showTimings] (developer options) adds how long each step took. */
 @Composable
-fun ClipsScreen(vm: MainViewModel) {
+fun ClipsScreen(vm: MainViewModel, showTimings: Boolean) {
     val clips by vm.clips.collectAsStateWithLifecycle()
     val progress by vm.clipProgress.collectAsStateWithLifecycle()
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::recognise) }
     val busy = progress != null && progress?.error == null
 
-    LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Text("Recognise a video", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(6.dp))
             Text(
-                "Pick a short video of one sign from your gallery. It is recognised on this phone, the same way as the " +
-                    "benchmark results were measured, and never uploaded.",
+                "Pick a short video of one sign from your gallery. EchoGesture names the sign on this phone; the video is " +
+                    "never uploaded.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
@@ -74,12 +72,12 @@ fun ClipsScreen(vm: MainViewModel) {
             item {
                 EmptyState(
                     Icons.Filled.VideoLibrary, "No videos yet",
-                    "Each result shows the sign, its closest alternatives and how long each step took.",
+                    "Each result shows the sign and the other signs it was closest to.",
                     Modifier.fillMaxWidth(),
                 )
             }
         }
-        items(clips, key = { it.atMillis }) { ResultCard(it) }
+        items(clips, key = { it.atMillis }) { ResultCard(it, showTimings) }
         if (clips.isNotEmpty()) item {
             TextButton(onClick = vm::clearClips, modifier = Modifier.fillMaxWidth()) { Text("Clear results") }
         }
@@ -109,10 +107,10 @@ private fun ProgressCard(p: ClipProgress, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun ResultCard(r: ClipResult) {
+private fun ResultCard(r: ClipResult, showTimings: Boolean) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(20.dp)) {
-            Text("${r.name} · ${r.frames} frames", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(if (showTimings) "${r.name} · ${r.frames} frames" else r.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.Bottom) {
@@ -131,12 +129,14 @@ private fun ResultCard(r: ClipResult) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 r.top5.forEachIndexed { i, (w, p) -> ConfidenceRow(w, p, highlight = i == 0) }
             }
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Metric("reading", "%.0f ms".format(r.decodeMs))
-                Metric("tracking", "%.0f ms".format(r.landmarksMs))
-                Metric("model", "%.1f ms".format(r.modelMs))
-                Metric("total", "%.2f s".format(r.totalMs / 1000))
+            if (showTimings) {
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Metric("reading", "%.0f ms".format(r.decodeMs))
+                    Metric("tracking", "%.0f ms".format(r.landmarksMs))
+                    Metric("model", "%.1f ms".format(r.modelMs))
+                    Metric("total", "%.2f s".format(r.totalMs / 1000))
+                }
             }
         }
     }

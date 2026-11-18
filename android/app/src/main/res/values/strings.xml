@@ -8,7 +8,6 @@
     <string name="action_undo">Undo</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_delete">Delete</string>
-    <string name="action_clear">Clear</string>
 
     <!-- Camera explanation before Android asks -->
     <string name="gate_allow_camera">Allow camera</string>
@@ -19,7 +18,7 @@
     <string name="gate_point_private">Video is processed on this phone and never uploaded</string>
     <string name="gate_point_realtime">Hand tracking and recognition run in real time</string>
     <string name="gate_point_keypoints">Only hand and body keypoints are kept, never video</string>
-    <string name="gate_camera_denied">Camera access was declined. You can still recognise a saved video on the Videos tab.</string>
+    <string name="gate_camera_denied">Camera access was declined. You can still identify a sign in a saved video from the Learn tab.</string>
     <string name="gate_camera_blocked">Camera access is turned off for EchoGesture. Open settings, then Permissions, Camera, and choose Allow.</string>
 
     <!-- Microphone for spoken replies -->
@@ -32,7 +31,49 @@
     <string name="caption_remove_last">Remove last word</string>
     <string name="caption_clear_all">Clear all captions</string>
 
-    <!-- Conversation -->
-    <string name="conversation_clear_title">Clear the conversation?</string>
-    <string name="conversation_clear_body">The conversation is deleted from this phone. It was never stored anywhere else.</string>
+    <!-- Tabs -->
+    <string name="tab_talk">Talk</string>
+    <string name="tab_learn">Learn</string>
+    <string name="tab_history">History</string>
+
+    <!-- History and conversations -->
+    <string name="history_empty_title">No conversations yet</string>
+    <string name="history_empty_body">Conversations on the Talk tab are kept here, on this phone, so you can read, copy or share them later.</string>
+    <string name="history_open">Open conversation</string>
+    <string name="history_kept_forever">Conversations are kept on this phone until you delete them. Change this in Settings.</string>
+    <plurals name="history_kept_days">
+        <item quantity="one">Conversations are deleted from this phone after %d day. Change this in Settings.</item>
+        <item quantity="other">Conversations are deleted from this phone after %d days. Change this in Settings.</item>
+    </plurals>
+    <plurals name="history_signs">
+        <item quantity="one">%d sign</item>
+        <item quantity="other">%d signs</item>
+    </plurals>
+    <plurals name="history_replies">
+        <item quantity="one">%d reply</item>
+        <item quantity="other">%d replies</item>
+    </plurals>
+    <string name="day_today">Today</string>
+    <string name="day_yesterday">Yesterday</string>
+    <string name="conversation_signed">Signed</string>
+    <string name="conversation_said">Said</string>
+    <string name="conversation_copy">Copy conversation</string>
+    <string name="conversation_share">Share conversation</string>
+    <string name="conversation_delete">Delete conversation</string>
+    <string name="conversation_delete_title">Delete this conversation?</string>
+    <string name="conversation_delete_body">It is removed from this phone. It was never stored anywhere else.</string>
+
+    <!-- Learn -->
+    <plurals name="learn_learned">
+        <item quantity="one">%d sign learned</item>
+        <item quantity="other">%d signs learned</item>
+    </plurals>
+    <plurals name="learn_streak">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+    <plurals name="teach_examples">
+        <item quantity="one">%d example</item>
+        <item quantity="other">%d examples</item>
+    </plurals>
 </resources>

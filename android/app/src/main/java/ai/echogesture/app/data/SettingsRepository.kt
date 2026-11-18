@@ -24,7 +24,12 @@ data class Settings(
     val speechRate: Float = 1.15f,     // a little faster than the engine's default keeps up with signing
     val teachThreshold: Float = 0.55f, // cosine a window needs to a taught sign's prototype
     val showDetails: Boolean = false,  // best guesses and timings over the live video (for demos and debugging)
-)
+    val onboarded: Boolean = false,    // first-launch setup finished
+    val developer: Boolean = false,    // developer options unlocked (tap the version seven times)
+    val keepDays: Int = 30,            // conversations older than this are deleted; KEEP_FOREVER keeps them
+) {
+    companion object { const val KEEP_FOREVER = 0 }
+}
 
 private val Context.store by preferencesDataStore(name = "settings")
 
@@ -42,6 +47,9 @@ class SettingsRepository(private val context: Context) {
         val speechRate = floatPreferencesKey("speech_rate")
         val teachThreshold = floatPreferencesKey("teach_threshold")
         val details = booleanPreferencesKey("show_details")
+        val onboarded = booleanPreferencesKey("onboarded")
+        val developer = booleanPreferencesKey("developer")
+        val keepDays = intPreferencesKey("keep_days")
     }
 
     private fun read(p: Preferences) = Settings(
@@ -57,6 +65,9 @@ class SettingsRepository(private val context: Context) {
         speechRate = p[K.speechRate] ?: Settings().speechRate,
         teachThreshold = p[K.teachThreshold] ?: Settings().teachThreshold,
         showDetails = p[K.details] ?: Settings().showDetails,
+        onboarded = p[K.onboarded] ?: Settings().onboarded,
+        developer = p[K.developer] ?: Settings().developer,
+        keepDays = p[K.keepDays] ?: Settings().keepDays,
     )
 
     val settings: Flow<Settings> = context.store.data.map(::read)
@@ -76,6 +87,9 @@ class SettingsRepository(private val context: Context) {
             p[K.speechRate] = s.speechRate
             p[K.teachThreshold] = s.teachThreshold
             p[K.details] = s.showDetails
+            p[K.onboarded] = s.onboarded
+            p[K.developer] = s.developer
+            p[K.keepDays] = s.keepDays
         }
     }
 }

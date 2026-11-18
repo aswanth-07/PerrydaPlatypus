@@ -182,8 +182,6 @@ fun TeachScreen(vm: MainViewModel) {
         }
 
         Column(Modifier.fillMaxWidth().weight(0.55f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
-            Text("Teach a sign", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(6.dp))
             if (!teach.supported) {
                 Text(teach.note ?: "Loading the model…", style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -293,7 +291,7 @@ fun TeachScreen(vm: MainViewModel) {
             Spacer(Modifier.height(12.dp))
             Text(
                 "In offline tests on signs a recogniser had never seen, 3 examples were enough to be right about 9 times in 10. " +
-                    "If a taught sign shows up when it shouldn't, raise \"Taught-sign match\" in Settings > Advanced.",
+                    "If a taught sign shows up when it shouldn't, delete it and teach it again with four or five examples.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

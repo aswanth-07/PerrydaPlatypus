@@ -17,7 +17,9 @@ object Palette {
     val Ink = Color(0xFF0A0E13)
     val Panel = Color(0xFF121821)
     val PanelHigh = Color(0xFF1A2230)
-    val Line = Color(0xFF2A3544)
+    val Line = Color(0xFF2A3544)        // decorative dividers only
+    // Borders of controls (switch thumbs, outlined and segmented buttons): at least 3:1 on every surface here.
+    val Outline = Color(0xFF66768C)
     val Text = Color(0xFFE8EEF5)
     val TextMuted = Color(0xFF93A1B2)
     val Cyan = Color(0xFF5AD2F4)
@@ -54,7 +56,7 @@ private val Scheme = darkColorScheme(
     surfaceContainer = Palette.Panel,
     surfaceContainerHigh = Palette.PanelHigh,
     surfaceContainerHighest = Color(0xFF222C3B),
-    outline = Palette.Line,
+    outline = Palette.Outline,
     outlineVariant = Color(0xFF1F2835),
     error = Palette.Red,
 )

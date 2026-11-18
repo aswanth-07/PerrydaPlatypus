@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,9 +43,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -82,22 +78,6 @@ import ai.echogesture.app.ui.live.CameraPreview
 import ai.echogesture.app.ui.live.HandOverlay
 import ai.echogesture.app.ui.theme.CaptionStyle
 import ai.echogesture.app.ui.theme.Palette
-
-/** The Signs tab: learn a sign from the app, or teach the app a sign of your own. */
-@Composable
-fun SignsScreen(vm: MainViewModel) {
-    var mode by rememberSaveable { mutableIntStateOf(0) }
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-            listOf("Learn a sign", "Teach the app").forEachIndexed { i, name ->
-                SegmentedButton(selected = mode == i, onClick = { mode = i }, shape = SegmentedButtonDefaults.itemShape(i, 2)) {
-                    Text(name, maxLines = 1)
-                }
-            }
-        }
-        Box(Modifier.weight(1f)) { if (mode == 0) LearnScreen(vm) else TeachScreen(vm) }
-    }
-}
 
 /**
  * The app teaches a sign: a stick figure shows it (keypoints of one training clip, no video), the learner copies

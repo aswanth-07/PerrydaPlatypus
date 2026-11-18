@@ -47,6 +47,14 @@ class ConversationsTest {
     }
 
     @Test
+    fun currentIsTheNewestConversationUntilAPauseOfThirtyMinutes() {
+        val e = listOf(s("OLD", 0), s("A", 60 * min), v("reply", 61 * min))
+        assertEquals(listOf("A", "reply"), Conversations.current(e, now = 70 * min).map { it.word })
+        assertEquals(emptyList(), Conversations.current(e, now = 61 * min + 31 * min))
+        assertEquals(emptyList(), Conversations.current(emptyList(), now = 0))
+    }
+
+    @Test
     fun withoutDeletesOneConversationOnly() {
         val e = listOf(s("A", 0), s("B", min), s("C", 2 * 60 * min))
         assertEquals(listOf("C"), Conversations.without(e, start = 0).map { it.word })
