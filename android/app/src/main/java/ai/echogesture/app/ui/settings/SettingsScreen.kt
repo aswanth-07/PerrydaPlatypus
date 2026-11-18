@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -75,6 +75,11 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
                 "Keep conversations", listOf("1 day", "30 days", "Until I delete"), keep.indexOf(s.keepDays).coerceAtLeast(0),
                 "Older conversations are deleted from History automatically.",
             ) { i -> vm.update { it.copy(keepDays = keep[i]) } }
+            SwitchSetting(
+                "Show signs in capitals",
+                "Writes each sign as a gloss, the way sign language dictionaries do (HELLO), instead of an ordinary word (hello).",
+                s.glossCaps,
+            ) { v -> vm.update { it.copy(glossCaps = v) } }
             ActionRow("Delete all conversations", "Removes every conversation in History from this phone.", danger = true) {
                 confirm = Confirm.CONVERSATIONS
             }
@@ -111,6 +116,13 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
                 vm.update { it.copy(showLandmarks = v) }
             }
 
+            SectionTitle("Feedback")
+            SwitchSetting(
+                "Vibration",
+                "A short tap when a word appears, a correction is made, recording starts and stops, and a sign is learned.",
+                s.vibrate,
+            ) { v -> vm.update { it.copy(vibrate = v) } }
+
             SectionTitle("Learning")
             ActionRow("Reset learning progress", "Forgets which signs you have learned and your practice days.", danger = true) {
                 confirm = Confirm.PROGRESS
@@ -122,7 +134,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 6.dp)) {
                     Row(verticalAlignment = Alignment.Top) {
-                        Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         Spacer(Modifier.width(14.dp))
                         Text(
                             "Everything runs on this phone. EchoGesture has no internet access, so video, audio and keypoints " +
@@ -205,7 +217,7 @@ private fun About(vm: MainViewModel, developer: Boolean, onDeveloper: () -> Unit
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Developer options", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null)
                 }
             }
         }

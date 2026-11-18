@@ -18,11 +18,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AddCircleOutline
-import androidx.compose.material.icons.filled.LocalFireDepartment
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.AddCircleOutline
+import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.R
+import ai.echogesture.app.ui.components.LocalCaption
 import ai.echogesture.app.ui.components.SectionTitle
 import ai.echogesture.app.ui.components.TabHeader
 import ai.echogesture.app.ui.theme.Palette
@@ -49,6 +50,7 @@ fun LearnHubScreen(vm: MainViewModel, onPractise: () -> Unit, onTeach: () -> Uni
     val progress by vm.progress.collectAsStateWithLifecycle()
     val teach by vm.engine.teach.collectAsStateWithLifecycle()
     val streak = progress.streak()
+    val show = LocalCaption.current
 
     Column(Modifier.fillMaxSize()) {
         TabHeader("Learn", onSettings)
@@ -63,24 +65,24 @@ fun LearnHubScreen(vm: MainViewModel, onPractise: () -> Unit, onTeach: () -> Uni
                     Column(Modifier.weight(1f)) {
                         Text(pluralStringResource(R.plurals.learn_learned, progress.learned.size, progress.learned.size),
                             style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Text("Latest: " + progress.learned.takeLast(4).asReversed().joinToString(", "),
+                        Text("Latest: " + progress.learned.takeLast(4).asReversed().joinToString(", ", transform = show),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (streak > 0) {
                         Spacer(Modifier.width(12.dp))
-                        Icon(Icons.Filled.LocalFireDepartment, null, tint = Palette.Amber)
+                        Icon(Icons.Rounded.LocalFireDepartment, null, tint = Palette.Amber)
                         Spacer(Modifier.width(4.dp))
                         Text(pluralStringResource(R.plurals.learn_streak, streak, streak), style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
                 }
             }
-            Entry(Icons.Filled.School, "Practise signs",
+            Entry(Icons.Rounded.School, "Practise signs",
                 "Copy a sign from a moving figure. The camera checks whether you made it.", onPractise)
-            Entry(Icons.Filled.AddCircleOutline, "Teach the app a sign",
+            Entry(Icons.Rounded.AddCircleOutline, "Teach the app a sign",
                 "Add a sign it doesn't know, like a name sign, from a few examples.", onTeach)
-            Entry(Icons.Filled.VideoLibrary, "Identify a sign in a video",
+            Entry(Icons.Rounded.VideoLibrary, "Identify a sign in a video",
                 "Pick a short video of one sign from your gallery.", onVideo)
 
             SectionTitle("Your signs")
@@ -92,7 +94,7 @@ fun LearnHubScreen(vm: MainViewModel, onPractise: () -> Unit, onTeach: () -> Uni
                     .clickable(role = Role.Button, onClickLabel = "Manage your signs", onClick = onTeach).padding(horizontal = 18.dp, vertical = 12.dp)) {
                     teach.signs.forEach { sign ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(sign.word, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(show(sign.word), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(pluralStringResource(R.plurals.teach_examples, sign.examples, sign.examples),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -119,6 +121,6 @@ private fun Entry(icon: ImageVector, title: String, body: String, onClick: () ->
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

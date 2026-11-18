@@ -15,8 +15,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,6 +37,10 @@ import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.engine.ClipResult
 import ai.echogesture.app.ui.components.ConfidenceRow
 import ai.echogesture.app.ui.components.EmptyState
+import ai.echogesture.app.ui.components.LocalCaption
+import ai.echogesture.app.ui.components.VideoArt
+import ai.echogesture.app.ui.theme.CaptionStyle
+import androidx.compose.ui.unit.sp
 import ai.echogesture.app.ui.components.Metric
 import ai.echogesture.app.ui.theme.Palette
 
@@ -62,7 +66,7 @@ fun ClipsScreen(vm: MainViewModel, showTimings: Boolean) {
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
-                Icon(Icons.Filled.VideoLibrary, null)
+                Icon(Icons.Rounded.VideoLibrary, null)
                 Spacer(Modifier.width(10.dp))
                 Text(if (busy) "Working…" else "Choose a video")
             }
@@ -71,7 +75,7 @@ fun ClipsScreen(vm: MainViewModel, showTimings: Boolean) {
         if (clips.isEmpty() && progress == null) {
             item {
                 EmptyState(
-                    Icons.Filled.VideoLibrary, "No videos yet",
+                    { VideoArt() }, "No videos yet",
                     "Each result shows the sign and the other signs it was closest to.",
                     Modifier.fillMaxWidth(),
                 )
@@ -90,7 +94,7 @@ private fun ProgressCard(p: ClipProgress, onDismiss: () -> Unit) {
         Column(Modifier.padding(18.dp)) {
             if (p.error != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.ErrorOutline, null, tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(10.dp))
                     Text("Could not recognise this clip", style = MaterialTheme.typography.titleMedium)
                 }
@@ -108,13 +112,14 @@ private fun ProgressCard(p: ClipProgress, onDismiss: () -> Unit) {
 
 @Composable
 private fun ResultCard(r: ClipResult, showTimings: Boolean) {
+    val show = LocalCaption.current
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(20.dp)) {
             Text(if (showTimings) "${r.name} · ${r.frames} frames" else r.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(r.word, style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
+                Text(show(r.word), style = CaptionStyle.copy(fontSize = 36.sp, lineHeight = 44.sp), color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
                 Text(if (r.taught) "taught sign · match %.2f".format(r.confidence) else "${(100 * r.confidence).toInt()}% sure",
                     style = MaterialTheme.typography.titleMedium,
@@ -122,12 +127,12 @@ private fun ResultCard(r: ClipResult, showTimings: Boolean) {
             }
             if (r.also.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text("Same sign: " + r.also.joinToString(" · "), style = MaterialTheme.typography.titleSmall,
+                Text("Same sign: " + r.also.joinToString(" · ", transform = show), style = MaterialTheme.typography.titleSmall,
                     color = Palette.Amber)
             }
             Spacer(Modifier.height(14.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                r.top5.forEachIndexed { i, (w, p) -> ConfidenceRow(w, p, highlight = i == 0) }
+                r.top5.forEachIndexed { i, (w, p) -> ConfidenceRow(show(w), p, highlight = i == 0) }
             }
             if (showTimings) {
                 Spacer(Modifier.height(16.dp))

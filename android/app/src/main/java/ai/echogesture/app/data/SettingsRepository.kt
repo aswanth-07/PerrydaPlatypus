@@ -27,6 +27,9 @@ data class Settings(
     val onboarded: Boolean = false,    // first-launch setup finished
     val developer: Boolean = false,    // developer options unlocked (tap the version seven times)
     val keepDays: Int = 30,            // conversations older than this are deleted; KEEP_FOREVER keeps them
+    val glossCaps: Boolean = false,    // captions as glosses in capitals (HELLO) instead of words (hello)
+    val vibrate: Boolean = true,       // short haptics: a word appears, a correction, recording, a sign learned
+    val skeleton: Boolean = false,     // developer: draw the tracked hand skeleton, not just the glow
 ) {
     companion object { const val KEEP_FOREVER = 0 }
 }
@@ -50,6 +53,9 @@ class SettingsRepository(private val context: Context) {
         val onboarded = booleanPreferencesKey("onboarded")
         val developer = booleanPreferencesKey("developer")
         val keepDays = intPreferencesKey("keep_days")
+        val glossCaps = booleanPreferencesKey("gloss_caps")
+        val vibrate = booleanPreferencesKey("vibrate")
+        val skeleton = booleanPreferencesKey("skeleton")
     }
 
     private fun read(p: Preferences) = Settings(
@@ -68,6 +74,9 @@ class SettingsRepository(private val context: Context) {
         onboarded = p[K.onboarded] ?: Settings().onboarded,
         developer = p[K.developer] ?: Settings().developer,
         keepDays = p[K.keepDays] ?: Settings().keepDays,
+        glossCaps = p[K.glossCaps] ?: Settings().glossCaps,
+        vibrate = p[K.vibrate] ?: Settings().vibrate,
+        skeleton = p[K.skeleton] ?: Settings().skeleton,
     )
 
     val settings: Flow<Settings> = context.store.data.map(::read)
@@ -90,6 +99,9 @@ class SettingsRepository(private val context: Context) {
             p[K.onboarded] = s.onboarded
             p[K.developer] = s.developer
             p[K.keepDays] = s.keepDays
+            p[K.glossCaps] = s.glossCaps
+            p[K.vibrate] = s.vibrate
+            p[K.skeleton] = s.skeleton
         }
     }
 }

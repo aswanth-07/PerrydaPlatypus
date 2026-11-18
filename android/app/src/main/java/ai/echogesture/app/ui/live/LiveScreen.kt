@@ -46,15 +46,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.automirrored.outlined.Backspace
+import androidx.compose.material.icons.rounded.Cameraswitch
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -102,6 +102,10 @@ import ai.echogesture.app.engine.ReplyState
 import ai.echogesture.app.engine.VoiceState
 import ai.echogesture.app.engine.TranscriptEntry
 import ai.echogesture.app.ui.components.ConfidenceRow
+import ai.echogesture.app.ui.components.LocalCaption
+import ai.echogesture.app.ui.components.LocalHaptics
+import ai.echogesture.app.ui.theme.Motion
+import ai.echogesture.app.ui.theme.glass
 import ai.echogesture.app.ui.components.FramingGuide
 import ai.echogesture.app.ui.history.ConversationBubbles
 import ai.echogesture.app.ui.history.conversationText
@@ -114,12 +118,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.ScreenRotation
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.ScreenRotation
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -154,6 +158,8 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
     val voice by vm.engine.speaker.state.collectAsStateWithLifecycle()
     val reply by vm.engine.listener.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val haptics = LocalHaptics.current
+    val skeleton = settings.developer && settings.skeleton
 
     DisposableEffect(Unit) {
         vm.engine.acquireLive()
@@ -192,13 +198,15 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
     LaunchedEffect(reply.lastAt, showReply) { if (reply.last != null && !showReply) { delay(15_000); vm.engine.listener.dismiss() } }
     var conversationOpen by remember { mutableStateOf(false) }
     val back = settings.backCamera
+    val firstWordAt = remember { state.lastWordAt }
+    LaunchedEffect(state.lastWordAt) { if (state.lastWordAt != firstWordAt && state.caption.isNotEmpty()) haptics.tick() }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // A benchmark replaying a video through this screen (--ez ui true) needs no camera.
         if (!vm.engine.replayOnly) {
             CameraPreview(backCamera = settings.backCamera, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
         }
-        if (settings.showLandmarks) HandOverlay(state, mirror = !settings.backCamera, modifier = Modifier.fillMaxSize())
+        if (settings.showLandmarks) HandOverlay(state, mirror = !settings.backCamera, skeleton = skeleton, modifier = Modifier.fillMaxSize())
         // No body in view means no hands and no captions: show where the signer's head and shoulders should be.
         AnimatedVisibility(
             state.ready && state.running && !state.paused && state.error == null && !state.bodyVisible,
@@ -218,12 +226,12 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
                 StatusPill(text, colour, Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GlassIconButton(Icons.Filled.Forum, "Conversation so far") { conversationOpen = true }
-                    GlassIconButton(Icons.Filled.Cameraswitch, if (back) "Switch to the front camera" else "Switch to the back camera") {
+                    GlassIconButton(Icons.Rounded.Forum, "Conversation so far") { conversationOpen = true }
+                    GlassIconButton(Icons.Rounded.Cameraswitch, if (back) "Switch to the front camera" else "Switch to the back camera") {
                         vm.update { it.copy(backCamera = !it.backCamera) }
                         vm.engine.clearCaption()
                     }
-                    GlassIconButton(Icons.Filled.Settings, "Settings", onClick = onSettings)
+                    GlassIconButton(Icons.Rounded.Settings, "Settings", onClick = onSettings)
                 }
             }
             if (settings.showDetails) {
@@ -237,7 +245,7 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
             AnimatedVisibility(note != null, enter = fadeIn(), exit = fadeOut()) {
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Glass)
+                    Modifier.fillMaxWidth().padding(bottom = 10.dp).glass(RoundedCornerShape(14.dp))
                         .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -248,7 +256,7 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
             AnimatedVisibility(state.undo != null, enter = fadeIn(), exit = fadeOut()) {
                 val u = state.undo
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Glass)
+                    Modifier.fillMaxWidth().padding(bottom = 10.dp).glass(RoundedCornerShape(14.dp))
                         .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -260,17 +268,17 @@ fun LiveScreen(vm: MainViewModel, onSettings: () -> Unit, onHistory: () -> Unit)
                 }
             }
             CaptionCard(state, back = back, atRest = !settings.continuous, onRemoveLast = vm.engine::removeLastWord,
-                onClearAll = vm.engine::clearCaptionByUser, onCorrect = vm.engine::correctLast)
+                onClearAll = vm.engine::clearCaptionByUser, onCorrect = { w -> haptics.confirm(); vm.engine.correctLast(w) })
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
                 // A toggle named for its action; the fill shows whether it is on.
                 LabelledControl(
-                    if (settings.speak) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                    if (settings.speak) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
                     "Speak words", active = settings.speak, toggle = true,
                 ) { vm.update { it.copy(speak = !it.speak) } }
                 MicControl(reply, onClick = ::onReply)
                 LabelledControl(
-                    if (state.paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                    if (state.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
                     if (state.paused) "Resume" else "Pause", active = state.paused,
                 ) { vm.engine.setPaused(!state.paused) }
             }
@@ -308,9 +316,9 @@ private fun ConversationSheet(entries: List<TranscriptEntry>, onAll: () -> Unit)
     Column(Modifier.fillMaxWidth().fillMaxHeight(0.75f)) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("This conversation", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            val text = conversationText(current)
-            IconButton(onClick = { copyText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Filled.ContentCopy, "Copy conversation") }
-            IconButton(onClick = { shareText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Filled.Share, "Share conversation") }
+            val text = conversationText(current, LocalCaption.current)
+            IconButton(onClick = { copyText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Rounded.ContentCopy, "Copy conversation") }
+            IconButton(onClick = { shareText(context, text) }, enabled = current.isNotEmpty()) { Icon(Icons.Rounded.Share, "Share conversation") }
         }
         if (current.isEmpty()) {
             Text(
@@ -345,7 +353,7 @@ private fun ReplyForSigner(text: String, onClose: () -> Unit) {
             }
             Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 OutlinedButton(onClick = { flipped = !flipped }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Icon(Icons.Filled.ScreenRotation, null, tint = Palette.Reply)
+                    Icon(Icons.Rounded.ScreenRotation, null, tint = Palette.Reply)
                     Spacer(Modifier.width(8.dp))
                     Text("Rotate", color = Palette.Reply)
                 }
@@ -403,9 +411,14 @@ internal fun CameraPreview(backCamera: Boolean, analyzer: (ImageProxy) -> Unit, 
     androidx.compose.ui.viewinterop.AndroidView(factory = { previewView }, modifier = modifier)
 }
 
-/** Hand skeletons drawn with the same centre crop the full-bleed preview uses. */
+/**
+ * The tracked hands, drawn with the same centre crop the full-bleed preview uses: a soft glow over each hand
+ * (amber for the first, cyan for the second, as in the Learn figure) with a dot on each fingertip, so the person
+ * sees the app is following the hands without a wireframe over them. [skeleton] (developer options) adds the
+ * bones and joints.
+ */
 @Composable
-internal fun HandOverlay(state: LiveState, mirror: Boolean, modifier: Modifier) {
+internal fun HandOverlay(state: LiveState, mirror: Boolean, skeleton: Boolean, modifier: Modifier) {
     val primary = MaterialTheme.colorScheme.primary
     Canvas(modifier) {
         if (state.imageWidth == 0 || state.imageHeight == 0) return@Canvas
@@ -421,8 +434,23 @@ internal fun HandOverlay(state: LiveState, mirror: Boolean, modifier: Modifier) 
                 return Offset(left + x * w, top + hand[k * 3 + 1] * h)
             }
             val colour = if (slot == 1) primary else Palette.Amber
-            for ((a, b) in HAND_EDGES) drawLine(colour.copy(alpha = 0.85f), pt(a), pt(b), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-            for (k in 0 until 21) drawCircle(Color.White, radius = (if (k % 4 == 0) 4.5f else 3f).dp.toPx(), center = pt(k))
+            // The palm's centre (wrist and the four knuckles) and the hand's reach from it.
+            val palm = listOf(0, 5, 9, 13, 17).map(::pt)
+            val centre = Offset(palm.map { it.x }.average().toFloat(), palm.map { it.y }.average().toFloat())
+            val reach = (0 until 21).maxOf { (pt(it) - centre).getDistance() }.coerceAtLeast(12.dp.toPx())
+            val radius = reach * 1.35f
+            drawCircle(
+                Brush.radialGradient(
+                    0f to colour.copy(alpha = 0.40f), 0.55f to colour.copy(alpha = 0.16f), 1f to Color.Transparent,
+                    center = centre, radius = radius,
+                ),
+                radius = radius, center = centre,
+            )
+            for (k in listOf(4, 8, 12, 16, 20)) drawCircle(colour, radius = 3.5.dp.toPx(), center = pt(k))
+            if (skeleton) {
+                for ((a, b) in HAND_EDGES) drawLine(colour.copy(alpha = 0.85f), pt(a), pt(b), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                for (k in 0 until 21) drawCircle(Color.White, radius = 2.5.dp.toPx(), center = pt(k))
+            }
         }
     }
 }
@@ -431,7 +459,7 @@ internal fun HandOverlay(state: LiveState, mirror: Boolean, modifier: Modifier) 
 @Composable
 private fun Details(state: LiveState, voice: VoiceState?) {
     Column(
-        Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(16.dp)).background(Palette.Glass).padding(12.dp),
+        Modifier.widthIn(max = 320.dp).glass(RoundedCornerShape(16.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
@@ -463,7 +491,7 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit, onShow: () -> Un
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (listening) "Listening…" else "They said", style = MaterialTheme.typography.labelLarge, color = Palette.Reply,
                     modifier = Modifier.weight(1f))
-                if (!listening) Icon(Icons.Filled.Close, "Dismiss", tint = Palette.Reply.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                if (!listening) Icon(Icons.Rounded.Close, "Dismiss", tint = Palette.Reply.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
             }
             Spacer(Modifier.height(6.dp))
             val text = if (listening) reply.partial.ifEmpty { "Speak now" } else reply.last.orEmpty()
@@ -472,7 +500,7 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit, onShow: () -> Un
             if (!listening) {
                 Spacer(Modifier.height(4.dp))
                 TextButton(onClick = onShow, modifier = Modifier.offset(x = (-12).dp)) {
-                    Icon(Icons.Filled.Fullscreen, null, tint = Palette.Reply)
+                    Icon(Icons.Rounded.Fullscreen, null, tint = Palette.Reply)
                     Spacer(Modifier.width(6.dp))
                     Text("Show to signer", color = Palette.Reply)
                 }
@@ -485,14 +513,15 @@ private fun ReplyArea(reply: ReplyState, onDismiss: () -> Unit, onShow: () -> Un
 @Composable
 private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemoveLast: () -> Unit, onClearAll: () -> Unit, onCorrect: (String) -> Unit) {
     var reopen by remember { mutableIntStateOf(0) }
+    val show = LocalCaption.current
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Glass)
+        Modifier.fillMaxWidth().glass(RoundedCornerShape(24.dp))
             .semantics { liveRegion = LiveRegionMode.Polite }
             .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 16.dp),
     ) {
         if (state.caption.isEmpty() && state.pending != null) {
             // The first sign is under way: its word so far, not yet settled.
-            Text(state.pending + "…", Modifier.padding(end = 12.dp, top = 4.dp), style = CaptionStyle, color = Palette.TextMuted, maxLines = 1)
+            Text(show(state.pending) + "…", Modifier.padding(end = 12.dp, top = 4.dp), style = CaptionStyle, color = Palette.TextMuted, maxLines = 1)
             return@Column
         }
         if (state.caption.isEmpty()) {
@@ -512,7 +541,7 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
             return@Column
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            val older = state.caption.dropLast(1).takeLast(4).joinToString(" ")
+            val older = state.caption.dropLast(1).takeLast(4).joinToString(" ", transform = show)
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 if (older.isNotEmpty()) {
                     Text(older, style = CaptionStyle, color = Palette.Text.copy(alpha = 0.72f), maxLines = 1,
@@ -523,16 +552,18 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
                 val canOffer = state.lastAlternatives.isNotEmpty()
                 AnimatedContent(
                     targetState = state.caption.last() to state.lastWordAt,
-                    transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith fadeOut() },
+                    transitionSpec = {
+                        (slideInVertically(Motion.wordSpring) { it / 2 } + fadeIn(tween(Motion.SHORT))) togetherWith fadeOut(tween(Motion.SHORT))
+                    },
                     label = "word",
                     modifier = if (canOffer) Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClickLabel = "Show other signs it could be") { reopen++ } else Modifier,
                 ) { (word, _) ->
-                    Text(word, style = CaptionStyle, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    Text(show(word), style = CaptionStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1)
                 }
                 // The sign under way: shown muted until it settles, as live speech captions do.
                 state.pending?.let {
                     Spacer(Modifier.width(10.dp))
-                    Text("$it…", style = CaptionStyle, color = Palette.TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    Text("${show(it)}…", style = CaptionStyle, color = Palette.TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false))
                 }
             }
@@ -544,12 +575,12 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
                     .combinedClickable(onClickLabel = removeLabel, onLongClickLabel = clearLabel, onLongClick = onClearAll, onClick = onRemoveLast)
                     .semantics { contentDescription = removeLabel },
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.AutoMirrored.Outlined.Backspace, null, tint = Palette.TextMuted) }
+            ) { Icon(Icons.AutoMirrored.Rounded.Backspace, null, tint = Palette.TextMuted) }
         }
         // One sign, several names: WLASL lists the same signing under DOCTOR and PHYSICIAN, so show both.
         val sub = when {
             state.lastTaught -> "taught on this phone"
-            state.lastAlso.isNotEmpty() -> "same sign: " + state.lastAlso.joinToString(" · ")
+            state.lastAlso.isNotEmpty() -> "same sign: " + state.lastAlso.joinToString(" · ", transform = show)
             else -> null
         }
         if (sub != null) Text(sub, style = MaterialTheme.typography.titleSmall, color = Palette.Amber, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -563,11 +594,11 @@ private fun CaptionCard(state: LiveState, back: Boolean, atRest: Boolean, onRemo
                 for (w in state.lastAlternatives) {
                     Box(
                         Modifier.weight(1f, fill = false).clip(RoundedCornerShape(50)).background(Palette.PanelHigh)
-                            .clickable(onClickLabel = "Change the last word to $w") { onCorrect(w) }
+                            .clickable(onClickLabel = "Change the last word to ${show(w)}") { onCorrect(w) }
                             .heightIn(min = 44.dp).padding(horizontal = 16.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(w, style = MaterialTheme.typography.titleSmall, color = Palette.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(show(w), style = MaterialTheme.typography.titleSmall, color = Palette.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -583,12 +614,12 @@ private fun LabelledControl(icon: ImageVector, label: String, active: Boolean, t
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconButton(
             onClick = onClick,
-            modifier = Modifier.size(56.dp).semantics {
+            modifier = Modifier.size(56.dp).then(if (active) Modifier else Modifier.glass(CircleShape)).semantics {
                 contentDescription = label
                 if (toggle) stateDescription = if (active) "On" else "Off"
             },
             colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Palette.Glass,
+                containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
                 contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else Palette.Text,
             ),
         ) { Icon(icon, contentDescription = null) }
@@ -613,7 +644,7 @@ private fun MicControl(reply: ReplyState, onClick: () -> Unit) {
                 containerColor = if (reply.listening) Palette.Reply else MaterialTheme.colorScheme.primary,
                 contentColor = if (reply.listening) Palette.ReplyDeep else MaterialTheme.colorScheme.onPrimary,
             ),
-        ) { Icon(if (reply.listening) Icons.Filled.Stop else Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(32.dp)) }
+        ) { Icon(if (reply.listening) Icons.Rounded.Stop else Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(32.dp)) }
         Spacer(Modifier.height(6.dp))
         Text(if (reply.listening) "Stop" else "Reply", style = MaterialTheme.typography.labelMedium, color = Palette.Text)
     }
@@ -622,7 +653,7 @@ private fun MicControl(reply: ReplyState, onClick: () -> Unit) {
 @Composable
 internal fun GlassIconButton(icon: ImageVector, label: String, size: Dp = 48.dp, onClick: () -> Unit) {
     FilledIconButton(
-        onClick = onClick, modifier = Modifier.size(size),
-        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Palette.Glass, contentColor = Palette.Text),
+        onClick = onClick, modifier = Modifier.size(size).glass(CircleShape),
+        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Transparent, contentColor = Palette.Text),
     ) { Icon(icon, contentDescription = label) }
 }

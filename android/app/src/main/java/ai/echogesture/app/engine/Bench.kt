@@ -140,7 +140,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         engine.lanesForBench(lanes)
         engine.speaker.enabled = false
         val period = 1000L / fps
-        engine.acquireLive()
+        engine.acquireLive().get()
         try {
             for (w in words) {
                 val clips = ArrayList<Clip>()
@@ -202,7 +202,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         val voiceMs = ArrayList<Double>()
         engine.speaker.onDelay = if (voice) { ms -> synchronized(voiceMs) { voiceMs += ms }; Log.i(TAG, "voice " + ms + " ms after the frame") } else null
         engine.speaker.enabled = voice
-        engine.acquireLive()
+        engine.acquireLive().get()
         val stats = SignEngine.BenchStats()
         engine.bench = stats
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager

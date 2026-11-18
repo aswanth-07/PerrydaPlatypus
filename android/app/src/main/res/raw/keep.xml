@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The bundled fonts' licences are shown on the licences screen; keep them through resource shrinking. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/licence_atkinson_hyperlegible,@raw/licence_manrope" />

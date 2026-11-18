@@ -12,6 +12,8 @@
          datatransport uploader); these lines take it out of the merged manifest, so nothing can be sent. -->
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <!-- onnxruntime-android starts a telemetry client from its own content provider at launch; it cannot send
+         without INTERNET, but it should not run at all. -->
 
     <!-- The phone's installed text-to-speech engine and speech recogniser; this lets the app find them. -->
     <queries>
@@ -28,7 +30,11 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/Theme.EchoGesture.Starting">
+        <provider
+            android:name="ai.onnxruntime.TelemetryInitializer"
+            android:authorities="${applicationId}.onnxruntime_telemetry_initializer"
+            tools:node="remove" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

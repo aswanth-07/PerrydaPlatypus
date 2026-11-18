@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ai.echogesture.app.ui.theme.Palette
+import ai.echogesture.app.ui.theme.glass
 
 /** A ranked word with an animated confidence bar. */
 @Composable
@@ -60,7 +61,7 @@ fun ConfidenceRow(word: String, p: Float, highlight: Boolean, modifier: Modifier
 @Composable
 fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier) {
     Row(
-        modifier.clip(CircleShape).background(Palette.Glass).padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier.glass(CircleShape).padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
@@ -75,21 +76,6 @@ fun Metric(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier) {
         Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-/** Centred illustration-free empty state. */
-@Composable
-fun EmptyState(icon: ImageVector, title: String, body: String, modifier: Modifier = Modifier) {
-    Column(modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Box(
-            Modifier.size(72.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
-            contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary) }
-        Spacer(Modifier.height(16.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(6.dp))
-        Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

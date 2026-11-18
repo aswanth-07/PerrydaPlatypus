@@ -3,7 +3,14 @@ package ai.echogesture.app.ui
 import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.R
 import ai.echogesture.app.ui.clips.ClipsScreen
+import ai.echogesture.app.data.CaptionText
 import ai.echogesture.app.ui.components.CameraGate
+import ai.echogesture.app.ui.components.Haptics
+import ai.echogesture.app.ui.components.LocalCaption
+import ai.echogesture.app.ui.components.LocalHaptics
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalHapticFeedback
 import ai.echogesture.app.ui.components.SubScreen
 import ai.echogesture.app.ui.history.ConversationScreen
 import ai.echogesture.app.ui.history.HistoryScreen
@@ -20,12 +27,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FrontHand
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.rounded.FrontHand
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Videocam
@@ -55,9 +62,9 @@ import androidx.navigation.navArgument
 
 /** The three tabs. Everything else (Settings, a conversation, Teach…) opens over them with a back arrow. */
 private enum class Tab(val route: String, val label: Int, val icon: ImageVector, val selectedIcon: ImageVector) {
-    Talk("talk", R.string.tab_talk, Icons.Outlined.Videocam, Icons.Filled.Videocam),
-    Learn("learn", R.string.tab_learn, Icons.Outlined.School, Icons.Filled.School),
-    History("history", R.string.tab_history, Icons.Outlined.History, Icons.Filled.History),
+    Talk("talk", R.string.tab_talk, Icons.Outlined.Videocam, Icons.Rounded.Videocam),
+    Learn("learn", R.string.tab_learn, Icons.Outlined.School, Icons.Rounded.School),
+    History("history", R.string.tab_history, Icons.Outlined.History, Icons.Rounded.History),
 }
 
 private object Route {
@@ -75,7 +82,13 @@ private object Route {
 fun EchoApp(vm: MainViewModel = viewModel()) {
     val loaded by vm.settingsLoaded.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val teach by vm.engine.teach.collectAsStateWithLifecycle()
+    // How glosses are written everywhere: taught signs are names, written in title case.
+    val taught = remember(teach.signs) { teach.signs.map { it.word.uppercase() }.toSet() }
+    val caption = remember(taught, settings.glossCaps) { { gloss: String -> CaptionText.show(gloss, taught, settings.glossCaps) } }
+    val haptics = Haptics(LocalHapticFeedback.current, settings.vibrate)
     // The surface gives every screen, including setup outside the tabs' scaffold, the app's background and text colour.
+    CompositionLocalProvider(LocalCaption provides caption, LocalHaptics provides haptics) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when {
             // The saved settings take a few milliseconds to read; choosing a first screen from the defaults would flash setup.
@@ -84,6 +97,7 @@ fun EchoApp(vm: MainViewModel = viewModel()) {
             !settings.onboarded && !vm.engine.replayOnly -> SetupScreen(vm, onDone = {})
             else -> Tabs(vm)
         }
+    }
     }
 }
 
@@ -123,8 +137,8 @@ private fun Tabs(vm: MainViewModel) {
             val openSettings = { nav.navigate(Route.SETTINGS) { launchSingleTop = true } }
             composable(Tab.Talk.route) {
                 CameraGate(
-                    Icons.Filled.FrontHand, stringResource(R.string.gate_live_title), stringResource(R.string.gate_live_body),
-                    listOf(Icons.Filled.Lock to stringResource(R.string.gate_point_private), Icons.Filled.Speed to stringResource(R.string.gate_point_realtime)),
+                    Icons.Rounded.FrontHand, stringResource(R.string.gate_live_title), stringResource(R.string.gate_live_body),
+                    listOf(Icons.Rounded.Lock to stringResource(R.string.gate_point_private), Icons.Rounded.Speed to stringResource(R.string.gate_point_realtime)),
                 ) { LiveScreen(vm, onSettings = openSettings, onHistory = { nav.toTab(Tab.History.route) }) }
             }
             composable(Tab.Learn.route) {
@@ -178,8 +192,8 @@ private fun Sub(content: @Composable () -> Unit) {
 @Composable
 private fun SignsCameraGate(content: @Composable () -> Unit) {
     CameraGate(
-        Icons.Filled.School, stringResource(R.string.gate_signs_title), stringResource(R.string.gate_signs_body),
-        listOf(Icons.Filled.Lock to stringResource(R.string.gate_point_private), Icons.Filled.Lock to stringResource(R.string.gate_point_keypoints)),
+        Icons.Rounded.School, stringResource(R.string.gate_signs_title), stringResource(R.string.gate_signs_body),
+        listOf(Icons.Rounded.Lock to stringResource(R.string.gate_point_private), Icons.Rounded.Lock to stringResource(R.string.gate_point_keypoints)),
         content,
     )
 }

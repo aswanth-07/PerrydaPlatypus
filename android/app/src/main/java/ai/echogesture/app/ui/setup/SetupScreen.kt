@@ -34,12 +34,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.FrontHand
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.FrontHand
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.RecordVoiceOver
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -143,13 +143,13 @@ private fun StepTitle(title: String, body: String) {
 private fun UseStep(back: Boolean, onChoose: (Boolean) -> Unit) {
     StepTitle("How will you use EchoGesture?", "You can change this later on the Talk tab or in Settings.")
     UseChoice(
-        Icons.Filled.Videocam, "I'm talking with someone who signs",
+        Icons.Rounded.Videocam, "I'm talking with someone who signs",
         "Hold the phone with its back camera toward them. Their signs appear as captions, and you can reply by speaking.",
         selected = back,
     ) { onChoose(true) }
     Spacer(Modifier.height(12.dp))
     UseChoice(
-        Icons.Filled.FrontHand, "I sign, and the phone faces me",
+        Icons.Rounded.FrontHand, "I sign, and the phone faces me",
         "Prop the phone up facing you. Your signs appear as captions and can be spoken aloud.",
         selected = !back,
     ) { onChoose(false) }
@@ -174,7 +174,7 @@ private fun UseChoice(icon: ImageVector, title: String, body: String, selected: 
         }
         if (selected) {
             Spacer(Modifier.width(8.dp))
-            Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -189,7 +189,7 @@ private fun FramingStep(vm: MainViewModel, back: Boolean, granted: Boolean, bloc
     if (!granted) {
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.PhotoCamera, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Rounded.PhotoCamera, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
                 Text("EchoGesture needs the camera to see signs.", style = MaterialTheme.typography.titleMedium)
             }
@@ -268,7 +268,7 @@ private fun VoiceStep(vm: MainViewModel) {
     Spacer(Modifier.height(12.dp))
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.RecordVoiceOver, null, tint = if (reply.available) Palette.Green else Palette.Amber)
+            Icon(Icons.Rounded.RecordVoiceOver, null, tint = if (reply.available) Palette.Green else Palette.Amber)
             Spacer(Modifier.width(12.dp))
             Text("Spoken replies", style = MaterialTheme.typography.titleMedium)
         }
@@ -286,7 +286,7 @@ private fun VoiceStep(vm: MainViewModel) {
     }
     Spacer(Modifier.height(16.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Filled.Lock, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+        Icon(Icons.Rounded.Lock, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(8.dp))
         Text("EchoGesture has no internet access. Video, audio and keypoints stay on this phone.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

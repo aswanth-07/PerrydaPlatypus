@@ -1,14 +1,28 @@
 package ai.echogesture.app.ui.theme
 
+import ai.echogesture.app.R
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -30,9 +44,39 @@ object Palette {
     // Panels over live video: 88% ink keeps muted text above 4.5:1 even over a white wall (70% gave 2.8:1).
     val Glass = Color(0xE00A0E13)
     val GlassLight = Color(0x66121821)
+    val Hairline = Color(0x24FFFFFF)    // the edge of a glass panel, so it reads as a pane over dark video too
     val Reply = Color(0xFFFFD58F)       // the hearing person's words: warm, distinct from the signer's cyan
     val ReplyDeep = Color(0xFF2E2210)
 }
+
+/** A glass panel over video: dark fill with a one-pixel light edge. */
+fun Modifier.glass(shape: Shape, color: Color = Palette.Glass): Modifier =
+    clip(shape).background(color, shape).border(Dp.Hairline, Palette.Hairline, shape)
+
+/** Durations and easings shared by every animation, so the app moves with one rhythm. */
+object Motion {
+    const val SHORT = 150     // small state changes: a chip, a tick
+    const val MEDIUM = 250    // things entering and leaving
+    const val LONG = 400      // larger moves: a check drawing on, a countdown number
+    val Standard = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+    val Enter = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+    val Exit = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+    /** A new caption word settles with a slight overshoot, so the eye catches it without a flash. */
+    val wordSpring = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset(1, 1))
+}
+
+/** Atkinson Hyperlegible (Braille Institute, OFL): letterforms that stay distinct at a glance, for captions. */
+val Atkinson = FontFamily(
+    Font(R.font.atkinson_hyperlegible_regular, FontWeight.Normal),
+    Font(R.font.atkinson_hyperlegible_bold, FontWeight.Bold),
+)
+
+private fun manrope(weight: Int) = Font(
+    R.font.manrope_variable, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
+)
+
+/** Manrope (variable, OFL) for headings and titles. */
+val Manrope = FontFamily(manrope(400), manrope(500), manrope(600), manrope(700), manrope(800))
 
 private val Scheme = darkColorScheme(
     primary = Palette.Cyan,
@@ -62,20 +106,29 @@ private val Scheme = darkColorScheme(
 )
 
 private val AppTypography = Typography().let { t ->
+    fun TextStyle.heading(weight: FontWeight) = copy(fontFamily = Manrope, fontWeight = weight)
     t.copy(
-        displaySmall = t.displaySmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.sp),
-        headlineMedium = t.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
-        headlineSmall = t.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-        titleMedium = t.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        displayLarge = t.displayLarge.heading(FontWeight.Bold),
+        displayMedium = t.displayMedium.heading(FontWeight.Bold),
+        displaySmall = t.displaySmall.heading(FontWeight.Bold).copy(letterSpacing = 0.sp),
+        headlineLarge = t.headlineLarge.heading(FontWeight.Bold),
+        headlineMedium = t.headlineMedium.heading(FontWeight.Bold),
+        headlineSmall = t.headlineSmall.heading(FontWeight.Bold),
+        titleLarge = t.titleLarge.heading(FontWeight.SemiBold),
+        titleMedium = t.titleMedium.heading(FontWeight.Bold),
+        titleSmall = t.titleSmall.heading(FontWeight.SemiBold),
         labelLarge = t.labelLarge.copy(fontWeight = FontWeight.SemiBold),
     )
 }
 
-/** Caption text over video: large, heavy, with generous line height for glanceable reading. */
-val CaptionStyle = TextStyle(fontSize = 30.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold)
+/** Caption text over video: large, bold Atkinson Hyperlegible, generous line height for glanceable reading. */
+val CaptionStyle = TextStyle(fontFamily = Atkinson, fontSize = 30.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold)
 
-/** The hearing person's reply, shown for the signer to read: as large as a caption, one weight lighter. */
-val ReplyStyle = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold)
+/** The hearing person's reply, shown for the signer to read: as large as a caption, in the regular weight. */
+val ReplyStyle = TextStyle(fontFamily = Atkinson, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Normal)
+
+/** Signed and spoken lines in History and the conversation sheet. */
+val TranscriptStyle = TextStyle(fontFamily = Atkinson, fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.Normal)
 
 @Composable
 fun EchoTheme(content: @Composable () -> Unit) {

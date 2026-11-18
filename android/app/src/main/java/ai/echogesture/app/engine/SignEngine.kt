@@ -53,6 +53,8 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
 
 data class ModelInfo(
     val words: Int,
@@ -162,7 +164,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
     private var lastTs = 0L
     private var lastResultTs = 0L
     private var nextLane = 0
-    @Volatile private var useGpu = true
+    @Volatile private var useGpu = false   // as Settings' default, so the first start builds the right trackers
     @Volatile private var laneCount = DEFAULT_LANES
     @Volatile private var benchLanes: List<Boolean>? = null    // benchmark override: one delegate per lane
 
@@ -473,7 +475,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
         }
         if (gpu != useGpu) {
             useGpu = gpu
-            synchronized(this) { if (live != null) { stopLive(); startLive() } }
+            liveControl.execute { if (live != null) { stopLive(); startLive() } }
         }
     }
 
@@ -482,25 +484,33 @@ class SignEngine(private val context: Context) : AutoCloseable {
         val k = n.coerceIn(1, 3)
         if (k == laneCount) return
         laneCount = k
-        synchronized(this) { if (live != null) { stopLive(); startLive() } }
+        liveControl.execute { if (live != null) { stopLive(); startLive() } }
     }
 
     // ---------- live camera ----------
 
     // Live and Teach both use the camera; navigating between them may start the new screen before the old one
     // stops, so the landmarker is counted rather than toggled.
-    private var liveUsers = 0
+    private var liveUsers = 0   // used on liveControl's thread only
 
-    @Synchronized
-    fun acquireLive() {
+    /**
+     * Starting and stopping the live trackers, one at a time and in the order asked, off the main thread: building
+     * a Holistic graph takes about 1.5 s on an emulator, and doing it on the main thread froze whichever screen
+     * asked for the camera (and the splash screen at launch). Frames that arrive before a tracker exists are skipped.
+     */
+    private val liveControl = Executors.newSingleThreadExecutor()
+
+    /** A screen needs the live trackers. The returned future completes once they run (benchmarks wait for it). */
+    fun acquireLive(): Future<*> = liveControl.submit {
         liveUsers++
         startLive()
     }
 
-    @Synchronized
     fun releaseLive() {
-        liveUsers = maxOf(0, liveUsers - 1)
-        if (liveUsers == 0) stopLive()
+        liveControl.execute {
+            liveUsers = maxOf(0, liveUsers - 1)
+            if (liveUsers == 0) stopLive()
+        }
     }
 
     private fun startLive() {
@@ -940,6 +950,8 @@ class SignEngine(private val context: Context) : AutoCloseable {
     override fun close() {
         conversations.save(_transcript.value)
         scope.cancel()
+        liveControl.shutdown()
+        runCatching { liveControl.awaitTermination(3, TimeUnit.SECONDS) }   // a start under way finishes first
         stopLive()
         speaker.close()
         listener.close()

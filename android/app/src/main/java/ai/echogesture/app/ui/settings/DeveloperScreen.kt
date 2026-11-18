@@ -67,6 +67,9 @@ fun DeveloperScreen(vm: MainViewModel, onBack: () -> Unit) {
             SwitchSetting("Show details", "Best guesses, frame rate, timings and voice delay over the video.", s.showDetails) { v ->
                 vm.update { it.copy(showDetails = v) }
             }
+            SwitchSetting("Hand skeleton", "Draws the tracked bones and joints over the glow, on Talk, Practise and Teach.", s.skeleton) { v ->
+                vm.update { it.copy(skeleton = v) }
+            }
             SwitchSetting("Track on the GPU", "Off: two CPU trackers take turns, 30 fps on a Galaxy S26. Try on if tracking is slow on another phone.", s.gpu) { v ->
                 vm.update { it.copy(gpu = v) }
             }

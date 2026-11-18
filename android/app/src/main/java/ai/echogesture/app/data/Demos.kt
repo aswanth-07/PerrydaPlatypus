@@ -22,16 +22,22 @@ class Demo(val word: String, val durationMs: Int, val frames: Int, val points: I
     }
 
     /** The box every shown point stays inside over the whole sign, as (x0, y0, x1, y1) of the unit square. */
-    val bounds: FloatArray by lazy {
+    val bounds: FloatArray by lazy { boundsOf(0 until points) }
+
+    /** The same box for the hands alone: "Zoom on hands" fills the card with it. */
+    val handBounds: FloatArray by lazy { boundsOf(HAND_L until points).takeIf { it[2] > it[0] } ?: bounds }
+
+    private fun boundsOf(range: IntRange): FloatArray {
         var x0 = 1f; var y0 = 1f; var x1 = 0f; var y1 = 0f
-        for (i in 0 until frames * points) {
+        for (step in 0 until frames) for (k in range) {
+            val i = step * points + k
             val x = data[i * 2].toInt() and 0xFF
             val y = data[i * 2 + 1].toInt() and 0xFF
             if (x == 255) continue
             x0 = minOf(x0, x / 254f); x1 = maxOf(x1, x / 254f)
             y0 = minOf(y0, y / 254f); y1 = maxOf(y1, y / 254f)
         }
-        if (x1 < x0) floatArrayOf(0f, 0f, 1f, 1f) else floatArrayOf(x0, y0, x1, y1)
+        return if (x1 < x0) floatArrayOf(0f, 0f, 1f, 1f) else floatArrayOf(x0, y0, x1, y1)
     }
 
     companion object {

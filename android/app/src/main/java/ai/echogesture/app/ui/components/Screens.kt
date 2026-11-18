@@ -26,8 +26,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,7 +64,7 @@ fun SubScreen(
             Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(start = 4.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
             Spacer(Modifier.width(4.dp))
             Text(
                 title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge,
@@ -85,7 +85,7 @@ fun TabHeader(title: String, onSettings: () -> Unit, actions: @Composable RowSco
     ) {
         Text(title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineMedium)
         actions()
-        IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings") }
+        IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
     }
 }
 

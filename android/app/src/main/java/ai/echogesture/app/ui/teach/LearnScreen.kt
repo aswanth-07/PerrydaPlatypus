@@ -30,10 +30,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.rounded.Cameraswitch
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
@@ -73,7 +73,18 @@ import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.data.Demo
 import ai.echogesture.app.data.Demos
 import ai.echogesture.app.engine.HAND_EDGES
+import ai.echogesture.app.ui.components.DrawnCheck
+import ai.echogesture.app.ui.components.LocalCaption
+import ai.echogesture.app.ui.components.LocalHaptics
 import ai.echogesture.app.ui.components.StatusPill
+import ai.echogesture.app.ui.theme.Motion
+import ai.echogesture.app.ui.theme.glass
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
 import ai.echogesture.app.ui.live.CameraPreview
 import ai.echogesture.app.ui.live.HandOverlay
 import ai.echogesture.app.ui.theme.CaptionStyle
@@ -97,6 +108,9 @@ fun LearnScreen(vm: MainViewModel) {
 
     var index by rememberSaveable { mutableIntStateOf(0) }
     var slow by rememberSaveable { mutableStateOf(false) }
+    var zoom by rememberSaveable { mutableStateOf(false) }
+    val show = LocalCaption.current
+    val haptics = LocalHaptics.current
     val progress by vm.progress.collectAsStateWithLifecycle()   // kept on the phone, not just for this session
     val learned = progress.learned
     var choosing by remember { mutableStateOf(false) }
@@ -119,7 +133,7 @@ fun LearnScreen(vm: MainViewModel) {
     LaunchedEffect(word) { vm.engine.practiceTarget = word }
     LaunchedEffect(attempt?.at) {
         val a = attempt ?: return@LaunchedEffect
-        if (a.correct) vm.markLearned(a.target)
+        if (a.correct) { vm.markLearned(a.target); haptics.confirm() }
     }
 
     if (word == null) {
@@ -137,15 +151,18 @@ fun LearnScreen(vm: MainViewModel) {
         // Watch on the left, yourself on the right.
         Row(Modifier.fillMaxWidth().weight(0.58f).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(24.dp)).background(Palette.Panel)
-                .semantics { contentDescription = "Demonstration of the sign $word" }) {
-                DemoFigure(demo, slow, mirror = front, Modifier.fillMaxSize().padding(top = 44.dp, bottom = 40.dp))
+                .semantics { contentDescription = "Demonstration of the sign ${show(word)}" }) {
+                DemoFigure(demo, slow, mirror = front, zoom = zoom, Modifier.fillMaxSize().padding(top = 44.dp, bottom = 52.dp))
                 Tag("Watch", Modifier.align(Alignment.TopStart).padding(10.dp))
-                FilterChip(selected = slow, onClick = { slow = !slow }, label = { Text("Slow") },
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 4.dp))
+                Row(Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = slow, onClick = { slow = !slow }, label = { Text("Slow") })
+                    FilterChip(selected = zoom, onClick = { zoom = !zoom }, label = { Text("Hands") },
+                        modifier = Modifier.semantics { contentDescription = "Zoom on hands" })
+                }
             }
             Box(Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
                 CameraPreview(backCamera = !front, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
-                if (settings.showLandmarks) HandOverlay(live, mirror = front, modifier = Modifier.fillMaxSize())
+                if (settings.showLandmarks) HandOverlay(live, mirror = front, skeleton = settings.developer && settings.skeleton, modifier = Modifier.fillMaxSize())
                 StatusPill(
                     when {
                         live.signing -> "Signing"
@@ -158,9 +175,9 @@ fun LearnScreen(vm: MainViewModel) {
                 )
                 FilledTonalIconButton(
                     onClick = { front = !front },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(48.dp),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Palette.Glass, contentColor = Palette.Text),
-                ) { Icon(Icons.Filled.Cameraswitch, "Switch camera") }
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(48.dp).glass(CircleShape),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Transparent, contentColor = Palette.Text),
+                ) { Icon(Icons.Rounded.Cameraswitch, "Switch camera") }
             }
         }
 
@@ -168,19 +185,19 @@ fun LearnScreen(vm: MainViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Sign this", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(word, style = CaptionStyle, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold,
+                    Text(show(word), style = CaptionStyle, color = MaterialTheme.colorScheme.primary,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                if (word in learned) Icon(Icons.Filled.CheckCircle, "Learned", Modifier.size(32.dp), tint = Palette.Green)
+                if (word in learned) DrawnCheck(word, 32.dp, modifier = Modifier.semantics { contentDescription = "Learned" })
             }
             Spacer(Modifier.height(10.dp))
             // What the recogniser made of the last try.
             val (text, colour) = when {
                 attempt == null && live.pending != null -> "Looking…" to Palette.TextMuted
                 attempt == null -> "Watch the figure, then make the sign in front of the camera." to Palette.TextMuted
-                attempt.correct -> "Yes, that was $word." to Palette.Green
-                attempt.share >= 0.2f -> "Close. It looked a little more like ${attempt.seen}. Watch once more and try again." to Palette.Amber
-                else -> "That looked like ${attempt.seen}. Watch once more and try again." to Palette.Amber
+                attempt.correct -> "Yes, that was \u201c${show(word)}\u201d." to Palette.Green
+                attempt.share >= 0.2f -> "Close. It looked a little more like \u201c${show(attempt.seen)}\u201d. Watch once more and try again." to Palette.Amber
+                else -> "That looked like \u201c${show(attempt.seen)}\u201d. Watch once more and try again." to Palette.Amber
             }
             Box(Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
                 .padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
@@ -189,12 +206,12 @@ fun LearnScreen(vm: MainViewModel) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = { index = (index + 1) % words.size }, modifier = Modifier.height(48.dp)) {
-                    Icon(Icons.Filled.SkipNext, null)
+                    Icon(Icons.Rounded.SkipNext, null)
                     Spacer(Modifier.width(6.dp))
                     Text(if (attempt?.correct == true) "Next sign" else "Skip")
                 }
                 OutlinedButton(onClick = { choosing = true }, modifier = Modifier.height(48.dp)) {
-                    Icon(Icons.Filled.Search, null)
+                    Icon(Icons.Rounded.Search, null)
                     Spacer(Modifier.width(6.dp))
                     Text("Choose")
                 }
@@ -202,7 +219,7 @@ fun LearnScreen(vm: MainViewModel) {
             Spacer(Modifier.height(12.dp))
             Text(
                 if (learned.isEmpty()) "${words.size} signs to learn. The figure is a real signer's keypoints${if (front) ", mirrored like your camera" else ""}; no video is stored."
-                else "${learned.size} learned: " + learned.takeLast(6).joinToString(", "),
+                else "${learned.size} learned: " + learned.takeLast(6).joinToString(", ", transform = show),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -223,8 +240,8 @@ fun LearnScreen(vm: MainViewModel) {
                         items(shown) { w ->
                             Row(Modifier.fillMaxWidth().clickable { index = words.indexOf(w); choosing = false }.heightIn(min = 48.dp)
                                 .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(w, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                                if (w in learned) Icon(Icons.Filled.CheckCircle, "Learned", Modifier.size(20.dp), tint = Palette.Green)
+                                Text(show(w), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                if (w in learned) Icon(Icons.Rounded.CheckCircle, "Learned", Modifier.size(20.dp), tint = Palette.Green)
                             }
                         }
                     }
@@ -239,17 +256,19 @@ fun LearnScreen(vm: MainViewModel) {
 
 @Composable
 private fun Tag(text: String, modifier: Modifier) {
-    Text(text, modifier.clip(RoundedCornerShape(50)).background(Palette.Glass).padding(horizontal = 12.dp, vertical = 6.dp),
+    Text(text, modifier.glass(RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp),
         style = MaterialTheme.typography.labelLarge, color = Palette.Text)
 }
 
 /**
  * The demonstration, looping: the sign at its own speed (half speed when [slow]), then a short hold. Scaled so the
- * sign's own extent fills the card; [mirror] flips it left to right so it moves like the learner's front-camera
- * preview beside it (the learner copies a reflection, as in a mirror).
+ * sign's own extent fills the card, or only the hands' when [zoom]; [mirror] flips it left to right so it moves like
+ * the learner's front-camera preview beside it (the learner copies a reflection, as in a mirror). The body is
+ * shaded and the palms filled so the figure reads as a person, and a fading trail behind each wrist shows the
+ * path of the movement.
  */
 @Composable
-private fun DemoFigure(demo: Demo, slow: Boolean, mirror: Boolean, modifier: Modifier) {
+private fun DemoFigure(demo: Demo, slow: Boolean, mirror: Boolean, zoom: Boolean, modifier: Modifier) {
     val play = (demo.durationMs.coerceIn(600, 4000) * (if (slow) 2.2f else 1f)).toInt()
     val hold = 700
     val transition = rememberInfiniteTransition(label = "demo")
@@ -266,42 +285,85 @@ private fun DemoFigure(demo: Demo, slow: Boolean, mirror: Boolean, modifier: Mod
     val body = Palette.TextMuted
     val left = Palette.Amber
     val right = MaterialTheme.colorScheme.primary
-    // The figure fills the card: the box the sign's points stay inside, with room for the head drawn around the nose.
-    val b = remember(demo) { demo.bounds.copyOf().also { it[1] -= 0.07f } }
-    Canvas(modifier) {
-        val cx = (b[0] + b[2]) / 2; val cy = (b[1] + b[3]) / 2
-        val margin = 0.05f
-        val scale = minOf(size.width / (maxOf(b[2] - b[0], 0.30f) + 2 * margin), size.height / (maxOf(b[3] - b[1], 0.30f) + 2 * margin))
-        fun pt(k: Int): Offset? = demo.at(step, k)?.let { (x, y) ->
+    // The box to fill: the whole sign with room for the head drawn around the nose, or just the hands.
+    val target = remember(demo, zoom) { if (zoom) demo.handBounds.copyOf() else demo.bounds.copyOf().also { it[1] -= 0.07f } }
+    val ease = tween<Float>(Motion.MEDIUM, easing = Motion.Standard)
+    // Zoomed on the hands, the body steps back so the hands carry the picture.
+    val dim by animateFloatAsState(if (zoom) 0.4f else 1f, ease, label = "dim")
+    val bx0 by animateFloatAsState(target[0], ease, label = "x0")
+    val by0 by animateFloatAsState(target[1], ease, label = "y0")
+    val bx1 by animateFloatAsState(target[2], ease, label = "x1")
+    val by1 by animateFloatAsState(target[3], ease, label = "y1")
+    Canvas(modifier.clipToBounds()) {
+        val cx = (bx0 + bx1) / 2; val cy = (by0 + by1) / 2
+        val margin = if (zoom) 0.03f else 0.05f
+        val least = if (zoom) 0.14f else 0.30f
+        val scale = minOf(size.width / (maxOf(bx1 - bx0, least) + 2 * margin), size.height / (maxOf(by1 - by0, least) + 2 * margin))
+        fun at(t: Float, k: Int): Offset? = demo.at(t, k)?.let { (x, y) ->
             val dx = (x - cx) * scale
             Offset(size.width / 2 + if (mirror) -dx else dx, size.height / 2 + (y - cy) * scale)
         }
+        fun pt(k: Int) = at(step, k)
+        val sl = pt(Demo.SHOULDER_L)
+        val sr = pt(Demo.SHOULDER_R)
+        // Line widths follow the figure's size, so zooming in gives fuller limbs, not hairlines.
+        val shoulders = if (sl != null && sr != null) (sl - sr).getDistance() else size.width * 0.3f
+        val limb = (shoulders * 0.10f).coerceIn(4.dp.toPx(), 22.dp.toPx())
+        val finger = (limb * 0.42f).coerceIn(2.5.dp.toPx(), 9.dp.toPx())
         fun bone(a: Int, b: Int, colour: Color, width: Float) {
             val p = pt(a) ?: return
             val q = pt(b) ?: return
             drawLine(colour, p, q, strokeWidth = width, cap = StrokeCap.Round)
         }
-        val thick = 5.dp.toPx()
-        // Trunk and arms.
-        bone(Demo.SHOULDER_L, Demo.SHOULDER_R, body, thick)
-        bone(Demo.SHOULDER_L, Demo.HIP_L, body, thick)
-        bone(Demo.SHOULDER_R, Demo.HIP_R, body, thick)
-        bone(Demo.HIP_L, Demo.HIP_R, body, thick)
-        bone(Demo.SHOULDER_L, Demo.ELBOW_L, body, thick)
-        bone(Demo.ELBOW_L, Demo.WRIST_L, body, thick)
-        bone(Demo.SHOULDER_R, Demo.ELBOW_R, body, thick)
-        bone(Demo.ELBOW_R, Demo.WRIST_R, body, thick)
-        // Head: a circle on the nose, as wide as two thirds of the shoulders.
-        val sl = pt(Demo.SHOULDER_L)
-        val sr = pt(Demo.SHOULDER_R)
+        fun polygon(points: List<Offset?>): Path? {
+            if (points.any { it == null }) return null
+            return Path().apply {
+                moveTo(points[0]!!.x, points[0]!!.y)
+                for (o in points.drop(1)) lineTo(o!!.x, o.y)
+                close()
+            }
+        }
+        // Torso: filled between shoulders and hips, with a soft outline.
+        polygon(listOf(sl, sr, pt(Demo.HIP_R), pt(Demo.HIP_L)))?.let { torso ->
+            drawPath(torso, body.copy(alpha = 0.22f * dim))
+            drawPath(torso, body.copy(alpha = 0.55f * dim), style = Stroke(2.dp.toPx(), join = StrokeJoin.Round))
+        }
+        // Head on the nose, as wide as two thirds of the shoulders, with a neck to the shoulders' middle.
         val nose = pt(Demo.NOSE)
         if (sl != null && sr != null && nose != null) {
-            drawCircle(body, radius = (sl - sr).getDistance() * 0.33f, center = nose, style = Stroke(thick))
+            val r = shoulders * 0.33f
+            val neck = Offset((sl.x + sr.x) / 2, (sl.y + sr.y) / 2)
+            drawLine(body.copy(alpha = 0.7f * dim), neck, Offset(nose.x, nose.y + r * 0.9f), strokeWidth = limb, cap = StrokeCap.Round)
+            drawCircle(body.copy(alpha = 0.22f * dim), radius = r, center = nose)
+            drawCircle(body.copy(alpha = 0.7f * dim), radius = r, center = nose, style = Stroke(2.dp.toPx()))
         }
-        // Hands, each in its own colour (the same colours as the tracking overlay on the camera).
+        // Arms.
+        val arm = body.copy(alpha = 0.85f * dim)
+        bone(Demo.SHOULDER_L, Demo.ELBOW_L, arm, limb)
+        bone(Demo.ELBOW_L, Demo.WRIST_L, arm, limb)
+        bone(Demo.SHOULDER_R, Demo.ELBOW_R, arm, limb)
+        bone(Demo.ELBOW_R, Demo.WRIST_R, arm, limb)
+        // Where each wrist has just been: a short trail of fading dots.
+        for ((wrist, colour) in listOf(Demo.WRIST_L to left, Demo.WRIST_R to right)) {
+            for (i in 1..TRAIL) {
+                val t = step - i * 0.6f
+                if (t < 0f) break
+                val o = at(t, wrist) ?: continue
+                val fade = 1f - i / (TRAIL + 1f)
+                drawCircle(colour.copy(alpha = 0.30f * fade), radius = limb * 0.5f * (0.5f + 0.5f * fade), center = o)
+            }
+        }
+        // Hands: a filled palm and round fingers, each hand in its own colour (as on the camera).
         for ((base, colour) in listOf(Demo.HAND_L to left, Demo.HAND_R to right)) {
-            for ((a, c) in HAND_EDGES) bone(base + a, base + c, colour, 3.5.dp.toPx())
-            for (k in 4 until 21 step 4) pt(base + k)?.let { drawCircle(Color.White, radius = 2.5.dp.toPx(), center = it) }
+            polygon(listOf(0, 1, 5, 9, 13, 17).map { pt(base + it) })?.let { palm ->
+                drawPath(palm, colour.copy(alpha = 0.55f))
+                drawPath(palm, colour, style = Stroke(finger * 0.6f, join = StrokeJoin.Round))
+            }
+            for (chain in FINGERS) for ((a, c) in chain.zipWithNext()) bone(base + a, base + c, colour, finger)
+            for (k in 4 until 21 step 4) pt(base + k)?.let { drawCircle(Color.White, radius = finger * 0.45f, center = it) }
         }
     }
 }
+
+private const val TRAIL = 8
+private val FINGERS = listOf(listOf(1, 2, 3, 4), listOf(5, 6, 7, 8), listOf(9, 10, 11, 12), listOf(13, 14, 15, 16), listOf(17, 18, 19, 20))

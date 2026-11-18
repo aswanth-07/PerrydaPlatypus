@@ -23,10 +23,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,7 +56,10 @@ import ai.echogesture.app.data.Conversations
 import ai.echogesture.app.data.Settings
 import ai.echogesture.app.engine.TranscriptEntry
 import ai.echogesture.app.engine.Who
+import ai.echogesture.app.ui.components.ConversationArt
 import ai.echogesture.app.ui.components.EmptyState
+import ai.echogesture.app.ui.components.LocalCaption
+import ai.echogesture.app.ui.theme.TranscriptStyle
 import ai.echogesture.app.ui.components.SubScreen
 import ai.echogesture.app.ui.components.TabHeader
 import ai.echogesture.app.ui.theme.Palette
@@ -74,7 +77,7 @@ fun HistoryScreen(vm: MainViewModel, onOpen: (Long) -> Unit, onSettings: () -> U
         TabHeader(stringResource(R.string.tab_history), onSettings)
         if (conversations.isEmpty()) {
             EmptyState(
-                Icons.Filled.History, stringResource(R.string.history_empty_title), stringResource(R.string.history_empty_body),
+                { ConversationArt() }, stringResource(R.string.history_empty_title), stringResource(R.string.history_empty_body),
                 Modifier.fillMaxSize(),
             )
             return@Column
@@ -111,7 +114,7 @@ private fun ConversationCard(c: Conversation, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
         )
         Spacer(Modifier.height(4.dp))
-        Text(preview(c.entries), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(preview(c.entries, LocalCaption.current), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(6.dp))
         Text(
             listOfNotNull(
@@ -132,15 +135,15 @@ fun ConversationScreen(vm: MainViewModel, start: Long, onBack: () -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
     LaunchedEffect(conversation == null) { if (conversation == null) onBack() }
     conversation ?: return
-    val text = conversationText(conversation.entries)
+    val text = conversationText(conversation.entries, LocalCaption.current)
 
     SubScreen(
         dayLabel(context, start) + ", " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(start)),
         onBack,
         actions = {
-            IconButton(onClick = { copyText(context, text) }) { Icon(Icons.Filled.ContentCopy, stringResource(R.string.conversation_copy)) }
-            IconButton(onClick = { shareText(context, text) }) { Icon(Icons.Filled.Share, stringResource(R.string.conversation_share)) }
-            IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.DeleteOutline, stringResource(R.string.conversation_delete)) }
+            IconButton(onClick = { copyText(context, text) }) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.conversation_copy)) }
+            IconButton(onClick = { shareText(context, text) }) { Icon(Icons.Rounded.Share, stringResource(R.string.conversation_share)) }
+            IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.conversation_delete)) }
         },
     ) {
         val list = rememberLazyListState()
@@ -162,7 +165,9 @@ fun ConversationScreen(vm: MainViewModel, start: Long, onBack: () -> Unit) {
 
 /** One bubble: signed words run together until the signer pauses for 4 s; each spoken reply is its own bubble. */
 private class Line(val who: Who, val entries: List<TranscriptEntry>) {
-    val text: String get() = entries.joinToString(" ") { it.word }
+    /** Signed words are glosses, written by [show]; a spoken reply is already ordinary text. */
+    fun text(show: (String) -> String): String =
+        if (who == Who.VOICE) entries.joinToString(" ") { it.word } else entries.joinToString(" ") { show(it.word) }
     val at: Long get() = entries.first().atMillis
 }
 
@@ -196,7 +201,7 @@ private fun Bubble(line: Line) {
                 color = if (signer) MaterialTheme.colorScheme.primary else Palette.Reply,
             )
             Spacer(Modifier.height(4.dp))
-            Text(line.text, style = MaterialTheme.typography.titleLarge, color = if (signer) Palette.Text else Palette.Reply)
+            Text(line.text(LocalCaption.current), style = TranscriptStyle, color = if (signer) Palette.Text else Palette.Reply)
         }
     }
 }
@@ -214,7 +219,7 @@ private fun lines(entries: List<TranscriptEntry>): List<Line> {
     return out
 }
 
-private fun preview(entries: List<TranscriptEntry>): String = lines(entries).joinToString("  ·  ") { it.text }
+private fun preview(entries: List<TranscriptEntry>, show: (String) -> String): String = lines(entries).joinToString("  ·  ") { it.text(show) }
 
 /** "Today", "Yesterday", or the date. */
 fun dayLabel(context: Context, at: Long): String = when {
@@ -224,8 +229,8 @@ fun dayLabel(context: Context, at: Long): String = when {
 }
 
 /** Plain text for copying or sharing: one line per bubble. */
-fun conversationText(entries: List<TranscriptEntry>): String =
-    lines(entries).joinToString("\n") { (if (it.who == Who.SIGNER) "Signed: " else "Said: ") + it.text }
+fun conversationText(entries: List<TranscriptEntry>, show: (String) -> String): String =
+    lines(entries).joinToString("\n") { (if (it.who == Who.SIGNER) "Signed: " else "Said: ") + it.text(show) }
 
 fun copyText(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
