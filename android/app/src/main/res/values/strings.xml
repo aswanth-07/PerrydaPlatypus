@@ -18,7 +18,7 @@
     <string name="gate_point_private">Video is processed on this phone and never uploaded</string>
     <string name="gate_point_realtime">Hand tracking and recognition run in real time</string>
     <string name="gate_point_keypoints">Only hand and body keypoints are kept, never video</string>
-    <string name="gate_camera_denied">Camera access was declined. You can still identify a sign in a saved video from the Learn tab.</string>
+    <string name="gate_camera_denied">Camera access was declined. You can still identify a sign in a saved video on the Videos tab.</string>
     <string name="gate_camera_blocked">Camera access is turned off for EchoGesture. Open settings, then Permissions, Camera, and choose Allow.</string>
 
     <!-- Microphone for spoken replies -->
@@ -181,7 +181,7 @@
     <string name="dev_int8_1f_mb" formatted="false">INT8, %.1f MB</string>
     <string name="dev_hand_tracking">Hand tracking</string>
     <string name="dev_mediapipe_holistic_13_7_mb">MediaPipe Holistic, 13.7 MB</string>
-    <string name="dev_identify_a_sign_in_a">Identify a sign in a video (Learn tab) shows how long each step took while developer options are on.</string>
+    <string name="dev_identify_a_sign_in_a">The Videos tab shows how long each step took while developer options are on.</string>
     <string name="dev_turn_off_developer_options">Turn off developer options</string>
     <string name="settings_conversation">Conversation</string>
     <string name="settings_captions_appear">Captions appear</string>

@@ -5,16 +5,22 @@ captions, entirely on the phone. The app has no internet permission: video and k
 
 ## Screens
 
-| Tab | What it does |
-|---|---|
-| **Live** | The camera fills the screen. One status chip ("Signing" while the hands are up / "Watching" / "Show your hands" · 2,000 signs), a switch-camera button, and the caption card at the bottom: the newest word large, earlier words beside it, and under it the sign's other names ("same sign: PHYSICIAN") or "taught on this phone"; when the model was not sure, two other signs it could have been ("or BIBLE · WALLET") as buttons for 8 s: a tap swaps the word on screen and in Chat and speaks it; a clear button in the card. Three labelled controls: **Voice** (speak signed words aloud), **Reply** (the hearing person speaks; their words appear large at the top for the signer, and fade after 15 s or on tap), **Pause**. Timings, voice delay and best guesses appear only with Settings > Advanced > "Show details". Keeps the screen on. |
-| **Chat** | Both sides of the conversation as chat bubbles: signed words (grouped at pauses of more than 4 s) and spoken replies, with copy, share and clear (with a confirmation). |
-| **Signs** | Two modes. **Learn a sign**: a stick figure (left) loops one of 300 common signs, at full or half speed ("Slow"), mirrored to match the front-camera preview beside it (right); the learner copies it and the card under them says "Yes, that was DRINK" or what it looked like instead; Skip / Next sign and Choose (search the 300). Practice is not spoken or kept in Chat. **Teach the app**: as below. |
-| ↳ **Teach the app** | Teach a sign the model does not know (a name sign, a word from another sign language): type the word, record 1 to 5 examples of 2.5 s after a 3-2-1 countdown, with one progress dot per example. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Live and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
-| **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names, the five closest signs and timings for frames, landmarks, model and total. |
-| **Settings** | Captions (Eager / Balanced / Careful), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera faces the signer, hand-tracking overlay); **Advanced**, folded away: caption each sign when the hands rest (on by default), confidence needed, stability and listening window (for signing without rests), taught-sign match, show details, track on the GPU (off by default: two CPU trackers are faster); About (2,000 signs, held-out accuracy, size) and the privacy note. |
+Three tabs in a floating bar (a rail on the left in landscape): **Learn**, **Talk** in the middle, where the app
+opens, and **Videos**. Everything else opens over the tabs with a back arrow.
 
-First launch explains what the camera is for before asking for it; the Clips tab works without the camera.
+| Screen | What it does |
+|---|---|
+| **Talk** | The camera fills the screen. A status pill worded for the camera in use ("Signing" / "Watching" / "Their hands aren't in view" / "Ask them to step back"), a head-and-shoulders outline until a body is tracked, tracked hands drawn as a soft glow, a switch-camera button, and the caption card at the bottom: the newest word large (muted until it settles), earlier words beside it, and under it the sign's other names ("same sign: physician") or "taught on this phone". When the model was not sure, "Not right?" offers two other signs it could have been: a tap swaps the word on screen and in the conversation and speaks it. Backspace removes the newest word, a long press clears the captions; both can be undone for 5 s. Controls: **Speak words** (say signed words aloud), **Reply** (the hearing person speaks; their words appear large for the signer, with "Show to signer" full screen and a rotate button for someone across a table), **Pause**. The conversation under way pulls up in a sheet with copy, share and All conversations. If hand tracking fails to start, a card offers Try again and a CPU/GPU switch. Keeps the screen on. |
+| **Learn** | Lessons: the 300 signs with a demonstration in 21 topics, lessons of about five, opening on the next lesson with a sign not yet learned, with overall progress and a practice streak. A lesson practises its signs in order: a stick figure loops the sign (full or half speed, "Hands" zooms on the hands), the learner copies it on the front camera beside it, and the card says "Yes, that was DRINK" or what it looked like instead; a summary leads to the next lesson. **Practise any sign** (search the 300) and **Teach the app a sign** open from here. Progress is kept on the phone. |
+| ↳ **Teach the app a sign** | Teach a sign the model does not know (a name sign, a word from another sign language) in four steps: name it (the app says when the word is already known or already taught); record 3 to 5 examples of 2.5 s after a 3-2-1 countdown, each replayed from its keypoints and deletable; review and save; sign it once and see it captioned. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Talk and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
+| **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names and the five closest signs; with developer options on, timings for frames, landmarks, model and total. |
+| **Past conversations** | From Talk's conversation sheet or Settings. Signed words and spoken replies, grouped into conversations at pauses of more than 30 minutes, with detail, copy, share and delete. Kept in `files/conversation.tsv` for 30 days by default (1 day, 30 days or until deleted). |
+| **Settings** | Conversation (captions appear as they sign / after each sign, caption style More words / Balanced / Fewer, surer, keep conversations, show signs in capitals, delete all), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera Talk uses, highlight tracked hands), Vibration, Reset learning progress, About (privacy note, app permissions, open-source licences, Set up again). **Developer options**, unlocked by tapping the version seven times: confidence, stability and listening window for captions after each sign, taught-sign match, show details (best guesses, frame rate, timings, voice delay), hand skeleton, track on the GPU (off by default: two CPU trackers are faster), model figures. |
+
+First launch asks who holds the phone (back camera toward someone signing, or front camera toward yourself),
+explains the camera before Android asks for it, checks the framing with a live outline, then checks the installed
+voice and on-device speech recognition; Settings > Set up again repeats it. The Videos tab works without the camera.
+Nothing the app keeps (conversations, taught signs, progress, settings) is backed up or transferred off the phone.
 
 ### Captions while the hands stay up
 
@@ -25,8 +31,8 @@ EchoGesture model (`android/models/echogesture_live_int8.onnx`, packed into the 
 its measured decoder settings). That model was trained on windows of continuous signing and answers with the sign at the window's
 centre or with "no sign" between two. A run of windows that name a sign is one sign: each window adds its five
 best answers' probabilities as evidence, and the sign with the most evidence is captioned when the run ends, or
-at once when the evidence is already enough. The leading word is shown muted until then. Settings > Captions
-(Eager / Balanced / Careful) scales the evidence a caption needs. A build packed without the live model uses
+at once when the evidence is already enough. The leading word is shown muted until then. Settings > Caption style
+(More words / Balanced / Fewer, surer) scales the evidence a caption needs. A build packed without the live model uses
 the clip model for the windows.
 
 With all 2,000 words open, on held-out test clips joined without rests, the INT8 live model's word error rate
@@ -35,7 +41,7 @@ halves of the test clips; the table is in the main README). `SpotterTest` replay
 streams through the Kotlin spotter with the shipped INT8 models and requires the same words at the same frames
 as Python, in both modes (`scripts/make_stream_fixture.py --live` writes `parity/streams.json`).
 
-Settings > Advanced > "Wait for the hands to rest" brings back the 15 Nov behaviour: a stretch opens when a wrist
+Settings > Captions appear > "After each sign" brings back the 15 Nov behaviour: a stretch opens when a wrist
 rises above the rest line and closes when both wrists have been back below it for 200 ms; the whole stretch, with
 300 ms of lead-in, is classified once, the way a clip is, and its word is shown if it reaches the confidence
 slider (15% by default). A stretch longer than 4 s falls back to a sliding window (1.5 s every 5 frames, two
@@ -46,7 +52,7 @@ looks in a row above 35%).
 With 2,000 words open the top word is the sign that was made for 76.8% of test clips, and the right sign is usually
 the next guess. When the model's confidence in the shown sign is under 80% (`SignEngine.ALT_BELOW`), the caption
 card offers the best word of each of the next two signs in the ranking (`SameSignSets.alternatives`; names of the
-shown sign are already listed as "same sign"). A tap replaces the newest word in the caption and in Chat
+shown sign are already listed as "same sign"). A tap replaces the newest word in the caption and in the conversation
 (`SignEngine.correctLast`, `Spotter.replaceLast`: only while that word is still the newest) and speaks the
 correction. `scripts/alternatives_eval.py` scores the same rule on the WLASL2000 test clips: sign on screen 89.9%
 with offers under 67% of captions (90.8% if always offered); captions shown without offers are right 95.1% of the
@@ -65,18 +71,18 @@ what is timed; the speaker's own output delay is not included.
 
 ### Spoken replies (two-way conversation)
 
-Reply on the Live tab turns the hearing person's speech into large text for the signer, so the conversation runs
+Reply on the Talk tab turns the hearing person's speech into large text for the signer, so the conversation runs
 both ways: signs to voice, voice to text. It uses Android's on-device recogniser only
 (`SpeechRecognizer.createOnDeviceSpeechRecognizer`, Android 12 and later) and asks for the microphone the first
 time; audio never leaves the phone and the app still has no internet permission. While it listens, the app's own
 voice pauses so it does not hear itself. If the phone lacks the offline English speech pack, Android 13+ offers to
-fetch it (the system downloads it, not the app); otherwise the app says how to add it. Replies join the Chat tab.
+fetch it (the system downloads it, not the app); otherwise the app says how to add it. Replies join the conversation beside the signed words.
 
 ### Teach a sign
 
 The EchoGesture model also returns its pooled 384-number embedding. A taught sign is the unit mean of its examples'
 unit embeddings (a prototype); a live window or a clip whose embedding is at least 0.55 cosine from a prototype
-(Settings, 0.45 to 0.65) is that word, the closest prototype winning; otherwise the classifier answers. The
+(developer options, 0.45 to 0.65) is that word, the closest prototype winning; otherwise the classifier answers. The
 examples are stored as model inputs (`files/taught/<id>/ex_N.bin`, about 120 KB each), not prototypes, because the
 clip model and the live-caption model each have their own embedding, so prototypes are rebuilt with each. Measured
 offline (`scripts/fewshot_eval.py`, a model trained on WLASL only, 20 ASL Citizen signs it never saw, examples and
@@ -210,9 +216,9 @@ The build uses Gradle, the standard Android build tool (Android Studio runs the 
    debug key so it installs directly; use a real key for distribution).
 
 Emulator: the debug build type adds the x86_64 ABI, so `gradle -p android :app:assembleDebug` installs on an
-x86_64 emulator image (tested on an Android 16 / API 36 Google APIs image: Live, Signs (Learn and Teach),
-Videos with a DOCTOR test clip showing "same sign: PHYSICIAN", Chat, Settings, and the Reply permission and
-language-pack flow; the emulator has no microphone or signer, so a recognised reply needs a phone; taught signs and Learn are checked
+x86_64 emulator image (tested on an Android 16 / API 36 Google APIs image: setup, Talk, Learn (lessons, practice
+and Teach), Videos with a DOCTOR test clip showing "same sign: PHYSICIAN", past conversations, Settings, and the
+Reply permission and language-pack flow; the emulator has no microphone or signer, so a recognised reply needs a phone; taught signs and Learn are checked
 there with the replayed-video benches above). If `:app:mergeLibDexDebug` fails with a file "located outside the root directory", delete `android/.gradle`
 and `android/app/build/.transforms` (stale execution history from another checkout path).
 

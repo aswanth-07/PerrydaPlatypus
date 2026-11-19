@@ -208,12 +208,12 @@ real signer's transitions will differ.
 
 ## The Android app
 
-`android/`: Kotlin, Jetpack Compose, Material 3. Tabs: **Live**, **Chat**, **Signs**, **Videos**, **Settings**
-(screens and build steps in [`android/README.md`](android/README.md)).
+`android/`: Kotlin, Jetpack Compose, Material 3. Tabs: **Learn**, **Talk**, **Videos**; past conversations,
+Teach and Settings open over them (screens and build steps in [`android/README.md`](android/README.md)).
 
 - **Live captions, spoken aloud** by the phone's own installed voice, offline.
 - **Reply.** The hearing person taps Reply and speaks; Android's on-device speech recognition turns it into large
-  text for the signer, and both sides join the Chat tab. Together with the spoken captions this is the two-way
+  text for the signer, and both sides join the conversation, kept on the phone. Together with the spoken captions this is the two-way
   conversation the brief asks for: signs to voice, voice to text. Audio never leaves the phone.
 - **Same-sign captions.** "same sign: PHYSICIAN" under DOCTOR.
 - **Tap to correct.** When the model is unsure, the caption offers the two next most likely signs ("or BIBLE ·
