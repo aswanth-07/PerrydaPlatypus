@@ -79,6 +79,15 @@ class Listener(
         recognizer?.stopListening()
     }
 
+    /** Submit a typed or quick-phrase reply offline (works on every device, even in loud rooms or without STT). */
+    fun submitTyped(text: String) {
+        val clean = text.trim()
+        if (clean.isEmpty()) return
+        if (_state.value.listening) stop()
+        _state.update { it.copy(listening = false, partial = "", last = clean, lastAt = System.currentTimeMillis(), note = null) }
+        onReply(clean)
+    }
+
     fun dismiss() = _state.update { it.copy(last = null) }
 
     private val callbacks = object : RecognitionListener {
@@ -129,6 +138,10 @@ class Listener(
     }
 
     override fun close() {
+        if (_state.value.listening) {
+            onListening(false)
+            _state.update { it.copy(listening = false, partial = "") }
+        }
         recognizer?.destroy()
         recognizer = null
     }

@@ -26,12 +26,12 @@ number on screen comes from a file in the repository (named at the end); nothing
 | # | Time | Shot | On screen / voice-over |
 |---|---|---|---|
 | 1 | 0:00–0:12 | Swipe down the quick settings: airplane mode on, Wi-Fi off. Open EchoGesture. | "No network. Everything you see runs on this phone." Title card: EchoGesture, team, track. |
-| 2 | 0:12–0:40 | Talk tab, details on. Signer signs 5–6 everyday words one after another, hands kept up: HELLO, THANK YOU, BOOK, DRINK, MOTHER, HELP (pick the six that rehearse best). The phone speaks each word. | The caption card fills word by word, each word muted until it settles; the details panel shows about 30 fps from 2 CPU trackers, tracking and model milliseconds, "voice N ms after the frame" and the best guesses. Voice-over: real time on the phone, every camera frame tracked, then the 3.3 MB EchoGesture model in about 4 ms. Turn details off after this shot. |
+| 2 | 0:12–0:40 | Talk tab, details on. Signer signs 5–6 everyday words one after another, hands kept up: HELLO, THANK YOU, BOOK, DRINK, MOTHER, HELP (pick the six that rehearse best). The phone speaks each word. | The caption card fills word by word, each word muted until it settles; the details panel shows about 30 fps from 2 CPU trackers, tracking and model milliseconds, "voice N ms after the frame" and the best guesses. Voice-over: real time on the phone, every camera frame tracked, then the EchoGesture INT8 model in under 4 ms. Turn details off after this shot. |
 | 3 | 0:40–0:52 | Signer signs DOCTOR. | Caption shows "doctor" with "same sign: physician" under it. Voice-over: WLASL lists the same signing under several words; the app shows every name instead of guessing one. |
 | 3a | within shot 2 or 3 | When a word comes out wrong, tap "Not right?" and then the right sign. | The word changes and the phone says the correction. Voice-over: when it is not sure it says so, and the right sign is one tap away (on screen for 9 of 10 test clips). Keep one such correction in the video rather than cutting it. |
-| 3b | 0:52–1:12 | The hearing person taps **Reply** and says "Nice to meet you, how are you?". | "Listening…" with the words appearing as they are spoken, then the reply large for the signer ("Show to signer" puts it full screen); the conversation sheet shows both sides. Voice-over: the conversation runs both ways, signs to voice and voice to text, all on the phone. |
+| 3b | 0:52–1:12 | The hearing person taps **Reply** (or **Type** offline quick-phrases) and says "Yes, thank you, please wait". | "Listening…" with the words appearing as they are spoken, then the reply banner shows **"Show to signer"** and **"Watch in sign"**: tap **"Watch in sign"** (with 180° Rotate) to play the reply as an animated real-signer ASL sequence right on screen; the conversation sheet shows both sides. Voice-over: true two-way conversation — signs to voice, speech or text back to animated ASL, all offline. |
 | 4 | 1:12–1:32 | Dim the room lights (or turn off a lamp), then a hand partly behind a cup or the other arm. Signer repeats two words from shot 2. | Still captioned. Cut-in card with the measured drops on all 2,878 test clips (see "Numbers card"). |
-| 5 | 1:32–1:47 | Learn tab, **Practise any sign** (or the lesson that holds DRINK). The stick figure shows DRINK; a learner copies it with the front camera. | "Yes, that was DRINK." Voice-over: the app also teaches signs to hearing people, from keypoints of real signers, and checks the attempt. |
+| 5 | 1:32–1:47 | Learn tab: open **Sign dictionary** to type a short English phrase and watch the offline ASL animation, then tap **Practise** (or open DRINK directly). The stick figure shows DRINK; a learner copies it with the front camera and live match meter. | "Yes, that was DRINK." Voice-over: the app also translates English phrases to ASL and teaches 300 signs from keypoints of real signers, checking the attempt live on camera. |
 | 5a | 1:47–2:15 | Learn tab, **Teach the app a sign**. Type a word the model does not know (a name sign, or an Indian Sign Language word such as the ISL sign for a colour). Record three examples with the 3-2-1 countdown. Review and save. Sign it on the "Try it" step or the Talk tab. | Each example replays from its keypoints; Save; then the caption shows the new word with "taught on this phone", spoken aloud. Voice-over: only keypoints are stored, never video; in offline tests on signs a recogniser had never seen, 3 examples were right about 9 times in 10. |
 | 6 | 2:15–2:30 | Videos tab: pick a saved video of one sign. | The sign, its other names, the five closest signs and (developer options on) per-stage timings: the same pipeline as the scored `predict()`. |
 | 7 | 2:30–2:50 | Numbers card, then end card. | See below. End card: repository URL, "fully on-device, no internet permission". |
@@ -42,22 +42,22 @@ number on screen comes from a file in the repository (named at the end); nothing
 |---|---|---|
 | Vocabulary | 2,000 ASL words (WLASL2000) | `src/models/labels.json` |
 | Top-1 / top-5, held-out test split | from `int8.test` | `src/models/export.json` |
-| The same model on WLASL's 1,000 / 300 / 100 most common words | 77.7% / 88.6% / 91.5% top-1 | `results/results.csv`, rows `top1_accuracy_wlasl*` |
-| `predict()` on the raw test videos | 64.63% top-1, 92.01% top-5 | `results/predictions.summary.json` |
-| Live captions, word error rate on chained test clips | 46.8% with the hands never resting, 45.3% with rests; 35.7% when another name of the same sign counts | `results/results.csv`, rows `live_caption_word_error_rate_*` |
-| Model size, latency p95 on the phone (1 CPU thread) | 3.32 MB, 4.4 ms | `results/results.csv`, rows `model_size`, `latency_p95_phone` |
+| The same model on WLASL's 1,000 / 300 / 100 most common words | **80.2% / 90.4% / 93.0%** top-1 | `results/results.csv`, rows `top1_accuracy_wlasl*` |
+| WLASL2000 official test split (INT8, 2,878 clips) | **67.93%** top-1, **93.99%** top-5 | `results/predictions.summary.json` |
+| Live captions, word error rate on chained test clips | **40.4%** no-rest (**39.9%** fixed), **39.6%** mixed (**39.2%** fixed), **41.7%** rest (**26.7–29.0%** same-sign) | `results/results.csv`, rows `live_caption_word_error_rate_*` |
+| Model size, latency p95 on the phone (1 CPU thread) | **5.72 MB** ensemble (matching 5.72 MB live ensemble), **3.45 ms** p95 | `results/results.csv`, rows `model_size`, `latency_p95_phone` |
 | Power | the whole phone 457 mW with the model running at the live rate (screen on); the model's own share +6 mW | `results/results.csv`, rows `avg_power*` |
-| Hand tracking | MediaPipe Holistic, 13.7 MB | `src/models/holistic_landmarker.task` |
-| Robustness, moderate (drop in points) | six conditions | `results/results.csv`, rows `robustness_drop_moderate_*` |
+| Hand tracking | MediaPipe Holistic, 13.7 MB (19.40 MB total with ensemble) | `src/models/holistic_landmarker.task` |
+| Robustness, moderate (drop in points) | **6 / 6 PASS** (angled 0.49, low light 0.98, moving head 1.01, low res 2.23, combined 3.34, occlusion 4.24) | `results/results.csv`, rows `robustness_drop_moderate_*` |
 | Voice delay on the phone | speech starts 70 ms (median) after the frame that settles the word, about 0.3 s after the hands come to rest | `results/results.csv`, row `voice_delay_p50_phone`; live on the app's status line with details on |
-| Live speed on the phone | about 30 fps, every camera frame tracked, thermal drift over 10 min | `results/results.csv`, rows `live_fps_phone`, `holistic_p95_phone`, `thermal_drift_10min` |
-| Video recognition on the phone | 0.57 s per clip | `results/results.csv`, row `video_recognition_p50_phone` |
-| Teach a sign | 90.3% (3 examples), 92.5% (5) | README, "The Android app" |
+| Live speed on the phone | **30.2 fps**, every camera frame tracked, **9.46 ms** classifier p95 under load, thermal drift 12.1% over 10 min | `results/results.csv`, rows `live_fps_phone`, `holistic_p95_phone`, `thermal_drift_10min` |
+| Video recognition on the phone | **0.46 s** per clip (457.9 ms p50) | `results/results.csv`, row `video_recognition_p50_phone` |
+| Teach a sign | **91.3% / 95.8% / 96.8%** Indian Sign Language (1/3/5-shot); 90.3% / 92.5% unseen ASL | `results/results.csv`, README |
 
 ## Wording rules for the video
 
 - Say what was measured and where; never "state of the art" or "novel".
 - The 70% target is not met at 2,000 words; say the measured number plainly, and that the same model file is at
-  77.7% when it answers from WLASL's 1,000 most common words.
+  80.22% when it answers from WLASL's 1,000 most common words.
 - Occlusion and the combined condition are the weakest; if a take fails there, keep it and say so rather than
   cutting to a lucky one.

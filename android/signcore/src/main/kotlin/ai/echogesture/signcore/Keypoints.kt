@@ -40,21 +40,33 @@ class RawFrame(
     val face: FloatArray?,              // 62 x 3, already reduced to Layout.FACE_MESH
 )
 
-/** A detected hand before it is given a slot. */
-class Hand(val image: FloatArray, val world: FloatArray?)
+/** A detected hand before it is given a slot. [preferredSlot] is MediaPipe's native side (0 left, 1 right, -1 unknown). */
+class Hand(val image: FloatArray, val world: FloatArray?, val preferredSlot: Int = -1)
 
 object Slots {
     /** Put detected hands in slot 0 (person's left) or 1 (right) by distance to the pose wrists, not by handedness. */
     fun assign(found: List<Hand>, pose: FloatArray?): Array<Hand?> {
         val out = arrayOfNulls<Hand>(2)
         if (found.isEmpty()) return out
-        if (pose == null) {
-            found.take(2).forEachIndexed { k, h -> out[k] = h }
+        val wl = Layout.POSE_WRIST_L * 4
+        val wr = Layout.POSE_WRIST_R * 4
+        val validWrists = pose != null && pose.size > wr + 1 &&
+            pose[wl].isFinite() && pose[wl + 1].isFinite() && pose[wr].isFinite() && pose[wr + 1].isFinite()
+        if (!validWrists) {
+            val rest = ArrayList<Hand>(2)
+            for (i in 0 until minOf(2, found.size)) {
+                val h = found[i]
+                if (h.preferredSlot in 0..1 && out[h.preferredSlot] == null) out[h.preferredSlot] = h else rest.add(h)
+            }
+            for (h in rest) {
+                if (out[0] == null) out[0] = h else if (out[1] == null) out[1] = h
+            }
             return out
         }
+        val p = pose
         fun cost(h: Hand, wrist: Int): Double {
-            val dx = (h.image[0] - pose[wrist * 4]).toDouble()
-            val dy = (h.image[1] - pose[wrist * 4 + 1]).toDouble()
+            val dx = (h.image[0] - p[wrist * 4]).toDouble()
+            val dy = (h.image[1] - p[wrist * 4 + 1]).toDouble()
             return Math.sqrt(dx * dx + dy * dy)
         }
         val wrists = intArrayOf(Layout.POSE_WRIST_L, Layout.POSE_WRIST_R)
@@ -80,80 +92,170 @@ object Normaliser {
         val t = frames.size
         val p = Layout.P
         val side = maxOf(width, height).toDouble()
-        val aspect = doubleArrayOf(width / side, height / side, width / side)
+        val ax = width / side
+        val ay = height / side
+        val az = ax
         val pts = DoubleArray(t * p * 3) { Double.NaN }
-        val seen = Array(t) { BooleanArray(4) }
-        for ((f, fr) in frames.withIndex()) {
+        val seenByGroup = Array(4) { BooleanArray(t) }
+        val poseKeep = Layout.POSE_KEEP
+        for (f in 0 until t) {
+            val fr = frames[f]
+            val fBase = f * p
             fr.pose?.let { pose ->
-                for ((k, id) in Layout.POSE_KEEP.withIndex()) for (c in 0 until 3) pts[(f * p + k) * 3 + c] = pose[id * 4 + c] * aspect[c]
-                seen[f][0] = true
+                for (k in poseKeep.indices) {
+                    val src = poseKeep[k] * 4
+                    val dst = (fBase + k) * 3
+                    pts[dst] = pose[src] * ax
+                    pts[dst + 1] = pose[src + 1] * ay
+                    pts[dst + 2] = pose[src + 2] * az
+                }
+                seenByGroup[0][f] = true
             }
             for (s in 0 until 2) fr.hands[s]?.let { h ->
-                val base = if (s == 0) Layout.LH else Layout.RH
-                for (k in 0 until 21) for (c in 0 until 3) pts[(f * p + base + k) * 3 + c] = h[k * 3 + c] * aspect[c]
-                seen[f][s + 1] = true
+                val base = fBase + (if (s == 0) Layout.LH else Layout.RH)
+                for (k in 0 until 21) {
+                    val src = k * 3
+                    val dst = (base + k) * 3
+                    pts[dst] = h[src] * ax
+                    pts[dst + 1] = h[src + 1] * ay
+                    pts[dst + 2] = h[src + 2] * az
+                }
+                seenByGroup[s + 1][f] = true
             }
             fr.face?.let { face ->
-                for (k in 0 until Layout.NFACE) for (c in 0 until 3) pts[(f * p + Layout.FACE + k) * 3 + c] = face[k * 3 + c] * aspect[c]
-                seen[f][3] = true
+                val base = fBase + Layout.FACE
+                for (k in 0 until Layout.NFACE) {
+                    val src = k * 3
+                    val dst = (base + k) * 3
+                    pts[dst] = face[src] * ax
+                    pts[dst + 1] = face[src + 1] * ay
+                    pts[dst + 2] = face[src + 2] * az
+                }
+                seenByGroup[3][f] = true
             }
         }
 
         // Centre on the mean shoulder midpoint, scale by the median shoulder width.
-        val mids = ArrayList<DoubleArray>()
-        val widths = ArrayList<Double>()
+        var mid0 = 0.0
+        var mid1 = 0.0
+        var mid2 = 0.0
+        var midCount = 0
+        val widths = DoubleArray(t)
         for (f in 0 until t) {
             val a = (f * p + Layout.SHOULDER_L) * 3
             val b = (f * p + Layout.SHOULDER_R) * 3
-            if (!pts[a].isNaN() && !pts[b].isNaN()) {
-                mids.add(DoubleArray(3) { (pts[a + it] + pts[b + it]) / 2 })
-                val dx = pts[a] - pts[b]
-                val dy = pts[a + 1] - pts[b + 1]
-                widths.add(Math.sqrt(dx * dx + dy * dy))
+            val ax0 = pts[a]
+            val bx0 = pts[b]
+            if (!ax0.isNaN() && !bx0.isNaN()) {
+                val ay0 = pts[a + 1]
+                val by0 = pts[b + 1]
+                mid0 += (ax0 + bx0) / 2.0
+                mid1 += (ay0 + by0) / 2.0
+                mid2 += (pts[a + 2] + pts[b + 2]) / 2.0
+                val dx = ax0 - bx0
+                val dy = ay0 - by0
+                widths[midCount++] = Math.sqrt(dx * dx + dy * dy)
             }
         }
-        val centre: DoubleArray
+        val c0: Double
+        val c1: Double
+        val c2: Double
         val scale: Double
-        if (mids.isNotEmpty()) {
-            centre = DoubleArray(3) { c -> mids.sumOf { it[c] } / mids.size }
-            scale = median(widths)
+        if (midCount > 0) {
+            c0 = mid0 / midCount
+            c1 = mid1 / midCount
+            c2 = mid2 / midCount
+            scale = medianInPlace(widths, midCount)
         } else {
-            centre = DoubleArray(3) { c ->
-                val v = (0 until t * p).map { pts[it * 3 + c] }.filter { !it.isNaN() }
-                if (v.isEmpty()) 0.0 else median(v)
+            val buf = DoubleArray(t * p)
+            fun colMedian(c: Int): Double {
+                var cnt = 0
+                for (i in 0 until t * p) {
+                    val v = pts[i * 3 + c]
+                    if (!v.isNaN()) buf[cnt++] = v
+                }
+                return if (cnt == 0) 0.0 else medianInPlace(buf, cnt)
             }
+            c0 = colMedian(0)
+            c1 = colMedian(1)
+            c2 = colMedian(2)
             scale = 0.25
         }
         val div = maxOf(scale, 1e-2)
-        for (i in 0 until t * p) for (c in 0 until 3) pts[i * 3 + c] = (pts[i * 3 + c] - centre[c]) / div
+        val nPts = t * p
+        var idx = 0
+        for (i in 0 until nPts) {
+            pts[idx] = (pts[idx] - c0) / div
+            pts[idx + 1] = (pts[idx + 1] - c1) / div
+            pts[idx + 2] = (pts[idx + 2] - c2) / div
+            idx += 3
+        }
 
-        for ((g, range) in Layout.GROUPS.withIndex()) fillGroup(pts, t, p, range[0], range[1], BooleanArray(t) { seen[it][g] })
-        val out = FloatArray(t * p * 3) { i -> clampNan(pts[i]) }
+        for (g in Layout.GROUPS.indices) {
+            val range = Layout.GROUPS[g]
+            fillGroup(pts, t, p, range[0], range[1], seenByGroup[g])
+        }
+        val out = FloatArray(pts.size) { i -> clampNan(pts[i]) }
 
         val world = FloatArray(t * 2 * 21 * 3)
+        val w = DoubleArray(t * 63)
+        val ok = BooleanArray(t)
         for (s in 0 until 2) {
-            val w = DoubleArray(t * 21 * 3)
-            val ok = BooleanArray(t)
-            for ((f, fr) in frames.withIndex()) {
+            java.util.Arrays.fill(w, 0.0)
+            java.util.Arrays.fill(ok, false)
+            for (f in 0 until t) {
+                val fr = frames[f]
                 val hw = fr.handsWorld[s]
                 if (fr.hands[s] != null && hw != null) {
                     ok[f] = true
                     // Holistic gives hand world points in the body's frame; make them wrist-relative.
-                    for (k in 0 until 63) w[f * 63 + k] = (hw[k] - hw[k % 3]) * Layout.WORLD_SCALE
+                    val w0 = hw[0].toDouble()
+                    val w1 = hw[1].toDouble()
+                    val w2 = hw[2].toDouble()
+                    val base = f * 63
+                    var k = 0
+                    while (k < 63) {
+                        w[base + k] = (hw[k] - w0) * Layout.WORLD_SCALE
+                        w[base + k + 1] = (hw[k + 1] - w1) * Layout.WORLD_SCALE
+                        w[base + k + 2] = (hw[k + 2] - w2) * Layout.WORLD_SCALE
+                        k += 3
+                    }
                 }
             }
             fillGroup(w, t, 21, 0, 21, ok)
-            for (f in 0 until t) for (k in 0 until 63) world[((f * 2 + s) * 21) * 3 + k] = clampNan(w[f * 63 + k])
+            for (f in 0 until t) {
+                val srcBase = f * 63
+                val dstBase = (f * 2 + s) * 63
+                for (k in 0 until 63) world[dstBase + k] = clampNan(w[srcBase + k])
+            }
         }
-        val seenOut = FloatArray(t * 4) { i -> if (seen[i / 4][i % 4]) 1f else 0f }
+        val seenOut = FloatArray(t * 4)
+        for (f in 0 until t) {
+            val base = f * 4
+            seenOut[base] = if (seenByGroup[0][f]) 1f else 0f
+            seenOut[base + 1] = if (seenByGroup[1][f]) 1f else 0f
+            seenOut[base + 2] = if (seenByGroup[2][f]) 1f else 0f
+            seenOut[base + 3] = if (seenByGroup[3][f]) 1f else 0f
+        }
         return Clip(t, out, world, seenOut)
     }
 
     /** Linear interpolation over time for points [lo, hi) of a T x n x 3 array, seen as a whole per frame. */
     fun fillGroup(a: DoubleArray, t: Int, n: Int, lo: Int, hi: Int, ok: BooleanArray) {
-        if (ok.all { it }) return
-        if (ok.none { it }) {
-            for (f in 0 until t) for (k in lo until hi) for (c in 0 until 3) a[(f * n + k) * 3 + c] = 0.0
+        var anySeen = false
+        var allSeen = true
+        for (f in 0 until t) {
+            if (ok[f]) anySeen = true else allSeen = false
+        }
+        if (allSeen) return
+        val stride = n * 3
+        val lo3 = lo * 3
+        val hi3 = hi * 3
+        if (!anySeen) {
+            for (f in 0 until t) {
+                val base = f * stride
+                for (k in lo3 until hi3) a[base + k] = 0.0
+            }
             return
         }
         val prev = IntArray(t)
@@ -162,25 +264,32 @@ object Normaliser {
         for (f in 0 until t) { if (ok[f]) last = f; prev[f] = last }
         last = t
         for (f in t - 1 downTo 0) { if (ok[f]) last = f; next[f] = last }
-        val src = a.copyOf()
+        // Zero-copy in place: only unseen frames (!ok[f]) are written, and pp/nn are always seen frames (ok == true).
         for (f in 0 until t) {
+            if (ok[f]) continue
             val pp = if (prev[f] >= 0) prev[f] else next[f]
             val nn = if (next[f] < t) next[f] else prev[f]
-            val w = if (nn != pp) (f - pp).toDouble() / maxOf(nn - pp, 1) else 0.0
-            for (k in lo until hi) for (c in 0 until 3) {
-                val x0 = src[(pp * n + k) * 3 + c]
-                val x1 = src[(nn * n + k) * 3 + c]
-                a[(f * n + k) * 3 + c] = x0 * (1 - w) + x1 * w
+            val fBase = f * stride
+            val pBase = pp * stride
+            if (nn == pp) {
+                System.arraycopy(a, pBase + lo3, a, fBase + lo3, hi3 - lo3)
+            } else {
+                val w = (f - pp).toDouble() / (nn - pp)
+                val oneMinusW = 1.0 - w
+                val nBase = nn * stride
+                for (k in lo3 until hi3) {
+                    a[fBase + k] = a[pBase + k] * oneMinusW + a[nBase + k] * w
+                }
             }
         }
     }
 
     private fun clampNan(v: Double): Float = if (v.isNaN()) 0f else v.coerceIn(-Layout.CLAMP, Layout.CLAMP).toFloat()
 
-    private fun median(v: List<Double>): Double {
-        val s = v.sorted()
-        val m = s.size / 2
-        return if (s.size % 2 == 1) s[m] else (s[m - 1] + s[m]) / 2
+    private fun medianInPlace(v: DoubleArray, size: Int): Double {
+        java.util.Arrays.sort(v, 0, size)
+        val m = size / 2
+        return if (size % 2 == 1) v[m] else (v[m - 1] + v[m]) / 2.0
     }
 }
 
@@ -188,17 +297,34 @@ object Resampler {
     /** Linear resampling of a clip to tIn steps, as train.sample_time does at test time. */
     fun resample(clip: Clip, tIn: Int): Clip {
         val t = clip.t
+        val maxIdx = maxOf(t - 1, 0)
+        val loArr = IntArray(tIn)
+        val hiArr = IntArray(tIn)
+        val aArr = FloatArray(tIn)
+        val denom = if (tIn == 1) 1.0 else (tIn - 1).toDouble()
+        for (i in 0 until tIn) {
+            val pos = if (tIn == 1) 0.0 else i / denom * maxIdx
+            val lo = Math.floor(pos).toInt()
+            loArr[i] = lo
+            hiArr[i] = minOf(lo + 1, maxIdx)
+            aArr[i] = (pos - lo).toFloat()
+        }
         fun lerp(src: FloatArray, stride: Int): FloatArray {
             val out = FloatArray(tIn * stride)
             for (i in 0 until tIn) {
-                val pos = if (tIn == 1) 0.0 else i.toDouble() / (tIn - 1) * maxOf(t - 1, 0)
-                val lo = Math.floor(pos).toInt()
-                val hi = minOf(lo + 1, maxOf(t - 1, 0))
-                val a = (pos - lo).toFloat()
-                for (k in 0 until stride) {
-                    val z0 = src[lo * stride + k]
-                    val z1 = src[hi * stride + k]
-                    out[i * stride + k] = z0 + (z1 - z0) * a
+                val lo = loArr[i]
+                val hi = hiArr[i]
+                val dstBase = i * stride
+                val loBase = lo * stride
+                val a = aArr[i]
+                if (lo == hi || a == 0f) {
+                    System.arraycopy(src, loBase, out, dstBase, stride)
+                } else {
+                    val hiBase = hi * stride
+                    for (k in 0 until stride) {
+                        val z0 = src[loBase + k]
+                        out[dstBase + k] = z0 + (src[hiBase + k] - z0) * a
+                    }
                 }
             }
             return out

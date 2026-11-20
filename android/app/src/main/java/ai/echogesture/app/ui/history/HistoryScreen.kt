@@ -10,7 +10,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,14 +30,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,7 +81,14 @@ import java.util.Date
 fun HistoryScreen(vm: MainViewModel, onOpen: (Long) -> Unit, onBack: () -> Unit) {
     val entries by vm.transcript.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val show = LocalCaption.current
     val conversations = remember(entries) { Conversations.group(entries).asReversed() }
+    var query by remember { mutableStateOf("") }
+    val shown = remember(conversations, query) {
+        val q = query.trim()
+        if (q.isEmpty()) conversations
+        else conversations.filter { c -> c.entries.any { it.word.contains(q, ignoreCase = true) || show(it.word).contains(q, ignoreCase = true) } }
+    }
 
     SubScreen(stringResource(R.string.history_title), onBack) {
         if (conversations.isEmpty()) {
@@ -90,7 +102,23 @@ fun HistoryScreen(vm: MainViewModel, onOpen: (Long) -> Unit, onBack: () -> Unit)
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(conversations, key = { it.start }) { c -> Box(Modifier.animateItem()) { ConversationCard(c) { onOpen(c.start) } } }
+            if (conversations.size > 1) {
+                item(key = "search") {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it.take(60) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        trailingIcon = {
+                            if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, stringResource(R.string.dict_clear)) }
+                        },
+                        placeholder = { Text(stringResource(R.string.history_search_placeholder)) },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    )
+                }
+            }
+            items(shown, key = { it.start }) { c -> Box(Modifier.animateItem()) { ConversationCard(c) { onOpen(c.start) } } }
             item {
                 Text(
                     retentionNote(settings.keepDays),
@@ -114,6 +142,7 @@ private fun ConversationCard(c: Conversation, onClick: () -> Unit) {
     val press = rememberPress()
     Column(
         press.scale.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
             .clickable(interactionSource = press.interaction, indication = ripple(), onClickLabel = stringResource(R.string.history_open), onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 14.dp),
     ) {
@@ -244,6 +273,7 @@ fun conversationText(entries: List<TranscriptEntry>, show: (String) -> String, s
 fun copyText(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("EchoGesture conversation", text))
+    Toast.makeText(context, context.getString(R.string.conversation_copied), Toast.LENGTH_SHORT).show()
 }
 
 fun shareText(context: Context, text: String) {

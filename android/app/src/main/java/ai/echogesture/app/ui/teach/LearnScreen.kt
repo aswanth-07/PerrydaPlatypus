@@ -32,8 +32,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.AlertDialog
@@ -76,6 +79,7 @@ import ai.echogesture.app.data.Demo
 import ai.echogesture.app.data.Demos
 import ai.echogesture.app.engine.HAND_EDGES
 import ai.echogesture.app.ui.components.DrawnCheck
+import ai.echogesture.app.ui.components.FramingGuide
 import ai.echogesture.app.ui.components.LocalCaption
 import ai.echogesture.app.ui.components.LocalHaptics
 import ai.echogesture.app.ui.components.StatusPill
@@ -133,16 +137,25 @@ fun rememberTopics(vm: MainViewModel): List<Topic> {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Unit = {}) {
+fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, initialWord: String? = null, onLessonEnd: () -> Unit = {}) {
     val live by vm.live.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val (demos, all) = rememberPracticeWords(vm)
     val words = remember(all, lesson) { if (lesson == null) all else lesson.words.filter { it in all.toSet() } }
 
-    var index by rememberSaveable(lesson?.id) { mutableIntStateOf(0) }
+    var index by rememberSaveable(lesson?.id, initialWord) {
+        val initIdx = initialWord?.uppercase()?.let { w -> words.indexOf(w).takeIf { it >= 0 } } ?: 0
+        mutableIntStateOf(initIdx)
+    }
+    LaunchedEffect(words, initialWord) {
+        val target = initialWord?.uppercase() ?: return@LaunchedEffect
+        val idx = words.indexOf(target)
+        if (idx >= 0 && index == 0) index = idx
+    }
     var slow by rememberSaveable { mutableStateOf(false) }
     var zoom by rememberSaveable { mutableStateOf(false) }
+    var pausedDemo by rememberSaveable { mutableStateOf(false) }
     val show = LocalCaption.current
     val haptics = LocalHaptics.current
     val progress by vm.progress.collectAsStateWithLifecycle()   // kept on the phone, not just for this session
@@ -160,6 +173,7 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
             vm.engine.practiceTarget = null
+            vm.engine.clearCaption()
             vm.engine.releaseLive()
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
@@ -184,9 +198,21 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
 
     val watch: @Composable (Modifier) -> Unit = { m ->
         Box(m.clip(RoundedCornerShape(24.dp)).background(Palette.Panel)
+            .border(1.dp, Palette.Hairline, RoundedCornerShape(24.dp))
             .description(stringResource(R.string.practice_demonstration_of_the_sign, show(word)))) {
-            DemoFigure(demo, slow, mirror = front, zoom = zoom, Modifier.fillMaxSize().padding(top = 44.dp, bottom = 52.dp))
+            DemoFigure(demo, slow, mirror = front, zoom = zoom, Modifier.fillMaxSize().padding(top = 44.dp, bottom = 52.dp), paused = pausedDemo)
             Tag(stringResource(R.string.practice_watch), Modifier.align(Alignment.TopStart).padding(10.dp))
+            FilledTonalIconButton(
+                onClick = { pausedDemo = !pausedDemo },
+                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).size(40.dp).glass(CircleShape),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Transparent, contentColor = Palette.Text),
+            ) {
+                Icon(
+                    if (pausedDemo) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                    contentDescription = stringResource(if (pausedDemo) R.string.talk_resume else R.string.talk_pause),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
             // The chips wrap onto two lines when the text is large, rather than breaking a word.
             FlowRow(Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilterChip(selected = slow, onClick = { slow = !slow }, label = { Text(stringResource(R.string.practice_slow), maxLines = 1, softWrap = false) })
@@ -196,9 +222,13 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
         }
     }
     val camera: @Composable (Modifier) -> Unit = { m ->
-        Box(m.clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
+        Box(m.clip(RoundedCornerShape(24.dp)).background(Palette.Onyx2)
+            .border(1.dp, Palette.Hairline, RoundedCornerShape(24.dp))) {
             CameraPreview(backCamera = !front, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
-            if (settings.showLandmarks) HandOverlay(live, mirror = front, skeleton = settings.developer && settings.skeleton, modifier = Modifier.fillMaxSize())
+            if (settings.showLandmarks) HandOverlay(vm.overlay, mirror = front, skeleton = settings.developer && settings.skeleton, modifier = Modifier.fillMaxSize())
+            if (live.ready && live.running && live.error == null && !live.bodyVisible) {
+                FramingGuide(ok = false, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 56.dp))
+            }
             StatusPill(
                 when {
                     live.error != null -> stringResource(R.string.talk_hand_tracking_unavailable)
@@ -232,10 +262,21 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
                     Text(show(word), style = CaptionStyle, color = MaterialTheme.colorScheme.primary,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                if (word in learned) DrawnCheck(word, 32.dp, modifier = Modifier.description(stringResource(R.string.practice_learned)))
+                FilledTonalIconButton(
+                    onClick = { vm.engine.speakNow(ai.echogesture.app.engine.Speaker.sayable(word)) },
+                    modifier = Modifier.size(44.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = Palette.Text,
+                    ),
+                ) { Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.dict_hear_aloud)) }
+                if (word in learned) {
+                    Spacer(Modifier.width(8.dp))
+                    DrawnCheck(word, 32.dp, modifier = Modifier.description(stringResource(R.string.practice_learned)))
+                }
             }
             Spacer(Modifier.height(10.dp))
-            // What the recogniser made of the last try.
+            // What the recogniser made of the last try, plus a visual match-closeness meter.
             val (text, colour) = when {
                 attempt == null && live.pending != null -> stringResource(R.string.practice_looking) to Palette.TextMuted
                 attempt == null -> stringResource(R.string.practice_watch_the_figure_then_make) to Palette.TextMuted
@@ -243,24 +284,60 @@ fun LearnScreen(vm: MainViewModel, lesson: Lesson? = null, onLessonEnd: () -> Un
                 attempt.share >= 0.2f -> stringResource(R.string.practice_close_it_looked_a_little, show(attempt.seen)) to Palette.Amber
                 else -> stringResource(R.string.practice_that_looked_like_watch_once, show(attempt.seen)) to Palette.Amber
             }
-            Box(Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
-                .semantics { liveRegion = LiveRegionMode.Polite }
-                .padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .border(
+                        1.dp,
+                        when {
+                            attempt?.correct == true -> Palette.Green.copy(alpha = 0.55f)
+                            attempt != null -> Palette.Amber.copy(alpha = 0.45f)
+                            else -> Palette.Hairline
+                        },
+                        RoundedCornerShape(16.dp),
+                    )
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
                 Text(text, style = MaterialTheme.typography.titleMedium, color = colour)
+                if (attempt != null) {
+                    Spacer(Modifier.height(8.dp))
+                    val barFill by animateFloatAsState(attempt.share.coerceIn(0.05f, 1f), tween(Motion.MEDIUM), label = "matchBar")
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.10f))) {
+                            Box(Modifier.fillMaxWidth(barFill).fillMaxHeight().clip(RoundedCornerShape(3.dp))
+                                .background(if (attempt.correct) Palette.Green else Palette.Amber))
+                        }
+                        Text(
+                            stringResource(R.string.practice_match_pct, (attempt.share * 100).toInt()),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colour,
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { if (last) onLessonEnd() else index = (index + 1) % words.size },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Icon(if (last) Icons.Rounded.Flag else Icons.Rounded.SkipNext, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text(when {
-                        last -> stringResource(R.string.practice_finish_lesson)
-                        attempt?.correct == true -> stringResource(R.string.practice_next_sign)
-                        else -> stringResource(R.string.practice_skip)
-                    })
+                val advancePrimary = last || attempt?.correct == true
+                if (advancePrimary) {
+                    Button(
+                        onClick = { if (last) onLessonEnd() else index = (index + 1) % words.size },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Icon(if (last) Icons.Rounded.Flag else Icons.Rounded.SkipNext, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (last) stringResource(R.string.practice_finish_lesson) else stringResource(R.string.practice_next_sign))
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { index = (index + 1) % words.size },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Icon(Icons.Rounded.SkipNext, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.practice_skip))
+                    }
                 }
                 if (lesson == null) {
                     OutlinedButton(onClick = { choosing = true }, modifier = Modifier.heightIn(min = 48.dp)) {
@@ -367,20 +444,37 @@ private fun Tag(text: String, modifier: Modifier) {
  * path of the movement.
  */
 @Composable
-private fun DemoFigure(demo: Demo, slow: Boolean, mirror: Boolean, zoom: Boolean, modifier: Modifier) {
+internal fun DemoFigure(
+    demo: Demo,
+    slow: Boolean,
+    mirror: Boolean,
+    zoom: Boolean,
+    modifier: Modifier,
+    paused: Boolean = false,
+    stepOverride: Float? = null,
+) {
     val play = (demo.durationMs.coerceIn(600, 4000) * (if (slow) 2.2f else 1f)).toInt()
     val hold = 700
-    val transition = rememberInfiniteTransition(label = "demo")
-    val step by transition.animateFloat(
-        0f, demo.frames - 1f,
-        infiniteRepeatable(keyframes {
-            durationMillis = play + hold
-            0f at 0 using LinearEasing
-            (demo.frames - 1f) at play using LinearEasing
-            (demo.frames - 1f) at play + hold
-        }, RepeatMode.Restart),
-        label = "step",
-    )
+    var frozenStep by remember(demo.word) { mutableStateOf(0f) }
+    val step = if (stepOverride != null) {
+        stepOverride
+    } else if (paused) {
+        frozenStep
+    } else {
+        val transition = rememberInfiniteTransition(label = "demo")
+        val animated by transition.animateFloat(
+            0f, demo.frames - 1f,
+            infiniteRepeatable(keyframes {
+                durationMillis = play + hold
+                0f at 0 using LinearEasing
+                (demo.frames - 1f) at play using LinearEasing
+                (demo.frames - 1f) at play + hold
+            }, RepeatMode.Restart),
+            label = "step",
+        )
+        frozenStep = animated
+        animated
+    }
     val body = Palette.TextMuted
     val left = Palette.FirstHand
     val right = MaterialTheme.colorScheme.primary

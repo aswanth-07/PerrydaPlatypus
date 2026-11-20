@@ -105,5 +105,9 @@ class CoresTest {
         val win = Cores.window(clip, 0.5f)
         assertEquals(32, win.t)
         assertEquals(24f * 4, win.seen[0], "the window should start at step 24: 32 steps centred on the core 30..49")
+        val wins = Cores.windows(clip, 0.5f)
+        assertEquals(3, wins.size, "multi-crop windows should produce centre + left + right shifts")
+        assertTrue(wins.all { it.t == 32 })
+        assertEquals(win.seen[0], wins[0].seen[0], "first crop is always the centred window")
     }
 }

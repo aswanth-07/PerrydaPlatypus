@@ -51,12 +51,12 @@ def frame_keypoints(holistic, rgb, ts_ms):
         f = r.face_landmarks
         out["face"] = np.array([(f[i].x, f[i].y, f[i].z) for i in FACE], np.float32)
     found = []
-    for lms, world in ((r.left_hand_landmarks, r.left_hand_world_landmarks),
-                       (r.right_hand_landmarks, r.right_hand_world_landmarks)):
+    for preferred, (lms, world) in enumerate(((r.left_hand_landmarks, r.left_hand_world_landmarks),
+                                              (r.right_hand_landmarks, r.right_hand_world_landmarks))):
         if lms:
             img = np.array([(p.x, p.y, p.z) for p in lms], np.float32)
             wld = np.array([(p.x, p.y, p.z) for p in world], np.float32) if world else np.full((21, 3), np.nan, np.float32)
-            found.append((img, wld))
+            found.append((img, wld, preferred))
     for slot, (img, wld) in assign_slots(found, out["pose"]).items():
         out["hands"][slot] = img
         out["hands_world"][slot] = wld
@@ -69,13 +69,28 @@ def assign_slots(found, pose):
         return {}
     wrists = pose[list(POSE_WRIST), :2]
     if np.isnan(wrists).any():
-        return {k: h for k, h in enumerate(found[:2])}
+        assigned = {}
+        fallback = []
+        for h in found[:2]:
+            img, wld = h[0], h[1]
+            pref = h[2] if len(h) > 2 else None
+            if pref in (0, 1) and pref not in assigned:
+                assigned[pref] = (img, wld)
+            else:
+                fallback.append((img, wld))
+        for item in fallback:
+            for slot in (0, 1):
+                if slot not in assigned:
+                    assigned[slot] = item
+                    break
+        return assigned
     cost = np.array([[np.linalg.norm(h[0][0, :2] - w) for w in wrists] for h in found])
     if len(found) == 1:
-        return {int(cost[0].argmin()): found[0]}
+        return {int(cost[0].argmin()): (found[0][0], found[0][1])}
     straight = cost[0, 0] + cost[1, 1]
     crossed = cost[0, 1] + cost[1, 0]
-    return {0: found[0], 1: found[1]} if straight <= crossed else {0: found[1], 1: found[0]}
+    a, b = (found[0][0], found[0][1]), (found[1][0], found[1][1])
+    return {0: a, 1: b} if straight <= crossed else {0: b, 1: a}
 
 
 def stack_frames(frames):
@@ -84,4 +99,10 @@ def stack_frames(frames):
 
 def clip_keypoints(holistic, frames, fps):
     step = 1000.0 / max(fps, 1.0)
-    return stack_frames([frame_keypoints(holistic, f, int(i * step)) for i, f in enumerate(frames)])
+    out = []
+    last_ts = -1
+    for i, f in enumerate(frames):
+        ts = max(int(i * step), last_ts + 1)
+        last_ts = ts
+        out.append(frame_keypoints(holistic, f, ts))
+    return stack_frames(out)

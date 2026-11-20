@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 data class VoiceState(
     val ready: Boolean = false,
@@ -40,10 +40,11 @@ class Speaker(context: Context) : AutoCloseable {
     /** Called with every measured delay (frame that settled the word -> first sound); the benchmark listens. */
     @Volatile var onDelay: ((Double) -> Unit)? = null
     @Volatile private var ready = false
+    @Volatile private var speechRate = 1.0f
     private val settledAt = ConcurrentHashMap<String, Long>()   // utterance id -> uptime of the frame that settled the word
-    private val waiting = AtomicInteger(0)
+    private val activeIds = ConcurrentHashMap.newKeySet<String>()
     private val delays = ArrayDeque<Double>()
-    private var next = 0L
+    private val next = AtomicLong(0L)
     private val tts: TextToSpeech = TextToSpeech(context.applicationContext) { status -> onInit(status) }
 
     private fun onInit(status: Int) {
@@ -58,6 +59,7 @@ class Speaker(context: Context) : AutoCloseable {
             .sortedWith(compareBy<Voice>({ if (it.locale.country == "US") 0 else 1 }, { it.latency }, { -it.quality }))
             .firstOrNull()
         voice?.let { tts.voice = it }
+        tts.setSpeechRate(speechRate)
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String) {
                 settledAt.remove(utteranceId)?.let { record((SystemClock.uptimeMillis() - it).toDouble()) }
@@ -76,7 +78,7 @@ class Speaker(context: Context) : AutoCloseable {
 
     private fun left(id: String) {
         settledAt.remove(id)
-        if (id != "warm") waiting.updateAndGet { maxOf(it - 1, 0) }
+        activeIds.remove(id)
     }
 
     private fun record(ms: Double) {
@@ -90,26 +92,37 @@ class Speaker(context: Context) : AutoCloseable {
     }
 
     fun setRate(rate: Float) {
+        speechRate = rate
         if (ready) tts.setSpeechRate(rate)
     }
 
     /** [frameAtMs]: SystemClock.uptimeMillis() of the camera frame whose result settled this word. */
     fun speak(word: String, frameAtMs: Long = SystemClock.uptimeMillis()) {
         if (!ready || !enabled || hold) return
-        val id = "w${next++}"
-        val mode = if (waiting.get() >= 2) {
-            waiting.set(0)
+        val id = "w${next.getAndIncrement()}"
+        val mode = if (activeIds.size >= 2) {
+            activeIds.clear()
             settledAt.clear()
             TextToSpeech.QUEUE_FLUSH
         } else TextToSpeech.QUEUE_ADD
         settledAt[id] = frameAtMs
-        waiting.incrementAndGet()
+        activeIds.add(id)
         tts.speak(sayable(word), mode, null, id)
+    }
+
+    /** Speak a word or phrase immediately on explicit user tap, even when automatic speaking is off. */
+    fun speakNow(text: String) {
+        if (!ready || hold || text.isBlank()) return
+        val id = "u${next.getAndIncrement()}"
+        activeIds.clear()
+        settledAt.clear()
+        activeIds.add(id)
+        tts.speak(text.trim(), TextToSpeech.QUEUE_FLUSH, null, id)
     }
 
     fun silence() {
         if (ready) tts.stop()
-        waiting.set(0)
+        activeIds.clear()
         settledAt.clear()
     }
 

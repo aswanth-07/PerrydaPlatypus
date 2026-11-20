@@ -78,14 +78,24 @@ object Embeddings {
 class TaughtMatcher(val signs: List<Pair<String, FloatArray>>, @Volatile var threshold: Float = DEFAULT_THRESHOLD) {
     class Match(val word: String, val cosine: Float)
 
+    private val unitSigns: List<Pair<String, FloatArray>> = signs.map { (w, p) -> w to Embeddings.unit(p) }
+
     /** The closest taught sign whatever its cosine, or null when nothing is taught or there is no embedding. */
     fun best(embedding: FloatArray?): Match? {
-        if (embedding == null || signs.isEmpty()) return null
+        if (embedding == null || unitSigns.isEmpty()) return null
+        val q = Embeddings.unit(embedding)
+        var qNorm = 0.0
+        for (x in q) qNorm += x.toDouble() * x
+        val hasQuery = qNorm > 0.0
         var bestWord: String? = null
         var bestCos = -2f
-        for ((word, proto) in signs) {
-            if (proto.size != embedding.size) continue
-            val c = Embeddings.cosine(embedding, proto)
+        for ((word, proto) in unitSigns) {
+            if (proto.size != q.size) continue
+            val c = if (!hasQuery) 0f else {
+                var dot = 0.0
+                for (i in q.indices) dot += q[i].toDouble() * proto[i]
+                dot.toFloat()
+            }
             if (c > bestCos) { bestCos = c; bestWord = word }
         }
         return bestWord?.let { Match(it, bestCos) }
@@ -169,11 +179,35 @@ object Cores {
     }
 
     /** The steps of [clip] a live window `share` of its length would hold when centred on the sign's core. */
-    fun window(clip: Clip, share: Float): Clip {
+    fun window(clip: Clip, share: Float): Clip = windowShifted(clip, share, 0f)
+
+    /**
+     * Multi-offset crops around the sign's core (centre, slight lead-in, slight lead-out) so a taught sign's
+     * live prototype tolerates real-world timing shifts in continuous signing.
+     */
+    fun windows(clip: Clip, share: Float): List<Clip> {
+        val w = maxOf(8, Math.round(share * clip.t))
+        if (w >= clip.t) return listOf(clip)
+        val s = span(heights(clip))
+        val centre = (s[1] + s[2] - 1) / 2f
+        val shift = maxOf(2f, w * 0.14f)
+        val starts = linkedSetOf(
+            Math.round(centre - (w - 1) / 2f).coerceIn(0, clip.t - w),
+            Math.round(centre - shift - (w - 1) / 2f).coerceIn(0, clip.t - w),
+            Math.round(centre + shift - (w - 1) / 2f).coerceIn(0, clip.t - w),
+        )
+        return starts.map { lo -> slice(clip, lo, w) }
+    }
+
+    private fun windowShifted(clip: Clip, share: Float, offsetFrac: Float): Clip {
         val w = maxOf(8, Math.round(share * clip.t))
         if (w >= clip.t) return clip
         val s = span(heights(clip))
-        val lo = Math.round((s[1] + s[2] - 1) / 2f - (w - 1) / 2f).coerceIn(0, clip.t - w)
+        val lo = Math.round((s[1] + s[2] - 1) / 2f + offsetFrac * w - (w - 1) / 2f).coerceIn(0, clip.t - w)
+        return slice(clip, lo, w)
+    }
+
+    private fun slice(clip: Clip, lo: Int, w: Int): Clip {
         val p3 = Layout.P * 3
         return Clip(w, clip.points.copyOfRange(lo * p3, (lo + w) * p3), clip.world.copyOfRange(lo * 126, (lo + w) * 126),
             clip.seen.copyOfRange(lo * 4, (lo + w) * 4))

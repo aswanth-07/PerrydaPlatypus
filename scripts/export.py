@@ -1,5 +1,5 @@
-"""Export SignNet checkpoints to ONNX (FP32 and static INT8 QDQ) for ONNX Runtime on Android, check that
-INT8 keeps test accuracy, and time it on one CPU thread.
+"""Export SignNet / SignNetV2 / DualStreamSignNet / ConvBiGRUNet checkpoints to ONNX (FP32 and INT8)
+for ONNX Runtime on Android, check that INT8 keeps test accuracy, and time it on one CPU thread.
 
 The exported graph takes the clip already resampled to t_in steps and does everything else itself:
 dominant-hand flip (if the model was trained with it), features, network, and averaging over an ensemble.
@@ -9,6 +9,7 @@ Usage: export.py <index.json> <cache.pt> <out_dir> <ckpt.pt> [<ckpt.pt> ...] [--
 """
 import argparse
 import json
+import math
 import pathlib
 import sys
 import time
@@ -16,11 +17,311 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[1] / "src"))  # normalise, extract, holistic_kp
 import model as mv
+import normalise as dv
 import train as tv
+
+
+def _bn_params(bn: nn.BatchNorm1d):
+    inv = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+    bias = bn.bias - bn.running_mean * inv
+    return inv, bias
+
+
+def _conv1_to_linear(conv: nn.Conv1d) -> nn.Linear:
+    lin = nn.Linear(conv.in_channels, conv.out_channels, bias=conv.bias is not None)
+    with torch.no_grad():
+        lin.weight.copy_(conv.weight.squeeze(-1))
+        if conv.bias is not None:
+            lin.bias.copy_(conv.bias)
+    return lin
+
+
+def _fold_conv1_bn(conv: nn.Conv1d, bn: nn.BatchNorm1d) -> nn.Linear:
+    inv, b = _bn_params(bn)
+    lin = nn.Linear(conv.in_channels, conv.out_channels, bias=True)
+    with torch.no_grad():
+        lin.weight.copy_(conv.weight.squeeze(-1) * inv[:, None])
+        cb = conv.bias if conv.bias is not None else torch.zeros_like(b)
+        lin.bias.copy_(cb * inv + b)
+    return lin
+
+
+def _fold_bn_conv1(bn: nn.BatchNorm1d, conv: nn.Conv1d) -> nn.Linear:
+    inv, b = _bn_params(bn)
+    lin = nn.Linear(conv.in_channels, conv.out_channels, bias=True)
+    with torch.no_grad():
+        w = conv.weight.squeeze(-1)
+        lin.weight.copy_(w * inv[None, :])
+        cb = conv.bias if conv.bias is not None else torch.zeros(conv.out_channels)
+        lin.bias.copy_(w @ b + cb)
+    return lin
+
+
+def _fold_dw_bn(dw: nn.Conv1d, bn: nn.BatchNorm1d) -> nn.Conv1d:
+    inv, b = _bn_params(bn)
+    out = nn.Conv1d(dw.in_channels, dw.out_channels, dw.kernel_size[0],
+                    padding=dw.padding[0], groups=dw.groups, bias=True)
+    with torch.no_grad():
+        out.weight.copy_(dw.weight * inv[:, None, None])
+        cb = dw.bias if dw.bias is not None else torch.zeros_like(b)
+        out.bias.copy_(cb * inv + b)
+    return out
+
+
+def _fold_rep_dw(orig: mv.RepConvBlock) -> nn.Conv1d:
+    """Algebraically merge dw_long+bn_long, dw_short+bn_short, and bn_id into one single depthwise Conv1d."""
+    e = orig.dw_long.in_channels
+    k_long = orig.k_long
+    k_short = orig.k_short
+    out = nn.Conv1d(e, e, k_long, padding=k_long // 2, groups=e, bias=True)
+    with torch.no_grad():
+        inv_l, b_l = _bn_params(orig.bn_long)
+        w = orig.dw_long.weight * inv_l[:, None, None]
+        inv_s, b_s = _bn_params(orig.bn_short)
+        ws = orig.dw_short.weight * inv_s[:, None, None]
+        pad = (k_long - k_short) // 2
+        w[:, :, pad:pad + k_short] += ws
+        inv_i, b_i = _bn_params(orig.bn_id)
+        w[:, 0, k_long // 2] += inv_i
+        out.weight.copy_(w)
+        out.bias.copy_(b_l + b_s + b_i)
+    return out
+
+
+class FastFeatures(nn.Module):
+    """Exact same features as model.Features without redundant full-tensor Gather copies."""
+
+    def __init__(self, orig: mv.Features):
+        super().__init__()
+        self.face = orig.face
+        self.world = orig.world
+        self.c = orig.c
+        self.dim = orig.dim
+        self.body_end = dv.RH[1]
+        self.lh_lo, self.rh_hi = dv.LH[0], dv.RH[1]
+        self.contiguous_all = self.face and self.c == 3
+
+    def forward(self, x, w, s):
+        b, t = x.shape[:2]
+        if self.contiguous_all:
+            pos = x
+            body = x[:, :, :self.body_end, :]
+        else:
+            body = x[:, :, :self.body_end, :self.c]
+            pos = x[:, :, :, :self.c] if self.face else body
+        hands = x[:, :, self.lh_lo:self.rh_hi, :self.c].reshape(b, t, 2, 21, self.c)
+        local = hands - hands[:, :, :, :1, :]
+        size = local[:, :, :, mv.NORM_POINT, :].norm(dim=-1, keepdim=True).unsqueeze(-1).clamp_min(0.05)
+        hands_local = (local / size).clamp(-dv.CLAMP, dv.CLAMP).reshape(b, t, 42 * self.c)
+        vel = torch.cat([torch.zeros_like(body[:, :1]), body[:, 1:] - body[:, :-1]], 1)
+        vel = (vel * 4.0).clamp(-dv.CLAMP, dv.CLAMP).reshape(b, t, -1)
+        parts = [pos.reshape(b, t, -1), hands_local, vel]
+        if self.world:
+            shape, axes = mv.Features.palm_frame(w)
+            parts += [shape.clamp(-dv.CLAMP, dv.CLAMP).reshape(b, t, -1), axes.reshape(b, t, -1)]
+        parts.append(s)
+        return torch.cat(parts, -1)
+
+
+class FastConvBlock(nn.Module):
+    """ConvBlock or RepConvBlock in B x T x C layout: pointwise convs become Linear (fused DynamicQuantizeMatMul
+    in ORT), all depthwise + BatchNorm1d branches fold into ONE depthwise conv, and ECA runs without transposes."""
+
+    def __init__(self, orig):
+        super().__init__()
+        self.expand = _conv1_to_linear(orig.expand)
+        if isinstance(orig, mv.RepConvBlock):
+            self.dw = _fold_rep_dw(orig)
+        else:
+            self.dw = _fold_dw_bn(orig.dw, orig.bn)
+        self.eca = nn.Conv1d(1, 1, orig.eca.conv.kernel_size[0], padding=orig.eca.conv.padding[0], bias=False)
+        with torch.no_grad():
+            self.eca.weight.copy_(orig.eca.conv.weight)
+        self.project = _conv1_to_linear(orig.project)
+
+    def forward(self, x):  # B x T x C
+        h = F.silu(self.expand(x)).transpose(1, 2)
+        h = F.silu(self.dw(h)).transpose(1, 2)
+        g = torch.sigmoid(self.eca(h.mean(1, keepdim=True)))
+        return x + self.project(h * g)
+
+
+class FastTransformerBlock(nn.Module):
+    """TransformerBlock in B x T x C layout with norm1 folded into qkv and norm2 folded into ff1."""
+
+    def __init__(self, orig: mv.TransformerBlock):
+        super().__init__()
+        self.heads = orig.heads
+        self.head_dim = orig.proj.in_channels // orig.heads
+        self.scale = 1.0 / math.sqrt(self.head_dim)
+        self.qkv = _fold_bn_conv1(orig.norm1, orig.qkv)
+        self.proj = _conv1_to_linear(orig.proj)
+        self.ff1 = _fold_bn_conv1(orig.norm2, orig.ff1)
+        self.ff2 = _conv1_to_linear(orig.ff2)
+
+    def forward(self, x):  # B x T x C
+        b, t, c = x.shape
+        qkv = self.qkv(x).reshape(b, t, 3, self.heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+        att = torch.softmax((q @ k.transpose(-1, -2)) * self.scale, dim=-1)
+        h = (att @ v).transpose(1, 2).reshape(b, t, c)
+        x = x + self.proj(h)
+        return x + self.ff2(F.silu(self.ff1(x)))
+
+
+def _fold_blocks(seq: nn.Sequential) -> nn.Sequential:
+    out = []
+    for blk in seq:
+        if isinstance(blk, (mv.ConvBlock, mv.RepConvBlock)):
+            out.append(FastConvBlock(blk))
+        elif isinstance(blk, mv.TransformerBlock):
+            out.append(FastTransformerBlock(blk))
+        else:
+            raise TypeError(f"Unsupported block type: {type(blk)}")
+    return nn.Sequential(*out)
+
+
+class FastSignNet(nn.Module):
+    """Inference-folded SignNet / SignNetV2: exact FP32 match to PyTorch, eliminating all BatchNorm1d and
+    RepConv multi-branch ops and converting all pointwise Conv1d(k=1) to Linear for ORT DynamicQuantizeMatMul."""
+
+    def __init__(self, orig: mv.SignNet):
+        super().__init__()
+        self.t_in = orig.t_in
+        self.pool = orig.pool
+        self.feat_ver = getattr(orig, "feat_ver", 1)
+        self.register_buffer("pool_w", orig.pool_w.clone().view(1, -1, 1), persistent=False)
+        self.features = orig.features if isinstance(orig.features, mv.FeaturesV2) else FastFeatures(orig.features)
+        self.stem = _fold_conv1_bn(orig.stem, orig.stem_bn)
+        self.blocks = _fold_blocks(orig.blocks)
+        self.top = _conv1_to_linear(orig.top)
+        self.attn_pool = orig.attn_pool
+        self.head = orig.head
+
+    def embed_from_feat(self, feat_btc):
+        h = self.stem(feat_btc)
+        h = self.blocks(h)
+        h = F.silu(self.top(h))
+        if self.attn_pool is not None:
+            return self.attn_pool.forward_btc(h)
+        return h.mean(1) if self.pool == "mean" else (h * self.pool_w).sum(1)
+
+    def embed(self, x, w, s):
+        return self.embed_from_feat(self.features(x, w, s))
+
+    def forward(self, x, w, s):
+        return self.head(self.embed(x, w, s))
+
+
+class FastDualStreamSignNet(nn.Module):
+    """Inference-folded DualStreamSignNet in B x T x C layout."""
+
+    def __init__(self, orig: mv.DualStreamSignNet):
+        super().__init__()
+        self.t_in = orig.t_in
+        self.pool = orig.pool
+        self.feat_ver = 2
+        self.register_buffer("pool_w", orig.pool_w.clone().view(1, -1, 1), persistent=False)
+        self.features = orig.features
+        self.hand_stem = _fold_conv1_bn(orig.hand_stem, orig.hand_bn)
+        self.body_stem = _fold_conv1_bn(orig.body_stem, orig.body_bn)
+        self.hand_blocks = _fold_blocks(orig.hand_blocks)
+        self.body_blocks = _fold_blocks(orig.body_blocks)
+        self.gate_b2h = _conv1_to_linear(orig.gate_b2h)
+        self.gate_h2b = _conv1_to_linear(orig.gate_h2b)
+        self.fuse = _fold_conv1_bn(orig.fuse, orig.fuse_bn)
+        self.joint_blocks = _fold_blocks(orig.joint_blocks)
+        self.top = _conv1_to_linear(orig.top)
+        self.attn_pool = orig.attn_pool
+        self.head = orig.head
+
+    def embed_from_streams(self, hf, bf):
+        hh = self.hand_blocks(self.hand_stem(hf))
+        hb = self.body_blocks(self.body_stem(bf))
+        hh_g = hh * torch.sigmoid(self.gate_b2h(hb))
+        hb_g = hb * torch.sigmoid(self.gate_h2b(hh))
+        h = F.silu(self.fuse(torch.cat([hh_g, hb_g], -1)))
+        h = F.silu(self.top(self.joint_blocks(h)))
+        if self.attn_pool is not None:
+            return self.attn_pool.forward_btc(h)
+        return h.mean(1) if self.pool == "mean" else (h * self.pool_w).sum(1)
+
+    def embed(self, x, w, s):
+        hf, bf = self.features.forward_streams(x, w, s)
+        return self.embed_from_streams(hf, bf)
+
+    def forward(self, x, w, s):
+        return self.head(self.embed(x, w, s))
+
+
+class FastConvBiGRUNet(nn.Module):
+    """Inference-folded ConvBiGRUNet in B x T x C layout."""
+
+    def __init__(self, orig: mv.ConvBiGRUNet):
+        super().__init__()
+        self.t_in = orig.t_in
+        self.pool = orig.pool
+        self.feat_ver = orig.feat_ver
+        self.register_buffer("pool_w", orig.pool_w.clone().view(1, -1, 1), persistent=False)
+        self.features = orig.features if isinstance(orig.features, mv.FeaturesV2) else FastFeatures(orig.features)
+        self.stem = _fold_conv1_bn(orig.stem, orig.stem_bn)
+        self.conv_pre = _fold_blocks(orig.conv_pre)
+        self.gru1 = orig.gru1
+        self.gru1_proj = _fold_conv1_bn(orig.gru1_proj, orig.gru1_bn)
+        self.conv_mid = FastConvBlock(orig.conv_mid)
+        self.gru2 = orig.gru2
+        self.gru2_bn_top = _fold_bn_conv1(orig.gru2_bn, orig.top) if False else None
+        # Note: gru2_bn -> SiLU -> top, so keep affine scale+bias for gru2_bn before SiLU!
+        inv, b = _bn_params(orig.gru2_bn)
+        self.register_buffer("g2_scale", inv.view(1, 1, -1))
+        self.register_buffer("g2_bias", b.view(1, 1, -1))
+        self.top = _conv1_to_linear(orig.top)
+        self.attn_pool = orig.attn_pool
+        self.head = orig.head
+
+    def embed_from_feat(self, feat_btc):
+        h = self.conv_pre(self.stem(feat_btc))
+        g1, _ = self.gru1(h)
+        h = h + self.gru1_proj(g1)
+        h = self.conv_mid(h)
+        g2, _ = self.gru2(h)
+        h = F.silu(self.top(F.silu(g2 * self.g2_scale + self.g2_bias)))
+        if self.attn_pool is not None:
+            return self.attn_pool.forward_btc(h)
+        return h.mean(1) if self.pool == "mean" else (h * self.pool_w).sum(1)
+
+    def embed(self, x, w, s):
+        return self.embed_from_feat(self.features(x, w, s))
+
+    def forward(self, x, w, s):
+        return self.head(self.embed(x, w, s))
+
+
+def fold_model(m: nn.Module) -> nn.Module:
+    if isinstance(m, mv.SignNet):
+        return FastSignNet(m).eval()
+    if isinstance(m, mv.DualStreamSignNet):
+        return FastDualStreamSignNet(m).eval()
+    if isinstance(m, mv.ConvBiGRUNet):
+        return FastConvBiGRUNet(m).eval()
+    raise TypeError(f"Unsupported model type for folding: {type(m)}")
+
+
+@torch.jit.script
+def _cond_flip(left: torch.Tensor, x: torch.Tensor, w: torch.Tensor, s: torch.Tensor, perm: torch.Tensor):
+    if bool(left[0].item()):
+        xf = x.index_select(2, perm)
+        xf = torch.cat([-xf[..., :1], xf[..., 1:]], -1)
+        wf = torch.stack([w[:, :, 1], w[:, :, 0]], 2)
+        wf = torch.cat([-wf[..., :1], wf[..., 1:]], -1)
+        sf = torch.stack([s[..., 0], s[..., 2], s[..., 1], s[..., 3]], -1)
+        return xf, wf, sf
+    return x, w, s
 
 
 class Deploy(nn.Module):
@@ -31,7 +332,7 @@ class Deploy(nn.Module):
     none [1, 1], the probability that the window is centred between two signs; its word outputs then sum to
     1 - none."""
 
-    def __init__(self, models, cfgs, face_flip, rule=None):
+    def __init__(self, models, cfgs, face_flip, rule=None, cond_flip=False, weights=None):
         super().__init__()
         self.models = nn.ModuleList(models)
         self.canon = [bool(c["canon"]) for c in cfgs]
@@ -40,6 +341,35 @@ class Deploy(nn.Module):
         self.t_in = cfgs[0]["t_in"]
         self.rule = rule
         self.none = bool(cfgs[0].get("none_class"))
+        self.cond_flip = cond_flip
+        if weights is None:
+            ws = [1.0 / len(models)] * len(models)
+        else:
+            s = sum(weights)
+            ws = [w / s for w in weights]
+        self.weights = ws
+        # Share CondFlip across ensemble members that share the exact same (canon, canon_rel) setting
+        self.shared_canon = (len(models) > 1 and all(c == self.canon[0] for c in self.canon)
+                             and all(r == self.canon_rel[0] for r in self.canon_rel))
+        # Share FeaturesV2 across ensemble members when both use FeaturesV2 on the same canonicalized input
+        self.shared_feat_v2 = (
+            self.shared_canon
+            and all(isinstance(getattr(m, "features", None), mv.FeaturesV2) for m in models)
+            and all(m.features.face == models[0].features.face
+                    and m.features.world == models[0].features.world
+                    and m.features.c == models[0].features.c for m in models)
+        )
+        # Check if all models have matching embedding dim so we can combine embeddings cleanly for Teach-a-Sign
+        self.norm_combine_emb = len(models) > 1
+
+    def _dom_left(self, x, s, rel: bool):
+        mid = (x[:, :, dv.SHOULDERS[0], :2] + x[:, :, dv.SHOULDERS[1], :2]) * 0.5 if rel else 0
+        scores = []
+        for slot, wi in ((1, tv.POSE_WRIST[0]), (2, tv.POSE_WRIST[1])):
+            wr = x[:, :, wi, :2] - mid
+            path = (wr[:, 1:] - wr[:, :-1]).norm(dim=-1).sum(1)
+            scores.append(s[..., slot].mean(1) + 2.0 * path)
+        return scores[0] > scores[1]
 
     def flip(self, x, w, s):
         xf = x.index_select(2, self.perm)
@@ -49,21 +379,77 @@ class Deploy(nn.Module):
         sf = torch.stack([s[..., 0], s[..., 2], s[..., 1], s[..., 3]], -1)
         return xf, wf, sf
 
+    def _apply_canon(self, x, w, s, rel: bool):
+        left = self._dom_left(x, s, rel)
+        if self.cond_flip:
+            return _cond_flip(left, x, w, s, self.perm)
+        l4 = left[:, None, None, None]
+        xf, wf, sf = self.flip(x, w, s)
+        return torch.where(l4, xf, x), torch.where(l4[..., None], wf, w), torch.where(l4[:, :, :, 0], sf, s)
+
     def forward(self, x, w, s):
-        lengths = torch.full((x.shape[0],), self.t_in, dtype=torch.long, device=x.device)
-        probs, emb = 0, 0
-        for m, canon, rel in zip(self.models, self.canon, self.canon_rel):
-            xi, wi, si = x, w, s
-            if canon:
-                left = tv.dominant_left(x, s, lengths, rel)[:, None, None, None]
-                xf, wf, sf = self.flip(x, w, s)
-                xi = torch.where(left, xf, x)
-                wi = torch.where(left[..., None], wf, w)
-                si = torch.where(left[:, :, :, 0], sf, s)
-            e = m.embed(xi, wi, si)
-            probs = probs + torch.softmax(m.head(e), -1)
-            emb = emb + e
-        raw, emb = probs / len(self.models), emb / len(self.models)
+        probs = 0
+        embs = []
+        if self.shared_canon:
+            xs, ws, ss = self._apply_canon(x, w, s, self.canon_rel[0]) if self.canon[0] else (x, w, s)
+            if self.shared_feat_v2:
+                # Compute shared FeaturesV2 intermediate tensors ONCE for both flat and dual-stream models!
+                fmod = self.models[0].features
+                b, t = xs.shape[:2]
+                (pose, face_pos, body, hands_local, vel1, pose_vel1, hands_vel1,
+                 shape, axes, bones, intra_dists, contacts, hw_acc, wrist_acc, hands_acc,
+                 vel2, fvel, speeds, h_anc_pos, seen) = fmod._compute(xs, ws, ss)
+                flat_feat = None
+                stream_feat = None
+                for m, wt in zip(self.models, self.weights):
+                    if isinstance(m, (FastDualStreamSignNet, mv.DualStreamSignNet)):
+                        if stream_feat is None:
+                            h_parts = [hands_local.reshape(b, t, -1)]
+                            if fmod.world:
+                                h_parts += [shape.reshape(b, t, -1), axes.reshape(b, t, -1)]
+                            h_parts += [bones.reshape(b, t, -1), intra_dists.reshape(b, t, -1),
+                                        hands_vel1.reshape(b, t, -1), hands_acc.reshape(b, t, -1), seen[:, :, 1:3]]
+                            b_parts = [pose.reshape(b, t, -1)]
+                            if fmod.face:
+                                b_parts.append(face_pos.reshape(b, t, -1))
+                            b_parts += [h_anc_pos.reshape(b, t, -1), pose_vel1.reshape(b, t, -1),
+                                        wrist_acc.reshape(b, t, -1), vel2.reshape(b, t, -1)]
+                            if fmod.face:
+                                b_parts.append(fvel.reshape(b, t, -1))
+                            b_parts.append(contacts)
+                            if fmod.world:
+                                b_parts.append(axes.reshape(b, t, -1))
+                            b_parts += [speeds, seen]
+                            stream_feat = (torch.cat(h_parts, -1), torch.cat(b_parts, -1))
+                        e = m.embed_from_streams(stream_feat[0], stream_feat[1]) if isinstance(m, FastDualStreamSignNet) else m.embed(xs, ws, ss)
+                    else:
+                        if flat_feat is None:
+                            pos = xs[:, :, :, :fmod.c] if fmod.face else body
+                            parts = [pos.reshape(b, t, -1), hands_local.reshape(b, t, -1), vel1.reshape(b, t, -1)]
+                            if fmod.world:
+                                parts += [shape.reshape(b, t, -1), axes.reshape(b, t, -1)]
+                            parts += [bones.reshape(b, t, -1), intra_dists.reshape(b, t, -1), contacts,
+                                      hw_acc.reshape(b, t, -1), vel2.reshape(b, t, -1)]
+                            if fmod.face:
+                                parts.append(fvel.reshape(b, t, -1))
+                            parts += [speeds, seen]
+                            flat_feat = torch.cat(parts, -1)
+                        e = m.embed_from_feat(flat_feat)
+                    probs = probs + wt * torch.softmax(m.head(e), -1)
+                    embs.append(e / (e.norm(dim=-1, keepdim=True) + 1e-12) * math.sqrt(wt) if self.norm_combine_emb else e)
+            else:
+                for m, wt in zip(self.models, self.weights):
+                    e = m.embed(xs, ws, ss)
+                    probs = probs + wt * torch.softmax(m.head(e), -1)
+                    embs.append(e / (e.norm(dim=-1, keepdim=True) + 1e-12) * math.sqrt(wt) if self.norm_combine_emb else e)
+        else:
+            for m, canon, rel, wt in zip(self.models, self.canon, self.canon_rel, self.weights):
+                xi, wi, si = self._apply_canon(x, w, s, rel) if canon else (x, w, s)
+                e = m.embed(xi, wi, si)
+                probs = probs + wt * torch.softmax(m.head(e), -1)
+                embs.append(e / (e.norm(dim=-1, keepdim=True) + 1e-12) * math.sqrt(wt) if self.norm_combine_emb else e)
+        emb = embs[0] if len(embs) == 1 else torch.cat(embs, -1)
+        raw = probs
         none = ()
         if self.none:   # the last class is "no sign": it leaves the word outputs and comes out on its own
             raw, none = raw[:, :-1], (raw[:, -1:],)
@@ -87,6 +473,7 @@ def run_onnx(path, feeds, y, threads=1, reference=None):
     so = ort.SessionOptions()
     so.intra_op_num_threads = threads
     so.inter_op_num_threads = 1
+    so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     sess = ort.InferenceSession(str(path), so, providers=["CPUExecutionProvider"])
     probs, times = [], []
     for f in feeds:
@@ -109,17 +496,22 @@ def main():
     ap.add_argument("ckpts", nargs="+")
     ap.add_argument("--subset", type=int, default=100)
     ap.add_argument("--calib", type=int, default=400)
-    ap.add_argument("--ops", default="Conv,Gemm", help="op types quantized to INT8")
+    ap.add_argument("--ops", default="", help="op types quantized to INT8 (default: Gemm,MatMul when folded+dynamic, else Conv,Gemm)")
     ap.add_argument("--calib-method", default="MinMax", choices=["MinMax", "Entropy", "Percentile"],
                     help="how activation ranges are set from the calibration clips")
     ap.add_argument("--act-type", default="QInt8", choices=["QInt8", "QUInt8"], help="activation integer type (static)")
     ap.add_argument("--dynamic", action="store_true",
                     help="weight-only INT8 (activations quantized on the fly) instead of static calibration")
-    ap.add_argument("--exclude", default="", help="comma-separated substrings of node names kept in FP32 (e.g. stem/Conv,eca)")
+    ap.add_argument("--exclude", default="", help="comma-separated substrings of node names kept in FP32 (e.g. stem,attn_pool)")
     ap.add_argument("--labels", default="", help="JSON label list for vocabularies beyond the WLASL index (union)")
     ap.add_argument("--set-rule", action="store_true",
                     help="put the same-sign answer rule (signsets.py, sets from train+val listings) inside the graph")
+    ap.add_argument("--no-fold", action="store_true",
+                    help="keep the unfused Conv1d+BatchNorm1d graph instead of folding into B x T x C Linear + FastSetRule + CondFlip")
+    ap.add_argument("--weights", default="", help="comma-separated ensemble weights matching ckpts")
     a = ap.parse_args()
+    fold = not a.no_fold
+    ops = a.ops or ("Gemm,MatMul" if (fold and a.dynamic) else "Conv,Gemm")
     from onnxruntime.quantization import (CalibrationDataReader, CalibrationMethod, QuantFormat, QuantType, quantize_dynamic,
                                           quantize_static)
     from onnxruntime.quantization.shape_inference import quant_pre_process
@@ -127,13 +519,15 @@ def main():
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     cks = [torch.load(c, weights_only=False) for c in a.ckpts]
+    weights = [float(x) for x in a.weights.split(",")] if a.weights else None
     models = []
     for ck in cks:
         m = mv.build(ck["cfg"], ck["classes"])
         m.load_state_dict(ck["state"])
         if isinstance(m.head, mv.CosineHead):
             m.head = m.head.folded()   # a plain Linear on normalised input, so it is quantized as a Gemm
-        models.append(m.eval())
+        m.eval()
+        models.append(fold_model(m) if fold else m)
     entries = json.load(open(a.index, encoding="utf-8"))
     rule, sets_info = None, None
     if a.set_rule:
@@ -144,10 +538,11 @@ def main():
         # Classes outside the WLASL index (a union vocabulary) are sets of their own with a neutral weight.
         set_of = torch.cat([set_of, int(set_of.max()) + 1 + torch.arange(n_cls - n_idx)])
         counts = torch.cat([counts, torch.ones(n_cls - n_idx)])
-        rule = signsets.SetRule(set_of, counts)
+        rule = signsets.FastSetRule(set_of, counts) if fold else signsets.SetRule(set_of, counts)
         sets_info = dict(links=links, sets_of_two_or_more=int((torch.bincount(set_of) > 1).sum()),
                          gamma=signsets.GAMMA, beta=signsets.BETA, set_of=set_of.tolist())
-    deploy = Deploy(models, [ck["cfg"] for ck in cks], cks[0].get("face_flip", torch.arange(62)), rule).eval()
+    deploy = Deploy(models, [ck["cfg"] for ck in cks], cks[0].get("face_flip", torch.arange(62)),
+                    rule, cond_flip=fold, weights=weights).eval()
     t_in = deploy.t_in
 
     cache = torch.load(a.cache, weights_only=False)
@@ -177,24 +572,22 @@ def main():
         def get_next(self):
             return next(self.it, None)
 
-    # Only the weight-bearing ops go to INT8. The coordinate maths in front (palm frame, differences,
-    # norms) and the activation-by-activation attention products lose 6 points top-1 when quantized.
     import onnx
     keep = [k for k in a.exclude.split(",") if k]
     exclude = [n.name for n in onnx.load(str(raw)).graph.node if any(k in n.name for k in keep)]
     if a.dynamic:
         quantize_dynamic(str(raw), str(int8), per_channel=True, weight_type=QuantType.QInt8,
-                         op_types_to_quantize=a.ops.split(","), nodes_to_exclude=exclude)
+                         op_types_to_quantize=ops.split(","), nodes_to_exclude=exclude)
     else:
         quantize_static(str(raw), str(int8), Reader(), quant_format=QuantFormat.QDQ, per_channel=True,
                         activation_type=getattr(QuantType, a.act_type), weight_type=QuantType.QInt8,
-                        op_types_to_quantize=a.ops.split(","), calibrate_method=getattr(CalibrationMethod, a.calib_method),
+                        op_types_to_quantize=ops.split(","), calibrate_method=getattr(CalibrationMethod, a.calib_method),
                         nodes_to_exclude=exclude)
     raw.unlink()
-    res = dict(ckpts=a.ckpts, t_in=t_in, test_clips=len(y), none_class=deploy.none,
-               int8_scheme=dict(dynamic=a.dynamic, ops=a.ops, fp32_nodes=exclude),
+    res = dict(ckpts=a.ckpts, weights=weights, t_in=t_in, test_clips=len(y), none_class=deploy.none,
+               int8_scheme=dict(dynamic=a.dynamic, folded=fold, ops=ops, fp32_nodes=exclude),
                torch=tv.score(torch_probs, y))
-    if sets_info is not None:  # the network's own answer, before the rule, for the record
+    if sets_info is not None:
         res["torch_before_rule"] = tv.score(torch_raw, y)
         res["same_sign"] = {k: v for k, v in sets_info.items() if k != "set_of"}
         (out / "sets.json").write_text(json.dumps(sets_info["set_of"]), encoding="utf-8")

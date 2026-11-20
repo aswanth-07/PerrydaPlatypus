@@ -1,28 +1,13 @@
 {
  "model_dir": "src/models",
- "shards": 6,
- "landmarker": "reused",
+ "model_file": "echogesture_int8.onnx",
+ "source": "WLASL2000 official test split (cached Holistic keypoints, 1 CPU thread)",
  "clips": 2878,
- "cut_from_longer_videos": 8,
- "top1": 64.63,
- "top5": 92.01,
- "whole_clip_ms": {
-  "p50": 2943.57,
-  "p95": 5244.43
- },
+ "top1": 67.93,
+ "top5": 93.99,
  "latency_ms": {
-  "p50": 7.29,
-  "p95": 10.83
- },
- "decode_ms_p50": 21.12,
- "keypoints_ms": {
-  "p50": 2916.56,
-  "p95": 5200.98
- },
- "keypoints_per_frame_ms_p50": 52.92,
- "classifier_ms": {
-  "p50": 7.29,
-  "p95": 10.83
- },
- "frames_p50": 56
+  "p50": 5.61,
+  "p95": 7.54,
+  "mean": 5.79
+ }
 }

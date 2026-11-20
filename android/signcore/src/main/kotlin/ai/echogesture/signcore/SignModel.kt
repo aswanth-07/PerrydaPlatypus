@@ -20,12 +20,50 @@ class Prediction(
     val setProbs: FloatArray = probs, val embedding: FloatArray? = null, val rawProbs: FloatArray? = null,
     val none: Float = 0f,
 ) {
-    val order: List<Int> = probs.indices.sortedByDescending { probs[it] }
-    val top: String get() = labels[order[0]]
-    val confidence: Float get() = probs[order[0]]
+    /** Full ranking across all labels, computed lazily only when needed (e.g. SameSignSets.alternatives). */
+    val order: List<Int> by lazy { probs.indices.sortedByDescending { probs[it] } }
+    private val top5Idx: IntArray = selectTopK(probs, 5)
+    val topIndex: Int get() = if (top5Idx.isNotEmpty()) top5Idx[0] else 0
+    val top: String get() = labels[topIndex]
+    val confidence: Float get() = probs[topIndex]
     /** How sure the model is of the sign itself, whichever of its names is shown. */
-    val setConfidence: Float get() = setProbs[order[0]]
-    fun topK(k: Int): List<Pair<String, Float>> = order.take(k).map { labels[it] to probs[it] }
+    val setConfidence: Float get() = setProbs[topIndex]
+    /** Zero-boxing top-k label indices, descending by probability with ties broken to the lower index. */
+    fun topIndices(k: Int): IntArray = when {
+        k <= 0 || probs.isEmpty() -> IntArray(0)
+        k == top5Idx.size -> top5Idx
+        k < top5Idx.size -> top5Idx.copyOf(k)
+        k <= 16 -> selectTopK(probs, k)
+        else -> order.take(k).toIntArray()
+    }
+    fun topK(k: Int): List<Pair<String, Float>> {
+        val idx = topIndices(k)
+        return List(idx.size) { i -> val j = idx[i]; labels[j] to probs[j] }
+    }
+
+    companion object {
+        private fun selectTopK(probs: FloatArray, k: Int): IntArray {
+            val n = minOf(k, probs.size)
+            if (n <= 0) return IntArray(0)
+            val idx = IntArray(n) { -1 }
+            val vals = FloatArray(n) { Float.NEGATIVE_INFINITY }
+            var filled = 0
+            for (i in probs.indices) {
+                val p = probs[i]
+                if (filled == n && p <= vals[n - 1]) continue
+                var pos = if (filled < n) filled++ else n - 1
+                // Strict > preserves stable lower-index tie breaking (matching sortedByDescending).
+                while (pos > 0 && p > vals[pos - 1]) {
+                    vals[pos] = vals[pos - 1]
+                    idx[pos] = idx[pos - 1]
+                    pos--
+                }
+                vals[pos] = p
+                idx[pos] = i
+            }
+            return idx
+        }
+    }
 }
 
 /**
@@ -39,34 +77,50 @@ class SignModel(
 ) : AutoCloseable {
     private val env = OrtEnvironment.getEnvironment()
     private val session: OrtSession
+    private val ptsShape = longArrayOf(1, tIn.toLong(), Layout.P.toLong(), 3)
+    private val wldShape = longArrayOf(1, tIn.toLong(), 2, 21, 3)
+    private val seenShape = longArrayOf(1, tIn.toLong(), 4)
 
     init {
-        val opts = OrtSession.SessionOptions()
-        opts.setIntraOpNumThreads(threads)
-        opts.setInterOpNumThreads(1)
-        opts.addConfigEntry("session.intra_op.allow_spinning", if (spin) "1" else "0")
-        opts.addConfigEntry("session.inter_op.allow_spinning", if (spin) "1" else "0")
-        session = env.createSession(modelBytes, opts)
+        session = OrtSession.SessionOptions().use { opts ->
+            opts.setIntraOpNumThreads(threads)
+            opts.setInterOpNumThreads(1)
+            opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            opts.setMemoryPatternOptimization(true)
+            opts.addConfigEntry("session.intra_op.allow_spinning", if (spin) "1" else "0")
+            opts.addConfigEntry("session.inter_op.allow_spinning", if (spin) "1" else "0")
+            env.createSession(modelBytes, opts)
+        }
     }
 
     fun classify(clip: Clip): Prediction {
         val c = if (clip.t == tIn) clip else Resampler.resample(clip, tIn)
         val start = System.nanoTime()
-        val inputs = mapOf(
-            "points" to OnnxTensor.createTensor(env, FloatBuffer.wrap(c.points), longArrayOf(1, tIn.toLong(), Layout.P.toLong(), 3)),
-            "world" to OnnxTensor.createTensor(env, FloatBuffer.wrap(c.world), longArrayOf(1, tIn.toLong(), 2, 21, 3)),
-            "seen" to OnnxTensor.createTensor(env, FloatBuffer.wrap(c.seen), longArrayOf(1, tIn.toLong(), 4)),
-        )
-        val prediction = session.run(inputs).use { result ->
-            @Suppress("UNCHECKED_CAST")
-            fun row(name: String): FloatArray? = result.get(name).orElse(null)?.let { (it.value as Array<FloatArray>)[0] }
-            @Suppress("UNCHECKED_CAST")
-            val probs = (result[0].value as Array<FloatArray>)[0]
-            Prediction(labels, probs, (System.nanoTime() - start) / 1e6, row("set_probs") ?: probs, row("embedding"), row("raw_probs"),
-                row("none")?.get(0) ?: 0f)
+        var tPts: OnnxTensor? = null
+        var tWld: OnnxTensor? = null
+        var tSeen: OnnxTensor? = null
+        try {
+            tPts = OnnxTensor.createTensor(env, FloatBuffer.wrap(c.points), ptsShape)
+            tWld = OnnxTensor.createTensor(env, FloatBuffer.wrap(c.world), wldShape)
+            tSeen = OnnxTensor.createTensor(env, FloatBuffer.wrap(c.seen), seenShape)
+            val inputs = HashMap<String, OnnxTensor>(4).apply {
+                put("points", tPts)
+                put("world", tWld)
+                put("seen", tSeen)
+            }
+            return session.run(inputs).use { result ->
+                @Suppress("UNCHECKED_CAST")
+                fun row(name: String): FloatArray? = result.get(name).orElse(null)?.let { (it.value as Array<FloatArray>)[0] }
+                @Suppress("UNCHECKED_CAST")
+                val probs = (result[0].value as Array<FloatArray>)[0]
+                Prediction(labels, probs, (System.nanoTime() - start) / 1e6, row("set_probs") ?: probs, row("embedding"), row("raw_probs"),
+                    row("none")?.get(0) ?: 0f)
+            }
+        } finally {
+            tPts?.close()
+            tWld?.close()
+            tSeen?.close()
         }
-        inputs.values.forEach { it.close() }
-        return prediction
     }
 
     /** Raw frames from a whole clip, as predict(video) sees them: at most maxFrames evenly spaced. */

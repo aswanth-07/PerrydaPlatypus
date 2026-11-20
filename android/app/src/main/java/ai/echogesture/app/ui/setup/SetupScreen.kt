@@ -169,11 +169,11 @@ private fun UseChoice(icon: ImageVector, title: String, body: String, selected: 
     val fill by animateColorAsState(
         if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer, tween(Motion.MEDIUM), label = "choice",
     )
-    val edge by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, tween(Motion.MEDIUM), label = "edge")
+    val edge by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else Palette.Hairline, tween(Motion.MEDIUM), label = "edge")
     Row(
         press.scale.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(fill)
-            .border(2.dp, edge, RoundedCornerShape(20.dp))
+            .border(if (selected) 2.dp else 1.dp, edge, RoundedCornerShape(20.dp))
             .selectable(selected = selected, interactionSource = press.interaction, indication = ripple(), role = Role.RadioButton, onClick = onClick)
             .padding(18.dp),
         verticalAlignment = Alignment.Top,

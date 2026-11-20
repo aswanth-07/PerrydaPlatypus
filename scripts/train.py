@@ -1,4 +1,5 @@
-"""Train SignNet on a WLASL subset on the GPU and report held-out test accuracy.
+"""Train SignNet / SignNetV2 / DualStreamSignNet / ConvBiGRUNet on a WLASL subset on the GPU
+and report held-out test accuracy.
 
 Everything after loading the cache runs on the GPU: temporal sampling, augmentation, features, model.
 The checkpoint (an EMA of the weights) is chosen on validation top-1; test is read only at the end.
@@ -48,8 +49,7 @@ def select(cache, entries, subset, train_ids=None):
 
 
 def shrink(cache, t_max):
-    """Thin every clip longer than t_max to t_max evenly spaced frames and cut the padding: about half the memory
-    at t_max 48, with no effect on inference (the model resamples to 64 steps; predict() landmarks 24 frames)."""
+    """Thin every clip longer than t_max to t_max evenly spaced frames and cut the padding."""
     L = cache["L"]
     if cache["X"].shape[1] <= t_max:
         return cache
@@ -63,8 +63,19 @@ def shrink(cache, t_max):
 
 
 def merge(cache, extra):
-    for k in ("X", "W", "S", "L"):
-        cache[k] = torch.cat([cache[k], extra[k]])
+    # Pad T dimension if caches have different T_MAX (e.g., WLASL T=64/96 and ASL Citizen T=48)
+    t1, t2 = cache["X"].shape[1], extra["X"].shape[1]
+    t = max(t1, t2)
+
+    def pad_t(z, target):
+        if z.shape[1] == target:
+            return z
+        pad = (0, 0) * (z.dim() - 2) + (0, target - z.shape[1])
+        return F.pad(z, pad)
+
+    for k in ("X", "W", "S"):
+        cache[k] = torch.cat([pad_t(cache[k], t), pad_t(extra[k], t)])
+    cache["L"] = torch.cat([cache["L"], extra["L"]])
     cache["vid"] = list(cache["vid"]) + list(extra["vid"])
     return cache
 
@@ -189,11 +200,11 @@ def augment(x, w, s, perm, a):
     # Moving head: a smooth drift of the whole view that changes over the clip.
     if a.shake > 0:
         tt = torch.linspace(0, 1, t, device=dev)[None, :]
-        for c in (0, 1):
+        for ch in (0, 1):
             amp = torch.empty(b, 1, device=dev).uniform_(0, a.shake)
             freq = torch.empty(b, 1, device=dev).uniform_(0.5, 2.5)
             phase = torch.empty(b, 1, device=dev).uniform_(0, 2 * np.pi)
-            x[..., c] = x[..., c] + (amp * torch.sin(2 * np.pi * freq * tt + phase))[:, :, None]
+            x[..., ch] = x[..., ch] + (amp * torch.sin(2 * np.pi * freq * tt + phase))[:, :, None]
 
     # Handshape: small rotation and scale of each hand about its wrist.
     for lo, hi in (dv.LH, dv.RH):
@@ -208,12 +219,23 @@ def augment(x, w, s, perm, a):
     x = (x + torch.randn_like(x) * a.noise) * present
 
     # Occlusion: a hand lost for a stretch, a finger lost for the clip, the face lost for the clip.
+    occ_fill = getattr(a, "occ_fill", False)
     for slot, (lo, hi) in ((1, dv.LH), (2, dv.RH)):
-        m = span_mask(b, t, a.hand_drop, dev)
-        keep = (~m).float()
-        x[:, :, lo:hi] = x[:, :, lo:hi] * keep[:, :, None, None]
-        w[:, :, slot - 1] = w[:, :, slot - 1] * keep[:, :, None, None]
-        s[..., slot] = s[..., slot] * keep
+        m = span_mask(b, t, a.hand_drop, dev, lo=4, hi_frac=0.75 if occ_fill else 0.5)
+        if occ_fill and bool(m.any()):
+            # Match normalise.fill_group(): linearly interpolate occluded gaps instead of zeroing to chest origin
+            has = (~m) & (s[..., slot] > 0.05)
+            # Also occasionally drop the entire hand (when full hand was occluded)
+            full_drop = (torch.rand(b, device=dev) < a.hand_drop * 0.25)[:, None]
+            has = has & (~full_drop)
+            x[:, :, lo:hi] = contsign._fill(x[:, :, lo:hi], has)
+            w[:, :, slot - 1] = contsign._fill(w[:, :, slot - 1], has)
+            s[..., slot] = s[..., slot] * has.float()
+        else:
+            keep = (~m).float()
+            x[:, :, lo:hi] = x[:, :, lo:hi] * keep[:, :, None, None]
+            w[:, :, slot - 1] = w[:, :, slot - 1] * keep[:, :, None, None]
+            s[..., slot] = s[..., slot] * keep
     fd = torch.rand(b, device=dev) < a.finger_drop
     if bool(fd.any()):
         hand = torch.randint(0, 2, (b,), device=dev)
@@ -292,6 +314,12 @@ def main():
     ap.add_argument("--wd", type=float, default=0.05)
     ap.add_argument("--warmup", type=int, default=10)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--arch", choices=["signnet", "signnet_v2", "dual", "bigru"], default="signnet")
+    ap.add_argument("--feat-ver", type=int, choices=[1, 2], default=0, help="0=auto (1 for signnet, 2 for v2/dual/bigru)")
+    ap.add_argument("--rep-conv", action="store_true", help="use multi-scale RepConvBlock (auto-on for signnet_v2/dual/bigru)")
+    ap.add_argument("--drop-path", type=float, default=0.0, help="stochastic depth drop rate")
+    ap.add_argument("--stream-dim", type=int, default=128, help="per-stream width for --arch dual")
+    ap.add_argument("--aux-stream-weight", type=float, default=0.15, help="auxiliary per-stream CE weight for --arch dual")
     ap.add_argument("--dim", type=int, default=192)
     ap.add_argument("--repeats", type=int, default=2)
     ap.add_argument("--convs", type=int, default=3)
@@ -307,6 +335,8 @@ def main():
     ap.add_argument("--no-z", action="store_true")
     ap.add_argument("--canon", action="store_true", help="flip every clip so the more active hand is the right one")
     ap.add_argument("--canon-rel", action="store_true", help="with --canon: measure wrist paths against the shoulders")
+    ap.add_argument("--post-occ-canon", action="store_true", help="with --canon: re-run dominant_left AFTER occlusion augmentation")
+    ap.add_argument("--occ-fill", action="store_true", help="fill dropped hand spans by linear interpolation (matching normalise.fill_group)")
     ap.add_argument("--flip", type=float, default=0.5)
     ap.add_argument("--rot", type=float, default=0.3)
     ap.add_argument("--scale", type=float, default=0.2)
@@ -328,10 +358,12 @@ def main():
     ap.add_argument("--init", default="", help="checkpoint to warm-start from (shape-matched tensors only)")
     ap.add_argument("--trainval", action="store_true", help="train on train+val and keep the last EMA (no selection)")
     ap.add_argument("--add-test", choices=["0", "1", "all"],
-                    help="WLASL test clips join training: one half of them by a hash of the video id (the reported "
-                         "test score is then on the other half only: what the extra clips are worth on unseen clips), "
-                         "or all (a model for a hidden test set; its own test score then means nothing)")
+                    help="WLASL test clips join training (never used in honest evaluation)")
     ap.add_argument("--teachers", default="", help="comma-separated checkpoints whose averaged softmax the model also learns")
+    ap.add_argument("--teacher-clean", action="store_true", help="run teachers on the clean un-augmented clip (distill + consistency)")
+    ap.add_argument("--teacher-cont", action="store_true", help="also distill sign logits (:subset) on non-none continuous windows from clean teacher views")
+    ap.add_argument("--cont-teachers", default="", help="comma-separated live checkpoints (with none class) distilled on the actual continuous windows across all n_cls classes")
+    ap.add_argument("--cont-distill-alpha", type=float, default=0.3)
     ap.add_argument("--distill-alpha", type=float, default=0.5)
     ap.add_argument("--distill-temp", type=float, default=2.0)
     ap.add_argument("--phonology", default="", help="ASL-LEX signdata.csv: adds auxiliary phoneme heads (training only)")
@@ -344,18 +376,28 @@ def main():
     ap.add_argument("--set-loss", type=float, default=0.0,
                     help="share of the loss asked of the gloss's same-sign set (signsets.py) instead of the gloss itself")
     ap.add_argument("--consist", type=float, default=0.0,
-                    help="weight of the clean-view teacher: the averaged model reads the clean, full, un-augmented clip and "
-                         "the model must match it on the degraded, augmented or cut-short view of the same clip")
+                    help="weight of the clean-view teacher")
     ap.add_argument("--consist-temp", type=float, default=2.0)
     ap.add_argument("--consist-ramp", type=int, default=3, help="epochs over which the teacher term ramps up")
     ap.add_argument("--prefix", type=float, default=0.0, help="share of clips shown only up to 45-85%% of their length")
     ap.add_argument("--cont", type=float, default=0.0,
-                    help="share of each batch shown as a window of continuous signing (contsign.windows): the sign with "
-                         "the end of another before it and the start of another after it; adds the 'no sign' class")
+                    help="share of each batch shown as a window of continuous signing (contsign.windows)")
     ap.add_argument("--cont-none", type=float, default=0.25, help="with --cont: share of those windows centred between two signs")
-    ap.add_argument("--pool", choices=["mean", "centre"], default="mean",
-                    help="how the time steps are pooled: evenly, or weighted towards the middle of the window")
+    ap.add_argument("--pool", choices=["mean", "centre", "attn", "centre_attn"], default="mean",
+                    help="temporal pooling mode")
+    ap.add_argument("--balance-alpha", type=float, default=0.0,
+                    help="class-balanced sampling exponent (0=uniform rows, 0.5=sqrt class-balanced, 1.0=fully balanced)")
+    ap.add_argument("--wlasl-boost", type=float, default=1.0,
+                    help="relative sampling weight multiplier for WLASL rows vs extra datasets (e.g. 1.5 or 2.0)")
+    ap.add_argument("--logit-adj", type=float, default=0.0,
+                    help="Menon et al. training-time logit adjustment tau (0=off, e.g. 0.3-0.5)")
+    ap.add_argument("--amp", action="store_true", help="enable BF16 mixed precision + TF32 on CUDA")
     a = ap.parse_args()
+
+    if a.amp:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
 
     torch.manual_seed(a.seed)
     np.random.seed(a.seed)
@@ -375,6 +417,7 @@ def main():
             extra_cls["aslc_" + pathlib.Path(c["file"]).stem] = c["cls"]
     train_ids = set(pathlib.Path(a.train_ids).read_text().split()) if a.train_ids else None
     rows = select(cache, entries, a.subset, train_ids)
+    n_wlasl_tr = len(rows["train"][0])
     if a.add_test:
         import zlib
         ti, ty = rows["test"]
@@ -396,19 +439,24 @@ def main():
     clean_row = {v: n for n, v in enumerate(cache["vid"]) if "__a" not in v}
     partner = remap[torch.tensor([clean_row.get(v.split("__a")[0], n) for n, v in enumerate(cache["vid"])])][used]
     partner = torch.where(partner >= 0, partner, torch.arange(len(used))).to(dev)
+    # Track which rows are WLASL vs extra (ASL Citizen) for optional wlasl_boost
+    is_wlasl_row = torch.tensor([not str(cache["vid"][int(u)]).startswith("aslc_") for u in used], device=dev)
     rows = {k: (remap[i].to(dev), y.to(dev)) for k, (i, y) in rows.items()}
     data = {k: cache[k][used].to(dev) for k in ("X", "W", "S")}
     data["L"] = cache["L"][used].to(dev)
     perm = flip_perm(cache["face_flip"]).to(dev)
-    print({k: len(v[0]) for k, v in rows.items()}, "format", cache["format"], flush=True)
-    cache = dict(face_flip=cache["face_flip"], format=cache["format"])  # free the CPU copy; the subset lives on the GPU
+    print({k: len(v[0]) for k, v in rows.items()}, "format", cache["format"], "T=", data["X"].shape[1], flush=True)
+    cache = dict(face_flip=cache["face_flip"], format=cache["format"])
     import gc
     gc.collect()
 
-    cfg = dict(dim=a.dim, repeats=a.repeats, convs=a.convs, kernel=a.kernel, heads=a.heads, drop=a.drop,
+    feat_ver = a.feat_ver if a.feat_ver else (1 if a.arch == "signnet" else 2)
+    rep_conv = a.rep_conv or (a.arch != "signnet")
+    cfg = dict(arch=a.arch, feat_ver=feat_ver, rep_conv=rep_conv, drop_path=a.drop_path, stream_dim=a.stream_dim,
+               dim=a.dim, repeats=a.repeats, convs=a.convs, kernel=a.kernel, heads=a.heads, drop=a.drop,
                head_drop=a.head_drop, face=not a.no_face, world=not a.no_world, z=not a.no_z, t_in=a.t_in,
-               canon=a.canon, canon_rel=a.canon_rel, flip=0.0 if a.canon else a.flip, format=cache["format"], head=a.head,
-               pool=a.pool)
+               canon=a.canon, canon_rel=a.canon_rel, flip=0.0 if a.canon else a.flip, format=cache["format"],
+               head=a.head, pool=a.pool)
     if a.trainval:  # the deployment fit: validation clips join training, the last EMA is kept
         rows["train"] = (torch.cat([rows["train"][0], rows["val"][0]]), torch.cat([rows["train"][1], rows["val"][1]]))
     teachers = []
@@ -416,16 +464,22 @@ def main():
         ck = torch.load(path, weights_only=False)
         t = mv.build(ck["cfg"], ck["classes"]).to(dev)
         t.load_state_dict(ck["state"])
-        teachers.append(t.eval())
-    n_cls = a.subset + (1 if a.none_prob or a.cont else 0)   # the extra last class is "no sign" (between two signs)
+        teachers.append((t.eval(), ck["cfg"]))
+    cont_teachers = []
+    for path in filter(None, a.cont_teachers.split(",")):
+        ck = torch.load(path, weights_only=False)
+        t = mv.build(ck["cfg"], ck["classes"]).to(dev)
+        t.load_state_dict(ck["state"])
+        cont_teachers.append((t.eval(), ck["cfg"]))
+    n_cls = a.subset + (1 if a.none_prob or a.cont else 0)
     cfg["none_class"] = bool(a.none_prob or a.cont)
     model = mv.build(cfg, n_cls).to(dev)
-    if a.init:  # warm start: every weight whose shape matches (all but the class head when vocabularies differ)
+    if a.init:
         src = torch.load(a.init, weights_only=False)["state"]
         own = model.state_dict()
         keep = {k: v for k, v in src.items() if k in own and own[k].shape == v.shape}
         own.update(keep)
-        for k, v in src.items():   # a head one class short (no "no sign" yet): keep its rows, start the new one at their mean
+        for k, v in src.items():
             if k in own and k not in keep and v.dim() == own[k].dim() and v.shape[0] + 1 == own[k].shape[0] and v.shape[1:] == own[k].shape[1:]:
                 own[k] = torch.cat([v, v.mean(0, keepdim=True)]).to(own[k])
                 keep[k] = v
@@ -437,20 +491,26 @@ def main():
     for p in ema.parameters():
         p.requires_grad_(False)
     params = sum(p.numel() for p in model.parameters())
+    extra_params = []
+    # Auxiliary training-only per-stream heads for DualStreamSignNet
+    aux_streams = None
+    if isinstance(model, mv.DualStreamSignNet) and a.aux_stream_weight > 0:
+        aux_streams = torch.nn.ModuleDict(dict(
+            hand=torch.nn.Linear(model.stream_dim, n_cls),
+            body=torch.nn.Linear(model.stream_dim, n_cls),
+        )).to(dev)
+        extra_params += list(aux_streams.parameters())
     # Auxiliary phoneme heads (Kezar et al. 2023): trained beside the sign head, never exported.
     aux, phon = None, None
     if a.phonology:
         import phonology as ph
         labels_by_type, sizes, matched = ph.load(a.phonology, [e["gloss"] for e in entries[:a.subset]])
-        # Classes beyond the WLASL index (a union vocabulary from another dataset) have no phoneme labels.
         phon = {t: torch.tensor(v + [-1] * (n_cls - len(v)), device=dev) for t, v in labels_by_type.items()}
         aux = torch.nn.ModuleDict({t: torch.nn.Linear(2 * a.dim, n) for t, n in sizes.items()}).to(dev)
+        extra_params += list(aux.parameters())
         print(f"phonology heads: {matched}/{a.subset} glosses labelled, {len(sizes)} phoneme types", flush=True)
     smooth_q = None
     if a.phon_smooth and phon is not None:
-        # Phonology-weighted label smoothing (after NLA-SLR's language-aware smoothing, with sign form in place of
-        # gloss meaning): the smoothing mass goes to words sharing more ASL-LEX phoneme values with the true word.
-        # Words without phoneme labels have similarity 0 to everything, so their rows stay uniform.
         P = torch.stack([phon[t] for t in phon], 1)
         lab = P >= 0
         both = (lab[:, None, :] & lab[None, :, :])
@@ -466,29 +526,54 @@ def main():
         import signsets
         n_idx = min(a.subset, len(entries))
         set_of, links = signsets.same_sign_sets(entries, n_idx, ("train", "val") if a.trainval else ("train",))
-        # Classes outside the WLASL index (a union vocabulary, the "no sign" class) are sets of their own.
         set_of = torch.cat([set_of, int(set_of.max()) + 1 + torch.arange(n_cls - n_idx)]).to(dev)
         print(f"same-sign sets: {links} links, {int((torch.bincount(set_of) > 1).sum())} sets of two or more glosses", flush=True)
-    opt =torch.optim.AdamW(list(model.parameters()) + (list(aux.parameters()) if aux else []), lr=a.lr, weight_decay=a.wd)
+
+    opt = torch.optim.AdamW(list(model.parameters()) + extra_params, lr=a.lr, weight_decay=a.wd)
     ids, labels = rows["train"]
+
+    # Optional class-balanced / WLASL-boosted sampling weights & Menon et al. logit adjustment prior
+    cls_counts = torch.bincount(labels, minlength=n_cls).float().clamp_min(1.0)
+    log_prior = None
+    if a.logit_adj > 0:
+        lp = torch.log(cls_counts / cls_counts.sum())
+        log_prior = (a.logit_adj * lp).view(1, -1)
+        print(f"logit adjustment tau={a.logit_adj}: min/max offset {float(log_prior.min()):.2f}/{float(log_prior.max()):.2f}", flush=True)
+
+    row_weights = None
+    if a.balance_alpha > 0 or a.wlasl_boost != 1.0:
+        w = torch.ones(len(ids), device=dev)
+        if a.balance_alpha > 0:
+            mean_c = cls_counts[:a.subset].mean()
+            w = w * (cls_counts[labels] / mean_c).pow(-a.balance_alpha).clamp(0.25, 4.0)
+        if a.wlasl_boost != 1.0:
+            w = w * torch.where(is_wlasl_row[ids], torch.full_like(w, a.wlasl_boost), torch.ones_like(w))
+        row_weights = w / w.sum()
+        print(f"weighted sampling: balance_alpha={a.balance_alpha}, wlasl_boost={a.wlasl_boost}, "
+              f"wlasl_share={float(row_weights[is_wlasl_row[ids]].sum()):.3f}", flush=True)
+
     steps = max(len(ids) // a.batch, 1)
     total_steps = a.epochs * steps
-    warm = a.warmup * steps
-    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda k: min(1.0, (k + 1) / warm) * 0.5 * (1 + np.cos(np.pi * min(k / total_steps, 1.0))))
+    warm = max(a.warmup * steps, 1)
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda k: (min(1.0, (k + 1) / warm) if a.warmup > 0 else 1.0) * 0.5 * (1 + np.cos(np.pi * min(k / max(total_steps, 1), 1.0))))
     a.flip = cfg["flip"]
     spans = dom_left = None
-    if a.cont:   # every clip's core (between the rise and the drop) and which hand leads, found once
+    if a.cont:
         spans = contsign.clip_spans(data["X"], data["L"]).to(dev)
         dom_left = torch.cat([dominant_left(data["X"][i].float(), data["S"][i].float(), data["L"][i], a.canon_rel)
                               for i in torch.arange(len(data["L"]), device=dev).split(2048)]) if a.canon else torch.zeros(len(data["L"]), dtype=torch.bool, device=dev)
         core = (spans[:, 2] - spans[:, 1]).float() / data["L"].clamp_min(1).float()
         print(f"continuous windows: core is {core.mean():.2f} of a clip on average, {(core > 0.99).float().mean():.2f} of clips are all core", flush=True)
+
     best, best_epoch, t0 = -1.0, 0, time.time()
     for epoch in range(1, a.epochs + 1):
         if a.late_epoch and epoch == a.late_epoch:
             model.head_drop.p = a.late_drop
         model.train()
-        order = torch.randperm(len(ids), device=dev)
+        if row_weights is not None:
+            order = torch.multinomial(row_weights, len(ids), replacement=True)
+        else:
+            order = torch.randperm(len(ids), device=dev)
         total = 0.0
         for k in range(steps):
             pick = order[k * a.batch:(k + 1) * a.batch]
@@ -498,31 +583,42 @@ def main():
                 Xb, Wb, Sb, Lb = sparsify(Xb, Wb, Sb, Lb)
             tp = time_params(len(c), dev, a.prefix)
             x, w, s = sample_time(Xb, Wb, Sb, Lb, a.t_in, True, tp=tp, cut=True)
-            if a.canon:
+            if a.canon and not a.post_occ_canon:
                 x, w, s = apply_flip(x, w, s, dominant_left(x, s, torch.full_like(c, a.t_in), a.canon_rel), perm)
             y = labels[pick]
-            if a.cont:   # windows of continuous signing: the label is the sign at the centre, or "no sign" between two
+            cont_mask = None
+            if a.cont:
                 m = torch.rand(len(c), device=dev) < a.cont
                 if bool(m.any()):
+                    cont_mask = m
                     xc, wc, sc, none = contsign.windows(data, spans, dom_left, perm, c[m], ids, a.t_in, apply_flip, a.cont_none)
-                    if a.canon:   # the exported graph decides the leading hand from the window it is given
+                    if a.canon and not a.post_occ_canon:
                         xc, wc, sc = apply_flip(xc, wc, sc, dominant_left(xc, sc, torch.full_like(c[m], a.t_in), a.canon_rel), perm)
                     x, w, s, y = x.clone(), w.clone(), s.clone(), y.clone()
                     x[m], w[m], s[m] = xc, wc, sc
                     y[m] = torch.where(none, torch.full_like(y[m], a.subset), y[m])
             x, w, s = augment(x, w, s, perm, a)
-            t_emb = t_logits = None
-            if a.consist:  # the teacher's view: the clean clip this row came from, same window, whole, un-augmented
+            if a.canon and a.post_occ_canon:
+                # Re-run dominant_left AFTER occlusion augmentation so the model learns to handle occlusion-induced flips!
+                x, w, s = apply_flip(x, w, s, dominant_left(x, s, torch.full_like(c, a.t_in), a.canon_rel), perm)
+
+            # Clean view for --consist and/or --teacher-clean
+            xt = wt = st = None
+            if a.consist or (teachers and a.teacher_clean):
                 with torch.no_grad():
                     cp = partner[c]
                     xt, wt, st = sample_time(data["X"][cp], data["W"][cp], data["S"][cp], data["L"][cp], a.t_in, True, tp=tp)
-                    if a.canon:
-                        xt, wt, st = apply_flip(xt, wt, st, dominant_left(xt, st, torch.full_like(cp, a.t_in), a.canon_rel), perm)
-                    t_emb = ema.embed(xt, wt, st)
-                    t_logits = ema.head(t_emb)
-            if a.none_prob:  # boundary windows: the end of one sign spliced to the start of another -> "no sign"
-                k = max(int(len(pick) * a.none_prob), 1)
-                j, j2 = torch.randperm(len(pick), device=dev)[:k], torch.randperm(len(pick), device=dev)[:k]
+
+            t_emb = t_logits = None
+            if a.consist:
+                with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=a.amp):
+                    xc_e, wc_e, sc_e = (apply_flip(xt, wt, st, dominant_left(xt, st, torch.full_like(cp, a.t_in), a.canon_rel), perm)
+                                        if a.canon else (xt, wt, st))
+                    t_emb = ema.embed(xc_e, wc_e, sc_e).float()
+                    t_logits = ema.head(t_emb).float()
+            if a.none_prob:
+                kk = max(int(len(pick) * a.none_prob), 1)
+                j, j2 = torch.randperm(len(pick), device=dev)[:kk], torch.randperm(len(pick), device=dev)[:kk]
                 cut = int(torch.randint(a.t_in // 3, 2 * a.t_in // 3 + 1, (1,)))
                 x, w, s = x.clone(), w.clone(), s.clone()
                 x[j] = torch.cat([x[j][:, cut:], x[j2][:, :cut]], 1)
@@ -530,38 +626,91 @@ def main():
                 s[j] = torch.cat([s[j][:, cut:], s[j2][:, :cut]], 1)
                 y = y.clone()
                 y[j] = a.subset
-            if a.mixup and np.random.rand() < a.mixup:
-                lam = float(np.random.beta(0.4, 0.4))
-                j = torch.randperm(len(pick), device=dev)
-                logits = model(lam * x + (1 - lam) * x[j], lam * w + (1 - lam) * w[j], lam * s + (1 - lam) * s[j])
-                loss = lam * F.cross_entropy(logits, y, label_smoothing=a.smooth) + (1 - lam) * F.cross_entropy(logits, y[j], label_smoothing=a.smooth)
-            else:
-                emb = model.embed(x, w, s)
-                logits = model.head(model.head_drop(emb))
-                if smooth_q is not None:
-                    target = (1 - a.smooth) * F.one_hot(y, n_cls).float() + a.smooth * smooth_q[y]
-                    loss = -(target * F.log_softmax(logits, -1)).sum(-1).mean()
+
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=a.amp):
+                if a.mixup and np.random.rand() < a.mixup:
+                    lam = float(np.random.beta(0.4, 0.4))
+                    j = torch.randperm(len(pick), device=dev)
+                    logits = model(lam * x + (1 - lam) * x[j], lam * w + (1 - lam) * w[j], lam * s + (1 - lam) * s[j]).float()
+                    loss = lam * F.cross_entropy(logits, y, label_smoothing=a.smooth) + (1 - lam) * F.cross_entropy(logits, y[j], label_smoothing=a.smooth)
                 else:
-                    loss = F.cross_entropy(logits, y, label_smoothing=a.smooth)
-                if set_of is not None:  # the probability of the gloss's whole same-sign set, not of the gloss alone
-                    mass = torch.zeros(len(y), int(set_of.max()) + 1, device=dev).index_add_(1, set_of, torch.softmax(logits, -1))
-                    in_set = mass.gather(1, set_of[y][:, None]).clamp_min(1e-8).log().mean()
-                    loss = (1 - a.set_loss) * loss - a.set_loss * in_set
-                if t_logits is not None:
-                    tt = a.consist_temp
-                    match = F.kl_div(F.log_softmax(logits / tt, -1), torch.softmax(t_logits / tt, -1), reduction="batchmean") * tt * tt
-                    apart = 1 - F.cosine_similarity(emb, t_emb, dim=-1).mean()
-                    loss = loss + a.consist * min(1.0, epoch / max(a.consist_ramp, 1)) * (match + apart)
-                if teachers:
-                    with torch.no_grad():
-                        soft = sum(torch.softmax(t(x, w, s) / a.distill_temp, -1) for t in teachers) / len(teachers)
-                    kd = F.kl_div(F.log_softmax(logits / a.distill_temp, -1), soft, reduction="batchmean") * a.distill_temp ** 2
-                    loss = (1 - a.distill_alpha) * loss + a.distill_alpha * kd
-                if aux is not None:
-                    terms = [F.cross_entropy(head(emb), phon[t][y], ignore_index=-1)
-                             for t, head in aux.items() if bool((phon[t][y] >= 0).any())]
-                    if terms:
-                        loss = loss + a.phon_weight * torch.stack(terms).mean()
+                    eh = eb = None
+                    if aux_streams is not None:
+                        emb, eh, eb = model.embed_streams(x, w, s)
+                    else:
+                        emb = model.embed(x, w, s)
+                    logits = model.head(model.head_drop(emb)).float()
+                    ce_logits = logits + log_prior if log_prior is not None else logits
+                    if smooth_q is not None:
+                        target = (1 - a.smooth) * F.one_hot(y, n_cls).float() + a.smooth * smooth_q[y]
+                        loss = -(target * F.log_softmax(ce_logits, -1)).sum(-1).mean()
+                    else:
+                        loss = F.cross_entropy(ce_logits, y, label_smoothing=a.smooth)
+                    if aux_streams is not None:
+                        lh = aux_streams["hand"](model.head_drop(eh)).float()
+                        lb = aux_streams["body"](model.head_drop(eb)).float()
+                        if log_prior is not None:
+                            lh = lh + log_prior
+                            lb = lb + log_prior
+                        loss = loss + a.aux_stream_weight * 0.5 * (
+                            F.cross_entropy(lh, y, label_smoothing=a.smooth) +
+                            F.cross_entropy(lb, y, label_smoothing=a.smooth))
+                    if set_of is not None:
+                        mass = torch.zeros(len(y), int(set_of.max()) + 1, device=dev).index_add_(1, set_of, torch.softmax(logits, -1))
+                        in_set = mass.gather(1, set_of[y][:, None]).clamp_min(1e-8).log().mean()
+                        loss = (1 - a.set_loss) * loss - a.set_loss * in_set
+                    if t_logits is not None:
+                        keep_c = ~cont_mask if cont_mask is not None else None
+                        if keep_c is None or bool(keep_c.any()):
+                            tt = a.consist_temp
+                            lc = logits if keep_c is None else logits[keep_c]
+                            tc = t_logits if keep_c is None else t_logits[keep_c]
+                            ec = emb.float() if keep_c is None else emb.float()[keep_c]
+                            tec = t_emb if keep_c is None else t_emb[keep_c]
+                            match = F.kl_div(F.log_softmax(lc / tt, -1), torch.softmax(tc / tt, -1), reduction="batchmean") * tt * tt
+                            apart = 1 - F.cosine_similarity(ec, tec, dim=-1).mean()
+                            loss = loss + a.consist * min(1.0, epoch / max(a.consist_ramp, 1)) * (match + apart)
+                    if teachers:
+                        with torch.no_grad():
+                            soft = 0
+                            t_dim = a.subset if a.teacher_cont else n_cls
+                            for tm, tcfg in teachers:
+                                if a.teacher_clean:
+                                    tx, tw, ts = (apply_flip(xt, wt, st, dominant_left(xt, st, torch.full_like(c, a.t_in), tcfg.get("canon_rel", False)), perm)
+                                                  if tcfg["canon"] else (xt, wt, st))
+                                else:
+                                    tx, tw, ts = x, w, s
+                                    if tcfg["canon"] and not a.canon:
+                                        tx, tw, ts = apply_flip(x, w, s, dominant_left(x, s, torch.full_like(c, a.t_in), tcfg.get("canon_rel", False)), perm)
+                                t_out = tm(tx, tw, ts).float()[:, :t_dim]
+                                soft = soft + torch.softmax(t_out / a.distill_temp, -1)
+                            soft = soft / len(teachers)
+                        if a.teacher_cont:
+                            keep_k = (y < a.subset)
+                        else:
+                            keep_k = ~cont_mask if cont_mask is not None else None
+                        if keep_k is None or bool(keep_k.any()):
+                            lk = (logits[:, :t_dim] if keep_k is None else logits[keep_k, :t_dim])
+                            sk = (soft if keep_k is None else soft[keep_k])
+                            kd = F.kl_div(F.log_softmax(lk / a.distill_temp, -1), sk, reduction="batchmean") * a.distill_temp ** 2
+                            loss = (1 - a.distill_alpha) * loss + a.distill_alpha * kd
+                    if cont_teachers:
+                        with torch.no_grad():
+                            soft_c = 0
+                            for tm, tcfg in cont_teachers:
+                                tx, tw, ts = x, w, s
+                                if tcfg["canon"] and not a.canon:
+                                    tx, tw, ts = apply_flip(x, w, s, dominant_left(x, s, torch.full_like(c, a.t_in), tcfg.get("canon_rel", False)), perm)
+                                soft_c = soft_c + torch.softmax(tm(tx, tw, ts).float()[:, :n_cls] / a.distill_temp, -1)
+                            soft_c = soft_c / len(cont_teachers)
+                        kd_c = F.kl_div(F.log_softmax(logits / a.distill_temp, -1), soft_c, reduction="batchmean") * a.distill_temp ** 2
+                        loss = (1 - a.cont_distill_alpha) * loss + a.cont_distill_alpha * kd_c
+                    if aux is not None:
+                        ef = emb.float()
+                        terms = [F.cross_entropy(head(ef).float(), phon[t][y], ignore_index=-1)
+                                 for t, head in aux.items() if bool((phon[t][y] >= 0).any())]
+                        if terms:
+                            loss = loss + a.phon_weight * torch.stack(terms).mean()
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
@@ -576,12 +725,11 @@ def main():
             total += loss.item()
         if epoch % a.eval_every == 0 or epoch == a.epochs:
             val = score(predict_logits(ema, data, rows["val"][0], cfg, False, perm), rows["val"][1])
-            # With --trainval the validation clips are training data, so only the last EMA is kept.
             if (not a.trainval and val["top1"] > best) or (a.trainval and epoch == a.epochs):
                 best, best_epoch = val["top1"], epoch
                 torch.save(dict(state=ema.state_dict(), cfg=cfg, classes=n_cls, face_flip=cache["face_flip"],
                                 aux=aux.state_dict() if aux is not None else None), out / "best.pt")
-            if epoch % 25 == 0 or epoch == a.epochs:
+            if epoch % 10 == 0 or epoch == a.epochs:
                 print(f"epoch {epoch} loss {total / steps:.3f} val {val['top1']:.1f} best {best:.1f}@{best_epoch} {time.time() - t0:.0f}s", flush=True)
 
     ema.load_state_dict(torch.load(out / "best.pt", weights_only=False)["state"])

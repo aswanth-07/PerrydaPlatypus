@@ -42,13 +42,18 @@ CLIP_FRAMES = int(os.environ.get("ECHO_FRAMES", "96"))
 SET_RULE = os.environ.get("ECHO_SET_RULE", "1") != "0"
 
 
-def resample(a, t_in):
-    """Linear resampling along time, the same as train.sample_time at test time."""
-    n = len(a)
+def _resample_weights(n, t_in):
     pos = np.linspace(0, 1, t_in) * max(n - 1, 0)
     lo = np.floor(pos).astype(int)
     hi = np.minimum(lo + 1, max(n - 1, 0))
-    w = (pos - lo).astype(np.float32).reshape((-1,) + (1,) * (a.ndim - 1))
+    w = (pos - lo).astype(np.float32)
+    return lo, hi, w
+
+
+def resample(a, t_in, pre=None):
+    """Linear resampling along time, the same as train.sample_time at test time."""
+    lo, hi, w = pre if pre is not None else _resample_weights(len(a), t_in)
+    w = w.reshape((-1,) + (1,) * (a.ndim - 1))
     return a[lo] + (a[hi] - a[lo]) * w
 
 
@@ -74,57 +79,93 @@ class Predictor:
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = 1
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self.session = ort.InferenceSession(str(model_dir / MODEL_FILE), so, providers=["CPUExecutionProvider"])
         outputs = [o.name for o in self.session.get_outputs()]
         self.output = "raw_probs" if not SET_RULE and "raw_probs" in outputs else outputs[0]
         # ECHO_VOCAB_FILE: when the scored vocabulary is published, answer only from those words.
         self.keep = load_vocab_filter(self.labels, vocab_file) if vocab_file else None
         self.last_stages = {}
-        # One Holistic landmarker kept across clips (rebuilt when the frame size changes), with timestamps carried
-        # on; a blank frame before each clip makes it lose the last clip's person so tracking starts afresh.
+        # Up to 4 Holistic landmarker sets cached by (w, h), with per-size monotonic timestamps carried on;
+        # a blank frame before each clip makes it lose the last clip's person so tracking starts afresh.
         # ECHO_FRESH_LANDMARKER=1 builds one per clip instead (about 450 ms slower per clip).
         self.reuse = reuse_landmarker
-        self._hol, self._size, self._ts = None, None, 0
+        from collections import OrderedDict
+        self._hol_cache = OrderedDict()   # (w, h) -> [hol_0, ..., hol_{lanes-1}]
+        self._hol_ts = {}                 # (w, h) -> next_ts_ms
         # ECHO_LANES=k (default 1): k landmarkers take the clip's frames in turn, in parallel threads, as the phone's
         # live mode does; 1 is the path every published number was measured with.
         self.lanes = max(1, int(os.environ.get("ECHO_LANES", "1")))
-        self._extra = []
+        self._pool = None
+
+    def close(self):
+        if self._pool is not None:
+            self._pool.shutdown(wait=True)
+            self._pool = None
+        for hols in self._hol_cache.values():
+            for h in hols:
+                h.close()
+        self._hol_cache.clear()
+        self._hol_ts.clear()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def _get_hols(self, size):
+        hols = self._hol_cache.get(size)
+        if hols is not None:
+            self._hol_cache.move_to_end(size)
+            return hols
+        while len(self._hol_cache) >= 4:
+            old_size, old_hols = self._hol_cache.popitem(last=False)
+            for h in old_hols:
+                h.close()
+            self._hol_ts.pop(old_size, None)
+        hols = [hk.make_holistic(self.models_dir) for _ in range(self.lanes)]
+        self._hol_cache[size] = hols
+        self._hol_ts[size] = 0
+        return hols
 
     def _keypoints(self, frames, fps):
         h, w = frames[0].shape[:2]
         if not self.reuse:
             with hk.make_holistic(self.models_dir) as hol:
                 return hk.clip_keypoints(hol, frames, fps)
-        if self._hol is None or self._size != (w, h):
-            if self._hol is not None:
-                self._hol.close()
-            self._hol, self._size = hk.make_holistic(self.models_dir), (w, h)
-        step = 1000.0 / max(fps, 1.0)
-        blank_ts, start = self._ts, self._ts + 1000
-        self._ts = start + int(len(frames) * step) + 1000   # reserved first, so a clip that fails never reuses one
+        size = (w, h)
+        hols = self._get_hols(size)
+        step = max(1.0, 1000.0 / max(fps, 1.0))  # guarantee strictly increasing ms timestamps even for >1000 fps metadata
+        blank_ts = self._hol_ts[size]
+        start = blank_ts + 1000
+        self._hol_ts[size] = start + int(len(frames) * step) + len(frames) + 1000   # reserved first, so a clip that fails never reuses one
+        blank = np.zeros_like(frames[0])
         if self.lanes > 1:
-            return self._keypoints_lanes(frames, step, blank_ts, start)
-        hk.frame_keypoints(self._hol, np.zeros_like(frames[0]), blank_ts)
-        return hk.stack_frames([hk.frame_keypoints(self._hol, f, start + int(i * step)) for i, f in enumerate(frames)])
+            return self._keypoints_lanes(hols, frames, blank, step, blank_ts, start)
+        hk.frame_keypoints(hols[0], blank, blank_ts)
+        out, last_ts = [], blank_ts
+        for i, f in enumerate(frames):
+            ts = max(start + int(i * step), last_ts + 1)
+            last_ts = ts
+            out.append(hk.frame_keypoints(hols[0], f, ts))
+        return hk.stack_frames(out)
 
-    def _keypoints_lanes(self, frames, step, blank_ts, start):
+    def _keypoints_lanes(self, hols, frames, blank, step, blank_ts, start):
         from concurrent.futures import ThreadPoolExecutor
-        size = frames[0].shape[:2]
-        if len(self._extra) != self.lanes - 1 or getattr(self, "_extra_size", None) != size:
-            for h in self._extra:
-                h.close()
-            self._extra = [hk.make_holistic(self.models_dir) for _ in range(self.lanes - 1)]
-            self._extra_size = size
-        hols = [self._hol] + self._extra
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(self.lanes)
         out: list = [None] * len(frames)
 
         def lane(k):
-            hk.frame_keypoints(hols[k], np.zeros_like(frames[0]), blank_ts)
+            hk.frame_keypoints(hols[k], blank, blank_ts)
+            last_ts = blank_ts
             for i in range(k, len(frames), self.lanes):
-                out[i] = hk.frame_keypoints(hols[k], frames[i], start + int(i * step))
+                ts = max(start + int(i * step), last_ts + 1)
+                last_ts = ts
+                out[i] = hk.frame_keypoints(hols[k], frames[i], ts)
 
-        with ThreadPoolExecutor(self.lanes) as pool:
-            list(pool.map(lane, range(self.lanes)))
+        list(self._pool.map(lane, range(self.lanes)))
         return hk.stack_frames(out)
 
     def __call__(self, video_path, transform=None):
@@ -139,10 +180,13 @@ class Predictor:
             pts, wld, seen = dv.normalise(raw["pose"].astype(np.float64), raw["hands"].astype(np.float64),
                                           raw["face"].astype(np.float64), raw["hands_world"].astype(np.float64), (w, h))
         else:
+            print(f"warning: no readable frames in {video_path}", file=sys.stderr)
             pts, wld, seen = (np.zeros((1, dv.P, 3), np.float32), np.zeros((1, 2, 21, 3), np.float32), np.zeros((1, 4), np.float32))
         t2 = time.perf_counter()
-        feed = dict(points=resample(pts, self.t_in)[None].astype(np.float32), world=resample(wld, self.t_in)[None].astype(np.float32),
-                    seen=resample(seen, self.t_in)[None].astype(np.float32))
+        pre = _resample_weights(len(pts), self.t_in)
+        feed = dict(points=resample(pts, self.t_in, pre)[None].astype(np.float32),
+                    world=resample(wld, self.t_in, pre)[None].astype(np.float32),
+                    seen=resample(seen, self.t_in, pre)[None].astype(np.float32))
         probs = self.session.run([self.output], feed)[0][0]
         t3 = time.perf_counter()
         if self.keep is not None and len(self.keep):
@@ -154,11 +198,14 @@ class Predictor:
                                 classifier_ms=round(1000 * (t3 - t2), 3), frames=len(frames))
         # latency_ms is the quantized model's inference time, the figure the brief's <= 50 ms budget is about.
         # The whole clip (decode + MediaPipe Holistic on every landmarked frame + model) is reported beside it.
-        return dict(clip_id=pathlib.Path(video_path).stem, prediction=self.labels[order[0]].upper(),
-                    top5=[self.labels[i].upper() for i in order[:5]], confidence=round(float(probs[order[0]]), 4),
-                    latency_ms=round(1000 * (t3 - t2), 2),
-                    pipeline_ms=round(1000 * (t3 - t0), 2),
-                    keypoints_ms_per_frame=round(1000 * (t2 - t1) / max(len(frames), 1), 2))
+        res = dict(clip_id=pathlib.Path(video_path).stem, prediction=self.labels[order[0]].upper(),
+                   top5=[self.labels[i].upper() for i in order[:5]], confidence=round(float(probs[order[0]]), 4),
+                   latency_ms=round(1000 * (t3 - t2), 2),
+                   pipeline_ms=round(1000 * (t3 - t0), 2),
+                   keypoints_ms_per_frame=round(1000 * (t2 - t1) / max(len(frames), 1), 2))
+        if not frames:
+            res["no_frames"] = True
+        return res
 
 
 _default = None
@@ -171,6 +218,9 @@ def predict(video_path):
     return _default(video_path)
 
 
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("path")
@@ -178,9 +228,8 @@ def main():
     ap.add_argument("--model-dir", default=str(DEFAULT_MODEL_DIR))
     a = ap.parse_args()
     p = pathlib.Path(a.path)
-    videos = sorted(p.glob("*.mp4")) if p.is_dir() else [p]
-    pred = Predictor(a.model_dir)
-    with open(a.out, "w", encoding="utf-8") as f:
+    videos = sorted(v for v in p.iterdir() if v.is_file() and v.suffix.lower() in VIDEO_EXTS) if p.is_dir() else [p]
+    with Predictor(a.model_dir) as pred, open(a.out, "w", encoding="utf-8") as f:
         for v in videos:
             r = pred(v)
             f.write(json.dumps(r) + "\n")

@@ -4,7 +4,7 @@ set's glosses by a blend of the model's own split and the WLASL clip counts.
   p'(g) = P(S(g)) * p(g)^gamma * r(g)^beta / sum_{h in S(g)} p(h)^gamma * r(h)^beta
 
 Chosen on WLASL val with a model that never trained on val; reported on test; then applied unchanged to the
-shipped model. Usage: setprior.py <repo> <sets.pt> <out.json>
+shipped model. Usage: set_rule.py <repo> <sets.pt> <out.json>
 """
 import collections
 import json

@@ -1,27 +1,33 @@
 {
  "ckpts": [
-  "runs/soup_mix16/best.pt"
+  "runs\\soup_champ_v2\\best.pt",
+  "runs\\soup_champ_dual\\best.pt"
  ],
+ "weights": null,
  "t_in": 64,
  "test_clips": 2878,
+ "none_class": false,
  "int8_scheme": {
   "dynamic": true,
-  "ops": "Conv,Gemm,MatMul",
+  "folded": true,
+  "ops": "Gemm,MatMul",
   "fp32_nodes": [
-   "/stem/Conv"
+   "/hand_stem/MatMul/MatMulAddFusion",
+   "/body_stem/MatMul/MatMulAddFusion",
+   "/stem/MatMul/MatMulAddFusion"
   ]
  },
  "torch": {
   "n": 2878,
-  "top1": 64.42,
-  "top5": 92.11,
-  "class_avg": 59.98
+  "top1": 68.14,
+  "top5": 93.99,
+  "class_avg": 63.99
  },
  "torch_before_rule": {
   "n": 2878,
-  "top1": 63.03,
-  "top5": 91.73,
-  "class_avg": 59.88
+  "top1": 66.96,
+  "top5": 94.58,
+  "class_avg": 64.12
  },
  "same_sign": {
   "links": 590,
@@ -30,31 +36,31 @@
   "beta": 2.0
  },
  "fp32": {
-  "size_mb": 10.318,
+  "size_mb": 20.236,
   "test": {
    "n": 2878,
-   "top1": 64.42,
-   "top5": 92.11,
-   "class_avg": 59.98,
+   "top1": 68.14,
+   "top5": 93.99,
+   "class_avg": 63.99,
    "agree_top1_with_torch": 100.0
   },
   "one_thread": {
-   "p50_ms": 3.867,
-   "p95_ms": 4.871
+   "p50_ms": 10.606,
+   "p95_ms": 14.328
   }
  },
  "int8": {
-  "size_mb": 3.32,
+  "size_mb": 5.716,
   "test": {
    "n": 2878,
-   "top1": 64.42,
-   "top5": 91.97,
-   "class_avg": 59.84,
-   "agree_top1_with_torch": 96.98
+   "top1": 67.93,
+   "top5": 93.99,
+   "class_avg": 63.79,
+   "agree_top1_with_torch": 99.06
   },
   "one_thread": {
-   "p50_ms": 3.615,
-   "p95_ms": 4.263
+   "p50_ms": 6.447,
+   "p95_ms": 8.494
   }
  }
 }

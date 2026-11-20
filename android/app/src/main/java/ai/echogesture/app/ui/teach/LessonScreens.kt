@@ -51,6 +51,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.echogesture.app.MainViewModel
 import ai.echogesture.app.data.Lesson
 import ai.echogesture.app.data.Lessons
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.pluralStringResource
 import ai.echogesture.app.ui.components.DrawnCheck
 import ai.echogesture.app.ui.components.LocalCaption
 import ai.echogesture.app.ui.components.SubScreen
@@ -158,7 +163,7 @@ fun LessonScreen(vm: MainViewModel, id: String, onBack: () -> Unit, onNext: (Str
     }
 }
 
-/** The Learn tab's way in: the next lesson with a sign still to learn, and how far into it the learner is. */
+/** Unified hero card on Learn: streak badge, next lesson, clean rounded progress bar, and Continue / All lessons. */
 @Composable
 fun ContinueCard(vm: MainViewModel, onOpen: (String) -> Unit, onAll: () -> Unit) {
     val topics = rememberTopics(vm)
@@ -168,31 +173,80 @@ fun ContinueCard(vm: MainViewModel, onOpen: (String) -> Unit, onAll: () -> Unit)
     val next = Lessons.next(topics, progress.learned)
     val total = topics.sumOf { t -> t.lessons.sumOf { it.words.size } }
     val learnedHere = topics.sumOf { t -> t.lessons.sumOf { l -> l.words.count { it in progress.learned } } }
+    val streak = progress.streak()
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.BrandDeep)
             .border(1.dp, Palette.Hairline, RoundedCornerShape(24.dp)).padding(20.dp),
     ) {
-        Text(if (next == null) stringResource(R.string.lesson_every_lesson_done) else if (learnedHere == 0) stringResource(R.string.lesson_start_learning) else stringResource(R.string.lesson_continue_learning),
-            style = MaterialTheme.typography.labelLarge, color = Palette.LightAzure)
-        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (next == null) stringResource(R.string.lesson_every_lesson_done)
+                else if (learnedHere == 0) stringResource(R.string.lesson_start_learning)
+                else stringResource(R.string.lesson_continue_learning),
+                style = MaterialTheme.typography.labelLarge,
+                color = Palette.LightAzure,
+                modifier = Modifier.weight(1f),
+            )
+            if (streak > 0) {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Palette.Onyx.copy(alpha = 0.42f))
+                        .border(1.dp, Palette.Hairline, RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.LocalFireDepartment, null, Modifier.size(16.dp), tint = Palette.LightAzure)
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        pluralStringResource(R.plurals.learn_streak, streak, streak),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Palette.PaperWhite,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
         if (next != null) {
-            Text(stringResource(R.string.lesson_lesson_2, next.title, next.number), style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.lesson_lesson_2, next.title, next.number), style = MaterialTheme.typography.titleLarge, color = Palette.PaperWhite)
+            Spacer(Modifier.height(2.dp))
             Text(next.words.joinToString(", ", transform = show), style = MaterialTheme.typography.bodyMedium,
                 color = Palette.LightAzure, maxLines = 2, overflow = TextOverflow.Ellipsis)
         } else {
             Text(stringResource(R.string.lesson_you_have_signed_all_signs, total),
                 style = MaterialTheme.typography.bodyMedium, color = Palette.LightAzure)
         }
-        Spacer(Modifier.height(12.dp))
-        // The bar fills to the new value rather than jumping, so a sign just learned shows as progress.
+        Spacer(Modifier.height(14.dp))
+        // Custom clean rounded progress bar without Material 3's trailing stop-indicator dots.
         val shown by animateFloatAsState(if (total == 0) 0f else learnedHere / total.toFloat(), tween(Motion.LONG, easing = Motion.Standard), label = "progress")
-        LinearProgressIndicator(
-            progress = { shown }, modifier = Modifier.fillMaxWidth(),
-            color = Palette.LightAzure, trackColor = Palette.PaperWhite.copy(alpha = 0.18f),
-        )
-        Text(stringResource(R.string.lesson_of_signs, learnedHere, total), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium,
-            color = Palette.LightAzure)
-        Spacer(Modifier.height(12.dp))
+        Box(
+            Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(Palette.PaperWhite.copy(alpha = 0.16f)),
+        ) {
+            if (shown > 0f) {
+                Box(
+                    Modifier.fillMaxWidth(shown.coerceIn(0.02f, 1f)).fillMaxHeight().clip(CircleShape)
+                        .background(Palette.LightAzure),
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.lesson_of_signs, learnedHere, total),
+                style = MaterialTheme.typography.labelMedium,
+                color = Palette.LightAzure,
+                modifier = Modifier.weight(1f),
+            )
+            if (progress.learned.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.learn_latest, progress.learned.last().let(show)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Palette.LightAzure.copy(alpha = 0.85f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (next != null) Button(onClick = { onOpen(next.id) }) { Text(if (next.words.any { it in progress.learned }) stringResource(R.string.setup_continue) else stringResource(R.string.setup_start)) }
             TextButton(onClick = onAll, colors = ButtonDefaults.textButtonColors(contentColor = Palette.PaperWhite)) { Text(stringResource(R.string.lesson_all_lessons)) }

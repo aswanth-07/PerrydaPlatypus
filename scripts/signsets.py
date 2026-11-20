@@ -94,3 +94,61 @@ class SetRule(torch.nn.Module):
         w = p.clamp_min(1e-12).pow(self.gamma) * self.weight
         mass = self._mass(p)
         return mass * w / self._mass(w), mass
+
+
+class FastSetRule(torch.nn.Module):
+    """Exact same answer rule as SetRule, operating only on multi-word sets (>= 2 glosses). Singletons pass
+    through untouched, and gamma == 0.25 uses sqrt(sqrt(x)) instead of a libm pow() call."""
+
+    def __init__(self, set_of, counts, gamma=GAMMA, beta=BETA):
+        super().__init__()
+        n = len(set_of)
+        bc = torch.bincount(set_of)
+        multi_sets = torch.nonzero(bc > 1, as_tuple=False).squeeze(1)
+        self.has_multi = len(multi_sets) > 0
+        self.gamma = float(gamma)
+        if not self.has_multi:
+            return
+        is_multi = bc[set_of] > 1
+        multi_gloss = torch.nonzero(is_multi, as_tuple=False).squeeze(1)
+        sing_gloss = torch.nonzero(~is_multi, as_tuple=False).squeeze(1)
+        m = len(multi_gloss)
+        set_map = {int(s): i for i, s in enumerate(multi_sets.tolist())}
+        k = int(bc[multi_sets].max())
+        members = torch.full((len(multi_sets), k), m, dtype=torch.long)  # index m is a zero pad column
+        fill = [0] * len(multi_sets)
+        local_set_of = torch.zeros(m, dtype=torch.long)
+        for i, g in enumerate(multi_gloss.tolist()):
+            ms = set_map[int(set_of[g])]
+            members[ms, fill[ms]] = i
+            fill[ms] += 1
+            local_set_of[i] = ms
+        order = torch.cat([sing_gloss, multi_gloss])
+        inv_perm = torch.empty(n, dtype=torch.long)
+        inv_perm[order] = torch.arange(n, dtype=torch.long)
+
+        self.register_buffer("sing_gloss", sing_gloss, persistent=False)
+        self.register_buffer("multi_gloss", multi_gloss, persistent=False)
+        self.register_buffer("members", members.reshape(-1), persistent=False)
+        self.register_buffer("local_set_of", local_set_of, persistent=False)
+        self.register_buffer("inv_perm", inv_perm, persistent=False)
+        self.register_buffer("weight", counts[multi_gloss].clamp_min(0.5).pow(beta), persistent=False)
+        self.shape = members.shape
+
+    def _mass(self, v):
+        pad = torch.cat([v, torch.zeros_like(v[:, :1])], 1)
+        per_set = pad.index_select(1, self.members).reshape(v.shape[0], *self.shape).sum(2)
+        return per_set.index_select(1, self.local_set_of)
+
+    def forward(self, p):
+        if not self.has_multi:
+            return p, p
+        ps = p.index_select(1, self.sing_gloss)
+        pm = p.index_select(1, self.multi_gloss)
+        pc = pm.clamp_min(1e-12)
+        w = (torch.sqrt(torch.sqrt(pc)) if self.gamma == 0.25 else pc.pow(self.gamma)) * self.weight
+        mm = self._mass(pm)
+        rm = mm * w / self._mass(w)
+        ruled = torch.cat([ps, rm], 1).index_select(1, self.inv_perm)
+        mass = torch.cat([ps, mm], 1).index_select(1, self.inv_perm)
+        return ruled, mass

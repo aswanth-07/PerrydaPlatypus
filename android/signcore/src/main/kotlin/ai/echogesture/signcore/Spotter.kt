@@ -159,8 +159,23 @@ class Spotter(
     @Volatile var tentative: String? = null
         private set
 
+    /** 0..1 progress of the open run toward committing (for the smooth live lock-in bar on Talk). */
+    @Volatile var tentativeProgress: Float = 0f
+        private set
+
+    /** Closest taught sign on the latest live window (regardless of threshold), for Teach's live match meter. */
+    @Volatile var liveTaughtBest: TaughtMatcher.Match? = null
+        private set
+
+    private var tentativeKey: String? = null
+
     private fun pushContinuous(ts: Long, frame: RawFrame, width: Int, height: Int): Event? {
-        if (prevTs >= 0) framePeriod = if (framePeriod == 0f) (ts - prevTs).toFloat() else 0.9f * framePeriod + 0.1f * (ts - prevTs)
+        if (prevTs >= 0) {
+            val dt = ts - prevTs
+            if (dt in 1..MAX_FRAME_DT_MS) {
+                framePeriod = if (framePeriod == 0f) dt.toFloat() else 0.9f * framePeriod + 0.1f * dt
+            }
+        }
         prevTs = ts
         // The gate: open from the frame a wrist rises above the rest line until both have been below it for restMs;
         // windows are still classified for tailMs after that, while their centre is on the last sign.
@@ -181,21 +196,34 @@ class Spotter(
             return Event(last?.word, last?.by?.pred, false, last?.by?.taught, watchShare = last?.watchShare)
         }
         // The first active frame classifies at once; after that every liveStrideMs, to the nearest whole frame.
-        if (liveActive && ts - classifiedAt < liveStrideMs - framePeriod / 2) return null
+        val minStep = (liveStrideMs - framePeriod / 2f).coerceAtLeast(liveStrideMs * 0.5f)
+        if (liveActive && ts - classifiedAt < minStep) return null
         liveActive = true
         classifiedAt = ts
 
-        val window = frames.filter { ts - it.first < liveWindowMs }.map { it.second }
+        val window = ArrayList<RawFrame>(frames.size)
+        var handFrames = 0
+        for ((t, fr) in frames) {
+            if (ts - t < liveWindowMs) {
+                window.add(fr)
+                if (fr.hands[0] != null || fr.hands[1] != null) handFrames++
+            }
+        }
         var pred: Prediction? = null
         var hit: TaughtMatcher.Match? = null
         var settled: Settled? = null
         var sign = false
-        if (window.size >= 8 && window.count { it.hands[0] != null || it.hands[1] != null } >= minHandFrames) {
+        if (window.size >= 8 && handFrames >= minHandFrames) {
             val live = liveModel
             pred = (live ?: model).classify(Normaliser.normalise(window, width, height))
-            hit = (if (live != null) liveTaught else taught)?.match(pred.embedding)
-            val conf = pred.setProbs[pred.order[0]]
+            val tm = if (live != null) liveTaught else taught
+            val bestTaught = tm?.best(pred.embedding)
+            liveTaughtBest = bestTaught
+            hit = bestTaught?.takeIf { it.cosine >= tm.threshold }
+            val conf = pred.setConfidence
             sign = hit != null || (conf >= lo && conf > pred.none)   // a taught match passed its own threshold
+        } else {
+            liveTaughtBest = null
         }
         if (!sign) {                 // the movement between two signs, or no hands to read
             if (++gapRun >= gap) settled = flush()
@@ -209,13 +237,14 @@ class Spotter(
                 ev[key] = (ev[key] ?: 0.0) + 1.0
                 namedBy[key] = named
             } else {
-                val seen = HashSet<String>()
-                for (n in 0 until minOf(TOP_K, p.order.size)) {
-                    val k = p.order[n]
+                val seen = HashSet<String>(8)
+                val top = p.topIndices(TOP_K)
+                for (n in top.indices) {
+                    val k = top[n]
                     val key = setKey(k)
                     wsum[k] = (wsum[k] ?: 0.0) + p.probs[k].toDouble()
                     if (seen.add(key)) ev[key] = (ev[key] ?: 0.0) + p.setProbs[k].toDouble()
-                    if (n == 0) namedBy[key] = named
+                    if (n == 0 || key !in namedBy) namedBy[key] = named
                 }
             }
             if (commit > 0 && done == null) {
@@ -223,7 +252,26 @@ class Spotter(
                 if (e >= commit) { done = key; settled = Settled(word, namedBy[key], share(e)) }
             }
         }
-        tentative = if (ev.isEmpty()) null else leader().let { (key, word, e) -> if (e >= show && key != done) word else null }
+        if (ev.isEmpty() || done != null) {
+            tentative = null
+            tentativeKey = null
+            tentativeProgress = 0f
+        } else {
+            val (leadKey, leadWord, leadEv) = leader()
+            val targetEv = if (commit > 0f) commit.toDouble() else emin.toDouble().coerceAtLeast(1.0)
+            tentativeProgress = (leadEv / targetEv).toFloat().coerceIn(0f, 1f)
+            if (leadEv >= show) {
+                val curKey = tentativeKey
+                val curEv = if (curKey != null) ev[curKey] ?: 0.0 else 0.0
+                if (curKey == null || curKey == leadKey || leadEv >= curEv + TENTATIVE_HYSTERESIS) {
+                    tentativeKey = leadKey
+                    tentative = leadWord
+                }
+            } else {
+                tentativeKey = null
+                tentative = null
+            }
+        }
         if (settled != null) emit(settled.word)
         return Event(settled?.word, settled?.by?.pred ?: pred, true, if (settled != null) settled.by?.taught else hit, signing = gateOpen,
             watchShare = settled?.watchShare)
@@ -260,6 +308,8 @@ class Spotter(
         gapRun = 0
         done = null
         tentative = null
+        tentativeKey = null
+        tentativeProgress = 0f
     }
 
     // ---------- the sliding window alone ----------
@@ -414,10 +464,15 @@ class Spotter(
     private companion object {
         /** A window's this many most probable words add evidence (contsign.TOPK). */
         const val TOP_K = 5
+        /** Ignore inter-frame gaps longer than this (pauses, tab switches, idle gating) in the frame-period EMA. */
+        const val MAX_FRAME_DT_MS = 200L
+        /** Hysteresis margin so the tentative live caption stays calm instead of flickering between near-ties. */
+        const val TENTATIVE_HYSTERESIS = 0.15
     }
 
     private fun idle() {
         clearRun()
+        liveTaughtBest = null
         gateOpen = false
         closedAt = -1
         liveActive = false

@@ -41,6 +41,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { progressRepo.reset() }
     }
     val live = engine.liveState
+    val overlay = engine.overlayState
     val transcript = engine.transcript
 
     private val _clips = MutableStateFlow<List<ClipResult>>(emptyList())
@@ -50,12 +51,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            settings.collect { s ->
-                engine.setRetention(s.keepDays.takeIf { it != Settings.KEEP_FOREVER })
-                engine.load()   // the first call loads the model; later calls return at once
-                engine.configure(s.threshold, s.agree, (s.windowSec * 1000).toLong(), s.gpu, s.continuous, s.caution)
-                engine.setSpeech(s.speak, s.speechRate)
-                engine.setTeachThreshold(s.teachThreshold)
+            var prev: Settings? = null
+            // Collect persisted DataStore values directly so default Settings() never prunes history or churns trackers.
+            repo.settings.collect { s ->
+                val p = prev
+                if (p == null || s.keepDays != p.keepDays) {
+                    engine.setRetention(s.keepDays.takeIf { it != Settings.KEEP_FOREVER })
+                }
+                if (p == null) {
+                    engine.load()
+                }
+                if (p == null || s.threshold != p.threshold || s.agree != p.agree || s.windowSec != p.windowSec ||
+                    s.gpu != p.gpu || s.continuous != p.continuous || s.caution != p.caution
+                ) {
+                    engine.configure(s.threshold, s.agree, (s.windowSec * 1000).toLong(), s.gpu, s.continuous, s.caution)
+                }
+                if (p == null || s.speak != p.speak || s.speechRate != p.speechRate) {
+                    engine.setSpeech(s.speak, s.speechRate)
+                }
+                if (p == null || s.teachThreshold != p.teachThreshold) {
+                    engine.setTeachThreshold(s.teachThreshold)
+                }
+                prev = s
             }
         }
     }

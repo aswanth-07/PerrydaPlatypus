@@ -1,7 +1,9 @@
 package ai.echogesture.app
 
+import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.os.Bundle
+import android.provider.Settings as AndroidSettings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -37,7 +39,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // The app is always dark, so system bar icons are always light.
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
-        val mode = intent.getStringExtra("bench")
+        val allowBench = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 ||
+            runCatching { AndroidSettings.Global.getInt(contentResolver, AndroidSettings.Global.ADB_ENABLED, 0) == 1 }.getOrDefault(false)
+        val mode = if (allowBench) intent.getStringExtra("bench") else null
         if (mode == null) {
             setContent { EchoTheme { EchoApp(vm) } }
             return
@@ -61,7 +65,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            vm.settings.first { true }
+            vm.settingsLoaded.first { it }
             vm.engine.load()
             runCatching {
                 when (mode) {

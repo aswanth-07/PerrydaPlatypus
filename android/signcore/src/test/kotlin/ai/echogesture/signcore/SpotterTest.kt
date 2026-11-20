@@ -196,4 +196,30 @@ class SpotterTest {
         assertEquals((3..10).map { "W$it" }, spotter.caption.toList(), "restore keeps the eight-word limit")
         model.close()
     }
+
+    @Test
+    fun continuousStrideSurvivesLongPauseWithoutBursting() {
+        val clips = JSONObject(File(dir, "fixture.json").readText()).getJSONArray("clips")
+        val la = JSONArray(File(dir, "../../src/models/labels.json").readText())
+        val model = SignModel(File(dir, "../../src/models/echogesture_int8.onnx").readBytes(), (0 until la.length()).map { la.getString(it).uppercase() })
+        val c = clips.getJSONObject(0)
+        val fr = frames(c)
+        val w = c.getInt("width")
+        val h = c.getInt("height")
+        val spotter = Spotter(model)
+        spotter.liveStrideMs = 160L
+        spotter.continuous = true
+        // Feed initial frames at 25 fps, then simulate a 5-second pause/tab-switch, then 8 frames at 25 fps (320 ms).
+        var ts = 0L
+        for (i in 0 until 5) { spotter.push(ts, fr[i % fr.size], w, h); ts += 40L }
+        ts += 5_000L
+        var classified = 0
+        for (i in 5 until 13) {
+            if (spotter.push(ts, fr[i % fr.size], w, h) != null) classified++
+            ts += 40L
+        }
+        // Over 320 ms with stride 160 ms, at most 3 windows should fire (not all 8 frames!).
+        assertTrue(classified <= 3, "framePeriod must not explode after a 5 s pause (classified $classified/8 frames)")
+        model.close()
+    }
 }

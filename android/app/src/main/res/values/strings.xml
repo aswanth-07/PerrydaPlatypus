@@ -403,4 +403,64 @@
     <string name="licence_apache">Apache License 2.0</string>
     <string name="licence_mit">MIT License</string>
     <string name="licence_ofl">SIL Open Font License 1.1</string>
+
+    <!-- Live talk improvements, offline typed reply & Reply in Sign -->
+    <string name="talk_mode_continuous_pill">Continuous · %1$s</string>
+    <string name="talk_mode_rest_pill">Pause between signs</string>
+    <string name="talk_tune_captions">Tune live captions</string>
+    <string name="talk_quick_tune_title">Live captions</string>
+    <string name="talk_all_settings">All settings</string>
+    <string name="talk_speak_short">Speak</string>
+    <string name="talk_type_short">Type</string>
+    <string name="talk_type_reply">Type reply</string>
+    <string name="talk_type_or_sign_reply">Type or sign a reply</string>
+    <string name="talk_speak_sentence">Read caption aloud</string>
+    <string name="talk_type_sheet_title">Reply in text or sign</string>
+    <string name="talk_type_sheet_subtitle">Works offline anywhere, even in loud rooms. Matching words can also play as animated ASL signs.</string>
+    <string name="talk_type_placeholder">Type a reply for the signer…</string>
+    <string name="talk_send_text">Show text</string>
+    <string name="talk_show_in_sign_n">Sign (%1$d)</string>
+    <string name="talk_quick_phrases">Quick replies</string>
+    <string name="talk_no_messages_yet">No messages yet</string>
+    <string name="talk_sign_toggle">Show in sign</string>
+    <plurals name="talk_watch_in_sign">
+        <item quantity="one">Watch %d sign</item>
+        <item quantity="other">Watch %d signs</item>
+    </plurals>
+
+    <!-- SignSequencePlayer & Offline Sign Dictionary / Text-to-Sign -->
+    <string name="sign_reply_no_matches">No signs from the 300-sign demonstration pack matched this phrase yet.</string>
+    <string name="sign_reply_counter">Sign %1$d of %2$d</string>
+    <string name="sign_reply_replay">Replay from start</string>
+    <string name="sign_reply_offline_tag">Real-signer keypoints · Offline</string>
+    <string name="dict_entry_title">Sign dictionary</string>
+    <string name="dict_entry_body">Translate text to ASL or browse 300 real-signer sign animations offline.</string>
+    <string name="dict_entry_badge">Offline</string>
+    <string name="dict_title">Sign dictionary</string>
+    <string name="dict_subtitle">Type any phrase to play matching ASL signs in sequence, or browse all %1$d demonstrated signs offline.</string>
+    <string name="dict_placeholder">Type a sentence or search a sign…</string>
+    <string name="dict_clear">Clear</string>
+    <string name="dict_try_phrase">Try a phrase</string>
+    <string name="dict_practise_sign">Practise “%1$s”</string>
+    <string name="dict_hear_aloud">Hear aloud</string>
+    <string name="dict_hear_short">Hear</string>
+    <string name="dict_browse_title">Demonstrated signs (%1$d)</string>
+    <string name="dict_topic_all">All</string>
+
+    <!-- Practice, Teach, Videos & History polish -->
+    <string name="practice_match_pct">%1$d%% match</string>
+    <string name="teach_ideas_label">Quick ideas</string>
+    <string name="teach_how_it_works">How it works</string>
+    <string name="teach_how_steps">1. Name your sign  →  2. Record 3–5 quick examples  →  3. Instant live captions and speech.</string>
+    <string name="teach_none_yet_rich">None yet. Teach a name sign, local sign, or regional term and it will appear in Talk captions immediately.</string>
+    <string name="teach_sign_now">Sign now…</string>
+    <string name="teach_live_similarity">%1$d%% match</string>
+    <string name="teach_hands_pct">Hands %1$d%%</string>
+    <string name="video_badge_vocab">2,000 ASL signs</string>
+    <string name="video_badge_offline">100% offline</string>
+    <string name="video_badge_private">Never uploaded</string>
+    <string name="video_watch_sign">Watch sign</string>
+    <string name="video_practise_sign">Practise</string>
+    <string name="history_search_placeholder">Search conversations…</string>
+    <string name="conversation_copied">Copied to clipboard</string>
 </resources>

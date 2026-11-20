@@ -53,21 +53,21 @@ def assign_by_wrist(hands, pose_wrists):
     """hands: T x 2 x 21 x 3 (NaN when absent) -> same, with each hand moved to the slot of its nearer pose wrist."""
     out = np.full_like(hands, np.nan)
     for f in range(len(hands)):
-        found = [hands[f, s] for s in (0, 1) if np.isfinite(hands[f, s, 0, 0])]
+        found = [(s, hands[f, s]) for s in (0, 1) if np.isfinite(hands[f, s, 0, 0])]
         w = pose_wrists[f]
         if not found:
             continue
         if not np.isfinite(w).all():
-            for s, h in enumerate(found):
+            for s, h in found:
                 out[f, s] = h
             continue
-        cost = np.array([[np.linalg.norm(h[0, :2] - w[k, :2]) for k in (0, 1)] for h in found])
+        cost = np.array([[np.linalg.norm(h[0, :2] - w[k, :2]) for k in (0, 1)] for _, h in found])
         if len(found) == 1:
-            out[f, int(cost[0].argmin())] = found[0]
+            out[f, int(cost[0].argmin())] = found[0][1]
         elif cost[0, 0] + cost[1, 1] <= cost[0, 1] + cost[1, 0]:
-            out[f, 0], out[f, 1] = found
+            out[f, 0], out[f, 1] = found[0][1], found[1][1]
         else:
-            out[f, 1], out[f, 0] = found
+            out[f, 1], out[f, 0] = found[0][1], found[1][1]
     return out
 
 

@@ -431,11 +431,11 @@ class Decoder:
 
     @property
     def tentative(self):
-        """The open segment's leading word once its evidence reaches `show`, else None."""
-        if not self.ev:
+        """The open segment's leading word once its evidence reaches `show` (and before a caption commits), else None."""
+        if not self.ev or self.done is not None:
             return None
         s, w, e = self._leader()
-        return w if e >= self.show and s != self.done else None
+        return w if e >= self.show else None
 
     def push(self, top, none):
         """top: top_answers() of the window, or None when it had no hands; none: its probability of "no sign".

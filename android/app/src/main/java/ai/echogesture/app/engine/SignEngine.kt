@@ -52,6 +52,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
@@ -65,6 +66,19 @@ data class ModelInfo(
     val classifierMb: Double,
 )
 
+/**
+ * High-frequency hand overlay and live timings, separated from [LiveState] so 30 Hz camera updates only
+ * recompose the hand Canvas (and Developer details when visible), not the whole Talk/Learn/Teach screen.
+ */
+data class OverlayState(
+    val hands: List<FloatArray?> = listOf(null, null),
+    val imageWidth: Int = 0,
+    val imageHeight: Int = 0,
+    val fps: Double = 0.0,
+    val landmarksMs: Double = 0.0,
+    val modelMs: Double = 0.0,
+)
+
 data class LiveState(
     val ready: Boolean = false,
     val running: Boolean = false,
@@ -75,6 +89,8 @@ data class LiveState(
     val top: List<Pair<String, Float>> = emptyList(),
     val caption: List<String> = emptyList(),
     val pending: String? = null,                // the sign under way, not yet settled (continuous captions)
+    val pendingProgress: Float = 0f,            // 0..1 progress of the forming sign toward locking in
+    val taughtMatch: Pair<String, Float>? = null, // live closest taught sign + cosine score (for Teach Try-it meter)
     val attempt: Attempt? = null,               // Learn mode: the last sign made while a word was being practised
     val lastWord: String? = null,
     val lastWordAt: Long = 0,
@@ -82,12 +98,6 @@ data class LiveState(
     val lastTaught: Boolean = false,            // the last word is a sign taught on this phone
     val lastAlternatives: List<String> = emptyList(),   // other signs it could have been; a tap swaps one in
     val recording: Float? = null,               // 0..1 while an example for a taught sign is being recorded
-    val fps: Double = 0.0,
-    val landmarksMs: Double = 0.0,
-    val modelMs: Double = 0.0,
-    val hands: List<FloatArray?> = listOf(null, null),
-    val imageWidth: Int = 0,
-    val imageHeight: Int = 0,
     val gpu: Boolean = true,
     val lanes: Int = 1,                         // live landmarkers taking turns on frames
     val error: String? = null,
@@ -148,11 +158,19 @@ class SignEngine(private val context: Context) : AutoCloseable {
      */
     private class Lane(val gpu: Boolean) {
         lateinit var landmarker: HolisticLandmarker
+        val lock = Any()               // guards detectAsync against concurrent close() in stopLive()
+        @Volatile var closed = false
         @Volatile var startedNs = 0L   // 0: idle
+        @Volatile var inFlightTs = 0L  // timestamp currently owned by this lane
     }
 
     private fun newLane(gpu: Boolean): Lane = Lane(gpu).also { lane ->
-        lane.landmarker = createLandmarker(RunningMode.LIVE_STREAM, gpu) { r, img -> onLaneResult(lane, r, img) }
+        lane.landmarker = createLandmarker(
+            RunningMode.LIVE_STREAM,
+            gpu,
+            onResult = { r, img -> onLaneResult(lane, r, img) },
+            onError = { onLaneError(lane) },
+        )
     }
     @Volatile private var lanes: List<Lane> = emptyList()
     private val live: Any? get() = lanes.firstOrNull()
@@ -225,6 +243,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
             _live.update { it.copy(attempt = null) }
         }
 
+    /** True while Teach's "Try it" step tests a new sign: updates liveState without speaking or logging to Chat. */
+    @Volatile var sandboxMode: Boolean = false
+
     // ---------- continuous signing: the live model and its measured decoder settings ----------
 
     /** The live-caption model, trained on windows of continuous signing (assets/echogesture_live_int8.onnx), if packed. */
@@ -258,6 +279,27 @@ class SignEngine(private val context: Context) : AutoCloseable {
     /** The loaded classifier's words, in label order; empty until a model is loaded. */
     fun labels(): List<String> = model?.labels.orEmpty()
 
+    /** Same-sign synonym map (word -> other names of the same sign), for offline Text-to-Sign lookup. */
+    fun synonymMap(): Map<String, List<String>> {
+        val m = model ?: return emptyMap()
+        val sets = sameSign ?: return emptyMap()
+        val out = HashMap<String, List<String>>()
+        for (i in m.labels.indices) {
+            val others = sets.others(i)
+            if (others.isNotEmpty()) out[m.labels[i].uppercase()] = others.map { m.labels[it].uppercase() }
+        }
+        return out
+    }
+
+    /** Speak a phrase or word immediately on user tap, even when automatic speaking is turned off. */
+    fun speakNow(text: String) = speaker.speakNow(text)
+
+    /** Speak the current live caption sentence aloud on demand. */
+    fun speakCaption() {
+        val words = _live.value.caption
+        if (words.isNotEmpty()) speaker.speakNow(words.joinToString(" ") { Speaker.sayable(it) })
+    }
+
     /** The loaded classifier's bytes and labels, for the latency benchmark. */
     fun modelAsset(): Pair<ByteArray, List<String>> {
         val labels = JSONArray(context.assets.open("labels.json").bufferedReader().readText()).let { a -> (0 until a.length()).map { a.getString(it) } }
@@ -267,6 +309,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
     // ---------- same-sign names and signs taught on the phone ----------
 
     @Volatile private var sameSign: SameSignSets? = null
+    @Volatile private var labelIndex: Map<String, Int> = emptyMap()
     private val store = TaughtStore(context)
     @Volatile private var matcher: TaughtMatcher? = null
     @Volatile private var teachThreshold = TaughtMatcher.DEFAULT_THRESHOLD
@@ -282,8 +325,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
     @Volatile private var recording: Recording? = null
 
     private fun also(p: Prediction, word: String): List<String> {
-        val i = p.order[0]
-        if (p.labels[i] != word) return emptyList()
+        val i = labelIndex[word] ?: return emptyList()
         return sameSign?.others(i)?.map { p.labels[it] }.orEmpty()
     }
 
@@ -295,14 +337,16 @@ class SignEngine(private val context: Context) : AutoCloseable {
      * (scripts/alternatives_eval.py).
      */
     private fun alternatives(p: Prediction, word: String): List<String> {
-        val i = if (p.top == word) p.order[0] else p.labels.indexOf(word)
-        if (i < 0 || p.setProbs[i] >= ALT_BELOW) return emptyList()
+        val i = labelIndex[word] ?: return emptyList()
+        if (i !in p.setProbs.indices || p.setProbs[i] >= ALT_BELOW) return emptyList()
         val sets = sameSign ?: SameSignSets(IntArray(p.labels.size) { it })   // no sets: every word its own sign
         return sets.alternatives(p.order, i, ALTERNATIVES).map { p.labels[it] }
     }
 
     private val _live = MutableStateFlow(LiveState())
     val liveState: StateFlow<LiveState> = _live.asStateFlow()
+    private val _overlay = MutableStateFlow(OverlayState())
+    val overlayState: StateFlow<OverlayState> = _overlay.asStateFlow()
     private val _transcript = MutableStateFlow<List<TranscriptEntry>>(emptyList())
     val transcript: StateFlow<List<TranscriptEntry>> = _transcript.asStateFlow()
     var info: ModelInfo? = null
@@ -368,8 +412,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
         s.setOf = setIds
         applyCaution(s)
         s.continuous = benchContinuous ?: continuousOn
+        val idxMap = HashMap<String, Int>(labels.size * 2).apply { labels.forEachIndexed { i, l -> put(l, i) } }
         // Swap on the worker thread so a live frame never meets a half-replaced model.
-        worker.submit { model = m; liveModel = lm; spotter = s; sameSign = sets }.get()
+        worker.submit { model = m; liveModel = lm; spotter = s; sameSign = sets; labelIndex = idxMap }.get()
         old?.let(retired::add)   // a clip may still be using it; closed with the engine
         oldLive?.let(retired::add)
         info = runCatching {
@@ -398,7 +443,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
         val lm = liveModel
         val share = (spotter?.liveWindowMs ?: 1200L) / TEACH_MS.toFloat()
         val liveProtos = if (lm == null || !supported) emptyList() else signs.mapNotNull { sign ->
-            val embs = store.examples(sign.id).mapNotNull { runCatching { lm.classify(Cores.window(it, share)).embedding }.getOrNull() }
+            val embs = store.examples(sign.id).flatMap { ex ->
+                Cores.windows(ex, share).mapNotNull { win -> runCatching { lm.classify(win).embedding }.getOrNull() }
+            }
             if (embs.isEmpty()) null else sign.word to Embeddings.prototype(embs)
         }
         val ltm = TaughtMatcher(liveProtos, teachThreshold).takeIf { liveProtos.isNotEmpty() }
@@ -543,7 +590,14 @@ class SignEngine(private val context: Context) : AutoCloseable {
     private fun stopLive() {
         val old = lanes
         lanes = emptyList()
-        old.forEach { it.landmarker.close() }
+        old.forEach { lane ->
+            synchronized(lane.lock) {
+                lane.closed = true
+                lane.startedNs = 0L
+                lane.inFlightTs = 0L
+                runCatching { lane.landmarker.close() }
+            }
+        }
         synchronized(order) { inFlight.clear(); ready.clear() }
         _live.update { it.copy(running = false) }
     }
@@ -636,7 +690,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
             val from = _live.value.lastWord ?: return@execute
             if (spotter?.replaceLast(from, to) != true) return@execute
             val labels = model?.labels.orEmpty()
-            val names = sameSign?.others(labels.indexOf(to))?.map { labels[it] }.orEmpty()
+            val names = labelIndex[to]?.let { sameSign?.others(it) }?.map { labels[it] }.orEmpty()
             _live.update {
                 it.copy(caption = it.caption.dropLast(1) + to, lastWord = to, lastWordAt = SystemClock.uptimeMillis(),
                     lastAlso = names, lastTaught = false, lastAlternatives = emptyList())
@@ -654,33 +708,101 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     fun clearTranscript() = _transcript.update { emptyList() }
 
-    /** CameraX analyzer: upright, resized frame into the live landmarker. */
+    private val frameConverter = CameraFrameConverter(maxSide = 480, slots = 4)
+    private val idleGrid = ByteArray(192)
+    private var hasIdleGrid = false
+
+    /** Fast 16x12 coarse luminance grid diff (~5 us, zero allocs) to wake immediately from deep idle on motion. */
+    private fun hasIdleMotion(proxy: ImageProxy): Boolean {
+        val planes = proxy.planes
+        if (planes.isEmpty()) return true
+        val plane = planes[0]
+        val buf = plane.buffer
+        val w = proxy.width
+        val h = proxy.height
+        val rowStride = plane.rowStride
+        val pixStride = plane.pixelStride
+        if (w < 16 || h < 12 || pixStride <= 0) return true
+        val chOff = if (pixStride >= 3) 1 else 0   // green channel for RGBA, Y for YUV
+        val limit = buf.limit()
+        var diffSum = 0
+        var idx = 0
+        for (gy in 0 until 12) {
+            val y = (gy * h + h / 2) / 12
+            val rowBase = y * rowStride
+            for (gx in 0 until 16) {
+                val x = (gx * w + w / 2) / 16
+                val off = rowBase + x * pixStride + chOff
+                val v = if (off in 0 until limit) buf.get(off).toInt() and 0xFF else 0
+                if (hasIdleGrid) {
+                    val prev = idleGrid[idx].toInt() and 0xFF
+                    diffSum += kotlin.math.abs(v - prev)
+                }
+                idleGrid[idx++] = v.toByte()
+            }
+        }
+        if (!hasIdleGrid) {
+            hasIdleGrid = true
+            return false
+        }
+        return diffSum >= 192 * 7   // mean abs delta >= 7/255 across the 16x12 grid
+    }
+
+    /** CameraX analyzer: upright, resized frame into the live landmarker (zero per-frame Bitmap allocations). */
     fun analyze(proxy: ImageProxy) {
         // MediaPipe drops frames that arrive while it is busy; dropping them here, before the RGBA copy and the
-        // resize, saves that work too. A signer in view costs Holistic about 65 ms a frame on a 2026 flagship.
-        if (replayOnly || lanes.isEmpty() || model == null || _live.value.paused || busy() || !wantFrame(SystemClock.uptimeMillis())) {
+        // resize, saves that work too.
+        val now = SystemClock.uptimeMillis()
+        if (replayOnly || lanes.isEmpty() || model == null || _live.value.paused || busy()) {
             proxy.close()
             return
         }
-        val bitmap = try { proxy.toBitmap().prepared(proxy.imageInfo.rotationDegrees) } finally { proxy.close() }
+        if (gateIdle && recording == null && now - lastHandsAt > IDLE_AFTER_MS) {
+            if (hasIdleMotion(proxy)) {
+                lastHandsAt = now
+                lastSigningAt = now
+                lastFedAt = now
+                hasIdleGrid = false
+            } else if (now - lastFedAt < STILL_IDLE_PERIOD_MS) {
+                proxy.close()
+                return
+            } else {
+                lastFedAt = now
+            }
+        } else {
+            hasIdleGrid = false
+            if (!wantFrame(now)) {
+                proxy.close()
+                return
+            }
+        }
+        val bitmap = try { frameConverter.convert(proxy) } finally { proxy.close() }
         analyzeBitmap(bitmap)
     }
 
-    // Signing-gated rate (after MobileASL's variable frame rate): no sign starts without a hand in view, so while
-    // no hand has been seen for IDLE_AFTER_MS only one frame per IDLE_PERIOD_MS is tracked (about 8 fps, one lane);
-    // the first frame with a hand restores every frame on every lane.
+    // 3-tier signing-gated rate (after MobileASL's variable frame rate):
+    //   - active signing / recording: full 30 fps
+    //   - hands visible but resting below the rest line for > REST_IDLE_AFTER_MS: 15 fps (halves Holistic power)
+    //   - no hands in view for > IDLE_AFTER_MS: ~8.3 fps
     @Volatile private var lastHandsAt = 0L
+    @Volatile private var lastSigningAt = 0L
     @Volatile private var lastFedAt = 0L
     @Volatile var gateIdle = true
 
     /** Whether the camera frame arriving at [now] (uptime ms) should be tracked. */
     fun wantFrame(now: Long): Boolean {
-        if (gateIdle && recording == null && now - lastHandsAt > IDLE_AFTER_MS && now - lastFedAt < IDLE_PERIOD_MS) return false
+        if (gateIdle && recording == null) {
+            if (now - lastHandsAt > IDLE_AFTER_MS) {
+                if (now - lastFedAt < IDLE_PERIOD_MS) return false
+            } else if (now - lastSigningAt > REST_IDLE_AFTER_MS) {
+                if (now - lastFedAt < REST_PERIOD_MS) return false
+            }
+        }
         lastFedAt = now
         return true
     }
 
-    private fun idle(lane: Lane, now: Long) = lane.startedNs == 0L || now - lane.startedNs > STALE_NS
+    private fun idle(lane: Lane, now: Long) = !lane.closed && (lane.startedNs == 0L || now - lane.startedNs > STALE_NS)
 
     /** Every lane is tracking a frame; a frame with no result after a second is forgotten, so tracking never stalls. */
     fun busy(): Boolean {
@@ -699,19 +821,54 @@ class SignEngine(private val context: Context) : AutoCloseable {
         val ts: Long
         synchronized(order) {
             val now = System.nanoTime()
-            val k = (0 until all.size).map { (nextLane + it) % all.size }.firstOrNull { idle(all[it], now) } ?: return false
-            nextLane = (k + 1) % all.size
-            lane = all[k]
+            var picked = -1
+            for (i in all.indices) {
+                val idx = (nextLane + i) % all.size
+                if (idle(all[idx], now)) { picked = idx; break }
+            }
+            if (picked < 0) return false
+            nextLane = (picked + 1) % all.size
+            lane = all[picked]
             var t = SystemClock.uptimeMillis()
             if (t <= lastTs) t = lastTs + 1   // MediaPipe needs strictly increasing timestamps
             lastTs = t
             ts = t
             lane.startedNs = now
+            lane.inFlightTs = ts
             inFlight[t] = now
         }
-        runCatching { lane.landmarker.detectAsync(BitmapImageBuilder(bitmap).build(), ts) }
-            .onFailure { Log.w(TAG, "detectAsync", it); synchronized(order) { inFlight.remove(ts) }; lane.startedNs = 0L }
-        return true
+        val ok = synchronized(lane.lock) {
+            if (lane.closed) {
+                synchronized(order) { inFlight.remove(ts) }
+                lane.startedNs = 0L
+                lane.inFlightTs = 0L
+                return false
+            }
+            runCatching { lane.landmarker.detectAsync(BitmapImageBuilder(bitmap).build(), ts) }
+                .onFailure {
+                    Log.w(TAG, "detectAsync", it)
+                    synchronized(order) {
+                        inFlight.remove(ts)
+                        if (lane.inFlightTs == ts) { lane.startedNs = 0L; lane.inFlightTs = 0L }
+                    }
+                }.isSuccess
+        }
+        return ok
+    }
+
+    /** Recover immediately if a lane reports an async error instead of waiting STALE_NS (1 s). */
+    private fun onLaneError(lane: Lane) {
+        synchronized(order) {
+            val ts = lane.inFlightTs
+            if (ts != 0L) inFlight.remove(ts)
+            lane.startedNs = 0L
+            lane.inFlightTs = 0L
+            while (ready.isNotEmpty()) {
+                val head = ready.firstKey()
+                if (inFlight.isNotEmpty() && inFlight.firstKey() < head) break
+                deliver(head, ready.remove(head)!!)
+            }
+        }
     }
 
     /** A lane finished a frame: hold it until every earlier frame is back, then pass them on in order. */
@@ -719,8 +876,11 @@ class SignEngine(private val context: Context) : AutoCloseable {
         val ts = result.timestampMs()
         val frame = result.toRawFrame()   // on this lane's own thread, so lanes convert in parallel
         val doneNs = System.nanoTime()
-        lane.startedNs = 0L
         synchronized(order) {
+            if (lane.inFlightTs == ts) {
+                lane.startedNs = 0L
+                lane.inFlightTs = 0L
+            }
             val sent = inFlight.remove(ts) ?: return   // forgotten as stale, or the lanes were restarted
             ready[ts] = Tracked(frame, image.width, image.height, (doneNs - sent) / 1e6)
             inFlight.entries.removeIf { doneNs - it.value > STALE_NS }
@@ -738,7 +898,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
         val h = t.h
         val landmarksMs = t.landmarksMs
         bench?.let { b -> synchronized(b) { b.landmarks += landmarksMs; b.results++; b.total++ } }
-        if (frame.hands.any { it != null }) lastHandsAt = SystemClock.uptimeMillis()
+        val hasHands = frame.hands[0] != null || frame.hands[1] != null
+        val nowMs = SystemClock.uptimeMillis()
+        if (hasHands) lastHandsAt = nowMs
         val dt = if (lastResultTs > 0) (ts - lastResultTs).coerceAtLeast(1) else 0
         lastResultTs = ts
         worker.execute {
@@ -759,8 +921,9 @@ class SignEngine(private val context: Context) : AutoCloseable {
                 }
             }
             val target = practiceTarget
-            s.watch = target?.let { t -> model?.labels?.indexOf(t)?.takeIf { it >= 0 } }
+            s.watch = target?.let { labelIndex[it] }
             val event = if (rec == null) s.push(ts, frame, w, h) else null
+            if (s.signing || rec != null) lastSigningAt = nowMs
             event?.prediction?.let { pr -> bench?.let { b -> synchronized(b) { b.model += pr.latencyMs } } }
             val word = event?.word
             val hit = event?.taught
@@ -768,39 +931,53 @@ class SignEngine(private val context: Context) : AutoCloseable {
             val alsoNames = if (word != null && !taught) event.prediction?.let { also(it, word) }.orEmpty() else emptyList()
             val others = if (word != null && !taught) event.prediction?.let { alternatives(it, word) }.orEmpty() else emptyList()
             var attempt: Attempt? = null
-            for (w in event?.words.orEmpty()) {
+            val sandbox = sandboxMode
+            for (wrd in event?.words.orEmpty()) {
                 val conf = hit?.cosine ?: event?.prediction?.confidence ?: 0f
                 if (target != null) {   // practising: judge the sign against the word asked for, say and keep nothing
-                    val share = if (w == target) 1f else event?.watchShare ?: 0f
-                    attempt = Attempt(target, w, share, share >= PRACTICE_PASS, SystemClock.uptimeMillis())
-                    if (bench != null) Log.i(Bench.TAG, "attempt " + target + " seen " + w + " share " + share + " correct " + (share >= PRACTICE_PASS))
+                    val share = if (wrd == target) 1f else event?.watchShare ?: 0f
+                    attempt = Attempt(target, wrd, share, share >= PRACTICE_PASS, SystemClock.uptimeMillis())
+                    if (bench != null) Log.i(Bench.TAG, "attempt " + target + " seen " + wrd + " share " + share + " correct " + (share >= PRACTICE_PASS))
                     continue
                 }
-                speaker.speak(w, ts)   // ts is the uptime of the camera frame that settled the word
-                _transcript.update { it + TranscriptEntry(w, conf, System.currentTimeMillis()) }
-                if (bench != null) Log.i(Bench.TAG, "caption " + w + " conf " + conf + " at " + ts + (if (taught) " taught" else ""))
+                if (sandbox) continue   // Teach "Try it": caption shows on screen without speaking or polluting Chat
+                speaker.speak(wrd, ts)   // ts is the uptime of the camera frame that settled the word
+                _transcript.update { it + TranscriptEntry(wrd, conf, System.currentTimeMillis()) }
+                if (bench != null) Log.i(Bench.TAG, "caption " + wrd + " conf " + conf + " at " + ts + (if (taught) " taught" else ""))
+            }
+            _overlay.update { ov ->
+                val fps = if (dt > 0) (if (ov.fps == 0.0) 1000.0 / dt else 0.9 * ov.fps + 0.1 * 1000.0 / dt) else ov.fps
+                ov.copy(
+                    hands = frame.hands.toList(),
+                    imageWidth = w,
+                    imageHeight = h,
+                    fps = fps,
+                    landmarksMs = if (ov.landmarksMs == 0.0) landmarksMs else 0.8 * ov.landmarksMs + 0.2 * landmarksMs,
+                    modelMs = event?.prediction?.latencyMs ?: ov.modelMs,
+                )
             }
             _live.update { st ->
-                val fps = if (dt > 0) (if (st.fps == 0.0) 1000.0 / dt else 0.9 * st.fps + 0.1 * 1000.0 / dt) else st.fps
+                val newTop = when {
+                    rec != null -> emptyList()
+                    event == null -> st.top
+                    hit != null -> listOf(hit.word to hit.cosine) + (event.prediction?.topK(2) ?: emptyList())
+                    event.prediction != null -> event.prediction!!.topK(3)
+                    (s.continuous || s.boundary) && !event.signing -> st.top   // at rest: the last sign's guesses stay until the next
+                    else -> emptyList()
+                }
+                val newCaption = if (word != null || st.caption.size != s.caption.size) s.caption.toList() else st.caption
+                val newPending = if (rec == null && s.continuous) s.tentative else null
+                val newPendingProgress = if (rec == null && s.continuous) s.tentativeProgress else 0f
+                val newTaughtBest = if (rec == null && sandbox) s.liveTaughtBest?.let { it.word to it.cosine } else null
                 st.copy(
-                    handsVisible = frame.hands.any { it != null },
+                    handsVisible = hasHands,
                     signing = s.signing,
                     bodyVisible = frame.pose != null,
-                    hands = frame.hands.toList(),
-                    imageWidth = w, imageHeight = h,
-                    fps = fps,
-                    landmarksMs = if (st.landmarksMs == 0.0) landmarksMs else 0.8 * st.landmarksMs + 0.2 * landmarksMs,
-                    modelMs = event?.prediction?.latencyMs ?: st.modelMs,
-                    top = when {
-                        rec != null -> emptyList()
-                        event == null -> st.top
-                        hit != null -> listOf(hit.word to hit.cosine) + (event.prediction?.topK(2) ?: emptyList())
-                        event.prediction != null -> event.prediction!!.topK(3)
-                        (s.continuous || s.boundary) && !event.signing -> st.top   // at rest: the last sign's guesses stay until the next
-                        else -> emptyList()
-                    },
-                    caption = s.caption.toList(),
-                    pending = if (rec == null && s.continuous) s.tentative else null,
+                    top = newTop,
+                    caption = newCaption,
+                    pending = newPending,
+                    pendingProgress = newPendingProgress,
+                    taughtMatch = newTaughtBest,
                     lastWord = word ?: st.lastWord,
                     lastWordAt = if (word != null) SystemClock.uptimeMillis() else st.lastWordAt,
                     lastAlso = if (word != null) alsoNames else st.lastAlso,
@@ -845,6 +1022,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
         var maxTs = 0L
         var decodeMs = 0.0
         val timing = Any()
+        val bitmapsToRecycle = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Bitmap, Boolean>())
         clipLock.withLock {
             // Every lane counts timestamps from one base, later than anything used before; a lane's own frames
             // arrive in order, so its timestamps strictly increase as MediaPipe requires.
@@ -858,7 +1036,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
                 if (st.lm == null) {
                     st.lm = clipLandmarkerFor(st.lane, bmp.width, bmp.height)
                     val blank = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
-                    st.lm!!.detectForVideo(BitmapImageBuilder(blank).build(), base)
+                    try { st.lm!!.detectForVideo(BitmapImageBuilder(blank).build(), base) } finally { blank.recycle() }
                 }
                 val ts = maxOf(start + f.timeMs, st.lastTs + 1)
                 st.lastTs = ts
@@ -871,33 +1049,48 @@ class SignEngine(private val context: Context) : AutoCloseable {
                     trackFirstNs = minOf(trackFirstNs, t)
                     trackLastNs = maxOf(trackLastNs, e)
                     maxTs = maxOf(maxTs, ts)
+                    bitmapsToRecycle.add(bmp)
                 }
                 val n = done.incrementAndGet()
-                progress(0.05f + 0.9f * n / total, "Tracking hands and body · frame $n of $total")
+                val denom = maxOf(total, 1)
+                progress((0.05f + 0.9f * n / denom).coerceAtMost(0.95f), "Tracking hands and body · frame $n of $denom")
             }
 
-            // One sequential decode on its own thread; each lane tracks its share of the frames as they arrive.
+            // One sequential decode on its own thread; round-robin feeds all active lanes immediately so every
+            // lane overlaps with decoding from frame 0. On GPU cap to 2 lanes to avoid OpenCL/EGL contention.
+            val activeLanes = if (benchClipGpu ?: useGpu) minOf(CLIP_LANES, 2) else CLIP_LANES
             var decoded = false
+            var expectedTotal = MAX_CLIP_FRAMES
             try {
                 coroutineScope {
-                    val chs = Array(CLIP_LANES) { Channel<PickedFrame>(capacity = 4) }
+                    val chs = Array(activeLanes) { Channel<PickedFrame>(capacity = MAX_CLIP_FRAMES) }
                     launch(Dispatchers.IO) {
                         val td = System.nanoTime()
                         try {
-                            decoded = VideoFrames.decode(context, uri, MAX_CLIP_FRAMES) { f -> chs[f.k % CLIP_LANES].trySendBlocking(f) }
+                            decoded = VideoFrames.decode(context, uri, MAX_CLIP_FRAMES) { f ->
+                                expectedTotal = f.total
+                                chs[f.k % activeLanes].trySendBlocking(f)
+                            }
                         } finally {
                             decodeMs = (System.nanoTime() - td) / 1e6
                             chs.forEach { it.close() }
                         }
                     }
-                    for (k in 0 until CLIP_LANES) launch(Dispatchers.Default) { for (f in chs[k]) track(laneStates[k], f, MAX_CLIP_FRAMES) }
+                    for (k in 0 until activeLanes) launch(Dispatchers.Default) { for (f in chs[k]) track(laneStates[k], f, f.total) }
                 }
             } finally {
                 clipTs = maxOf(start, maxTs) + 1000   // later than anything used so far, even if this clip failed
+                bitmapsToRecycle.forEach { if (!it.isRecycled) it.recycle() }
+                bitmapsToRecycle.clear()
             }
 
-            // Fallback for videos the decoder path cannot read: the retriever, one seek per frame.
-            if (!decoded && tracked.all { it == null }) {
+            // Fallback for videos the decoder path cannot read (or decoded too few frames): retriever, one seek per frame.
+            val gotCount = tracked.count { it != null }
+            if (!decoded || gotCount < minOf(expectedTotal, 4)) {
+                java.util.Arrays.fill(tracked, null)
+                done.set(0)
+                trackFirstNs = Long.MAX_VALUE
+                trackLastNs = 0L
                 val mmr = MediaMetadataRetriever()
                 try {
                     val td = System.nanoTime()
@@ -912,13 +1105,17 @@ class SignEngine(private val context: Context) : AutoCloseable {
                     val shift = clipTs - start + 1000
                     for (k in 0 until n) {
                         val i = if (n == 1) 0 else Math.round(k * (count - 1).toDouble() / (n - 1)).toInt()
-                        val bmp = mmr.getFrameAtIndex(i)?.prepared() ?: continue
-                        track(st, PickedFrame(k, (i * 1000.0 / fps).toLong() + shift, bmp), n)
+                        val rawBmp = mmr.getFrameAtIndex(i) ?: continue
+                        val bmp = rawBmp.prepared()
+                        if (bmp !== rawBmp) rawBmp.recycle()
+                        track(st, PickedFrame(k, (i * 1000.0 / fps).toLong() + shift, bmp, n), n)
                     }
-                    clipTs = maxTs + 1000
+                    clipTs = maxOf(clipTs, maxTs) + 1000
                     decodeMs = (System.nanoTime() - td) / 1e6 - (trackLastNs - trackFirstNs) / 1e6
                 } finally {
                     mmr.release()
+                    bitmapsToRecycle.forEach { if (!it.isRecycled) it.recycle() }
+                    bitmapsToRecycle.clear()
                 }
             }
         }
@@ -937,15 +1134,29 @@ class SignEngine(private val context: Context) : AutoCloseable {
     private fun createLandmarker(
         mode: RunningMode, gpu: Boolean,
         onResult: ((HolisticLandmarkerResult, MPImage) -> Unit)? = null,
+        onError: (() -> Unit)? = null,
     ): HolisticLandmarker {
-        val base = BaseOptions.builder()
+        val baseBuilder = BaseOptions.builder()
             .setModelAssetPath("holistic_landmarker.task")
             .setDelegate(if (gpu) Delegate.GPU else Delegate.CPU)
-            .build()
+        if (gpu) {
+            runCatching {
+                val cacheDir = File(context.codeCacheDir, "mp_gpu_cache").apply { mkdirs() }.absolutePath
+                baseBuilder.setDelegateOptions(
+                    BaseOptions.DelegateOptions.GpuOptions.builder()
+                        .setCachedKernelPath(cacheDir)
+                        .setSerializedModelDir(cacheDir)
+                        .setModelToken("holistic_v1")
+                        .build(),
+                )
+            }
+        }
         // Thresholds match src/holistic_kp.py, so the phone sees what the model was trained on.
         val b = HolisticLandmarker.HolisticLandmarkerOptions.builder()
-            .setBaseOptions(base)
+            .setBaseOptions(baseBuilder.build())
             .setRunningMode(mode)
+            .setOutputFaceBlendshapes(false)
+            .setOutputPoseSegmentationMasks(false)
             .setMinPoseDetectionConfidence(0.3f)
             .setMinPosePresenceConfidence(0.3f)
             .setMinHandLandmarksConfidence(0.3f)
@@ -953,9 +1164,10 @@ class SignEngine(private val context: Context) : AutoCloseable {
             .setMinFacePresenceConfidence(0.3f)
         if (mode == RunningMode.LIVE_STREAM) {
             b.setResultListener { result: HolisticLandmarkerResult, image: MPImage -> onResult?.invoke(result, image) }
-            b.setErrorListener { e -> Log.e(TAG, "holistic", e) }
+            b.setErrorListener { e -> Log.e(TAG, "holistic", e); onError?.invoke() }
         }
-        return HolisticLandmarker.createFromOptions(context, b.build())
+        // MediaPipe's native Graph.startRunningGraph is not thread-safe across concurrent landmarker creations.
+        return synchronized(landmarkerInitLock) { HolisticLandmarker.createFromOptions(context, b.build()) }
     }
 
     override fun close() {
@@ -968,6 +1180,7 @@ class SignEngine(private val context: Context) : AutoCloseable {
         listener.close()
         clipLandmarkers.forEach { it?.close() }
         worker.shutdown()
+        runCatching { worker.awaitTermination(3, TimeUnit.SECONDS) }   // in-flight Spotter/SignModel calls finish before session.close()
         model?.close()
         liveModel?.close()
         retired.forEach { it.close() }
@@ -975,10 +1188,11 @@ class SignEngine(private val context: Context) : AutoCloseable {
 
     companion object {
         private const val TAG = "EchoGesture"
+        private val landmarkerInitLock = Any()
         /** The EchoGesture model (2,000 ASL words) and its live-caption model, copied into assets by the build. */
         const val MODEL_ASSET = "echogesture_int8.onnx"
         const val LIVE_MODEL_ASSET = "echogesture_live_int8.onnx"
-        // 24 evenly spaced frames: 0.57 s a picked clip on the phone. Tracking every frame scores 1.2 points
+        // 24 evenly spaced frames: fast picked-clip recognition on the phone. Tracking every frame scores 1.2 points
         // higher on the WLASL2000 test videos (64.63 vs 63.45, predict() on the laptop) at 2.8x the time, so
         // the scored predict() tracks every frame and the Videos tab keeps 24.
         const val MAX_CLIP_FRAMES = 24
@@ -987,11 +1201,14 @@ class SignEngine(private val context: Context) : AutoCloseable {
         const val ALT_BELOW = 0.8f
         /** Live lanes by default; see [Lane]. */
         const val DEFAULT_LANES = 2
-        /** Video landmarkers taking a picked clip's frames in turn. */
-        const val CLIP_LANES = 2
+        /** Video landmarkers tracking contiguous chunks of a picked clip in parallel. */
+        const val CLIP_LANES = 4
         private const val STALE_NS = 1_000_000_000L
+        private const val REST_IDLE_AFTER_MS = 1_500L
+        private const val REST_PERIOD_MS = 66L    // ~15 fps when hands are visible but resting below the rest line
         private const val IDLE_AFTER_MS = 2_000L
-        private const val IDLE_PERIOD_MS = 120L
+        private const val IDLE_PERIOD_MS = 120L       // ~8.3 fps fallback when no hands are in view
+        private const val STILL_IDLE_PERIOD_MS = 250L // ~4.0 fps when idle AND scene is visually still (wakes on motion)
         private const val SLIDE_THRESHOLD = 0.35f
         /** Learn mode: a sign passes when the practised word holds at least this share of its evidence. */
         const val PRACTICE_PASS = 0.5f

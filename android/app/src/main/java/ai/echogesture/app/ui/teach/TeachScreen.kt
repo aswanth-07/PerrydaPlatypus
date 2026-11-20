@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -130,7 +131,6 @@ private enum class Step(@StringRes val title: Int) { NAME(R.string.teach_name), 
 fun TeachScreen(vm: MainViewModel) {
     val live by vm.live.collectAsStateWithLifecycle()
     val teach by vm.engine.teach.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val haptics = LocalHaptics.current
 
@@ -149,16 +149,6 @@ fun TeachScreen(vm: MainViewModel) {
     val recordingFailed = stringResource(R.string.teach_recording_failed)
     val saveFailed = stringResource(R.string.teach_could_not_save_the_sign)
 
-    DisposableEffect(Unit) {
-        vm.engine.setPaused(false)   // a pause left on the Talk tab would starve the recorder of frames
-        vm.engine.acquireLive()
-        val window = (context as? Activity)?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose {
-            vm.engine.releaseLive()
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
     // Recorded examples are not kept if Android ends the app; coming back to Review without them means recording.
     LaunchedEffect(Unit) { if (step == Step.REVIEW && examples.size < MIN_EXAMPLES) step = Step.RECORD }
 
@@ -288,7 +278,8 @@ private fun ActionRow(content: @Composable () -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
 }
 
-/** Step 1: what the sign means, and the signs already taught on this phone. */
+/** Step 1: what the sign means, quick inspiration ideas, and the signs already taught on this phone. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NameStep(vm: MainViewModel, word: String, signs: List<TaughtSign>, onWord: (String) -> Unit, onNext: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -301,6 +292,7 @@ private fun NameStep(vm: MainViewModel, word: String, signs: List<TaughtSign>, o
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
         Text(stringResource(R.string.teach_what_does_the_sign_mean), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(4.dp))
         Text(
             stringResource(R.string.teach_usually_a_name_sign_or),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -311,8 +303,19 @@ private fun NameStep(vm: MainViewModel, word: String, signs: List<TaughtSign>, o
             label = { Text(stringResource(R.string.teach_word_or_name)) },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
             keyboardActions = KeyboardActions(onNext = { if (word.isNotBlank()) onNext() }),
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth(),
         )
+        if (word.isBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text(stringResource(R.string.teach_ideas_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(4.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("Priya", "Namaste", "Clinic", "Chai").forEach { idea ->
+                    AssistChip(onClick = { onWord(idea) }, label = { Text(idea) })
+                }
+            }
+        }
         val note = when {
             again -> stringResource(R.string.teach_you_already_taught_these_examples, show(name))
             known -> stringResource(R.string.teach_echogesture_already_knows_teaching_it, show(name))
@@ -320,18 +323,42 @@ private fun NameStep(vm: MainViewModel, word: String, signs: List<TaughtSign>, o
         }
         note?.let { Text(it, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary) }
         Spacer(Modifier.height(14.dp))
-        Button(onClick = onNext, enabled = word.isNotBlank(), modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.teach_next_record_it)) }
-        Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Lock, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.teach_only_hand_body_and_face),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = onNext, enabled = word.isNotBlank(), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+            Text(stringResource(R.string.teach_next_record_it))
+        }
+        Spacer(Modifier.height(14.dp))
+        // Compact "How it works" + privacy summary card.
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, Palette.Hairline, RoundedCornerShape(18.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(stringResource(R.string.teach_how_it_works), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.teach_how_steps), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Lock, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.teach_only_hand_body_and_face),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         SectionTitle(stringResource(R.string.teach_taught_on_this_phone))
         if (signs.isEmpty()) {
-            Text(stringResource(R.string.teach_none_yet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .border(1.dp, Palette.Hairline, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            ) {
+                Text(stringResource(R.string.teach_none_yet_rich), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         signs.forEach { sign ->
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
@@ -390,10 +417,23 @@ private fun CameraStep(
     controls: @Composable () -> Unit,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    // Start Holistic trackers only on steps that use the camera (RECORD and TRY), not on NAME or REVIEW.
+    DisposableEffect(Unit) {
+        vm.engine.setPaused(false)   // a pause left on the Talk tab would starve the recorder of frames
+        vm.engine.acquireLive()
+        val window = (context as? Activity)?.window
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            vm.engine.releaseLive()
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
     val camera: @Composable (Modifier) -> Unit = { m ->
-        Box(m.clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
+        Box(m.clip(RoundedCornerShape(24.dp)).background(Palette.Onyx2)
+            .border(1.dp, Palette.Hairline, RoundedCornerShape(24.dp))) {
             CameraPreview(backCamera = !front, analyzer = vm.engine::analyze, modifier = Modifier.fillMaxSize())
-            if (settings.showLandmarks) HandOverlay(live, mirror = front, skeleton = settings.developer && settings.skeleton, modifier = Modifier.fillMaxSize())
+            if (settings.showLandmarks) HandOverlay(vm.overlay, mirror = front, skeleton = settings.developer && settings.skeleton, modifier = Modifier.fillMaxSize())
             StatusPill(
                 when {
                     live.error != null -> stringResource(R.string.talk_hand_tracking_unavailable)
@@ -449,6 +489,15 @@ private fun CountdownAndProgress(countdown: Int?, live: LiveState) {
             if (n != null) Text("$n", color = Color.White, fontSize = 96.sp, fontWeight = FontWeight.ExtraBold, fontFamily = Manrope)
         }
         live.recording?.let { p ->
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+                    .glass(RoundedCornerShape(50), Palette.Red.copy(alpha = 0.85f))
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                Text(stringResource(R.string.teach_sign_now), style = MaterialTheme.typography.labelLarge, color = Color.White, fontWeight = FontWeight.Bold)
+            }
             LinearProgressIndicator(progress = { p }, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(6.dp), color = Palette.Red)
         }
     }
@@ -498,9 +547,27 @@ private fun ReviewStep(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 pair.forEach { ex ->
                     val n = examples.indexOf(ex) + 1
-                    Box(Modifier.weight(1f).aspectRatio(0.85f).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) {
+                    val handPct = (ex.example.handFraction * 100).toInt().coerceIn(0, 100)
+                    Box(
+                        Modifier.weight(1f).aspectRatio(0.85f).clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(1.dp, Palette.Hairline, RoundedCornerShape(16.dp)),
+                    ) {
                         ExampleReplay(ex.example.clip, mirror = ex.front, modifier = Modifier.fillMaxSize().padding(10.dp))
                         Text("$n", Modifier.align(Alignment.TopStart).padding(10.dp), style = MaterialTheme.typography.labelLarge)
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(8.dp)
+                                .glass(RoundedCornerShape(50))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.teach_hands_pct, handPct),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (handPct >= 65) Palette.Green else Palette.Amber,
+                            )
+                        }
                         IconButton(onClick = { onDelete(ex) }, modifier = Modifier.align(Alignment.TopEnd)) {
                             Icon(Icons.Rounded.Delete, stringResource(R.string.teach_delete_example, n))
                         }
@@ -524,8 +591,17 @@ private fun ReviewStep(
 @Composable
 private fun TryStep(vm: MainViewModel, live: LiveState, word: String, front: Boolean, onFlip: () -> Unit, onAnother: () -> Unit) {
     val haptics = LocalHaptics.current
+    // Sandbox mode: let the user test the newly taught sign without speaking it or writing it to Chat history.
+    DisposableEffect(Unit) {
+        vm.engine.sandboxMode = true
+        onDispose {
+            vm.engine.sandboxMode = false
+            vm.engine.clearCaption()
+        }
+    }
     val shown = CaptionText.show(word.trim(), setOf(storedName(word)), caps = false)
-    val heard = live.lastWord != null && live.lastWord.equals(storedName(word), ignoreCase = true)
+    val seenWord = live.lastWord
+    val heard = seenWord != null && seenWord.equals(storedName(word), ignoreCase = true)
     var worked by rememberSaveable { mutableStateOf(false) }
     var tries by remember { mutableIntStateOf(0) }
     val firstAt = remember { live.lastWordAt }
@@ -543,14 +619,38 @@ private fun TryStep(vm: MainViewModel, live: LiveState, word: String, front: Boo
             if (worked) DrawnCheck("tried-$word", 40.dp, modifier = Modifier.description(stringResource(R.string.teach_it_worked)))
         }
         Spacer(Modifier.height(12.dp))
+        val targetKey = storedName(word)
+        val liveMatch = live.taughtMatch?.takeIf { it.first.equals(targetKey, ignoreCase = true) }?.second
         val (text, colour) = when {
             worked -> stringResource(R.string.teach_it_works_appears_in_captions, shown) to Palette.Green
-            live.lastWord != null && tries > 0 -> stringResource(R.string.teach_that_was_captioned_as_try, LocalCaption.current(live.lastWord!!)) to Palette.Amber
+            seenWord != null && tries > 0 -> stringResource(R.string.teach_that_was_captioned_as_try, LocalCaption.current(seenWord)) to Palette.Amber
             else -> stringResource(R.string.teach_waiting_for_the_sign) to Palette.TextMuted
         }
-        Box(Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
-            .semantics { liveRegion = LiveRegionMode.Polite }.padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, if (worked) Palette.Green.copy(alpha = 0.55f) else Palette.Hairline, RoundedCornerShape(16.dp))
+                .semantics { liveRegion = LiveRegionMode.Polite }.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(text, style = MaterialTheme.typography.titleMedium, color = colour)
+            if (!worked && liveMatch != null && liveMatch > 0.15f) {
+                val thresh = vm.settings.collectAsStateWithLifecycle().value.teachThreshold.coerceAtLeast(0.1f)
+                val ratio = (liveMatch / thresh).coerceIn(0f, 1f)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.10f))) {
+                        Box(
+                            Modifier.fillMaxWidth(ratio).fillMaxHeight().clip(RoundedCornerShape(3.dp))
+                                .background(if (ratio >= 0.85f) Palette.Green else MaterialTheme.colorScheme.primary),
+                        )
+                    }
+                    Text(
+                        stringResource(R.string.teach_live_similarity, (liveMatch * 100).toInt()),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(12.dp))
         ActionRow {

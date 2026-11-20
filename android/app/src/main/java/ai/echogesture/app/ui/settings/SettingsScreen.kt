@@ -4,8 +4,11 @@ import ai.echogesture.app.R
 import androidx.compose.ui.res.stringResource
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,7 +17,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
+import ai.echogesture.app.ui.theme.Palette
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Lock
@@ -67,78 +73,98 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
     var confirm by remember { mutableStateOf<Confirm?>(null) }
 
     SubScreen(stringResource(R.string.common_settings), onBack) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-            SectionTitle(stringResource(R.string.settings_conversation), Modifier.padding(top = 4.dp))
-            Choice(
-                stringResource(R.string.settings_captions_appear), listOf(stringResource(R.string.settings_as_they_sign), stringResource(R.string.settings_after_each_sign)), if (s.continuous) 0 else 1,
-                if (s.continuous) stringResource(R.string.settings_each_word_shows_while_the)
-                else stringResource(R.string.settings_one_word_per_sign_shown),
-            ) { i -> vm.update { it.copy(continuous = i == 0) } }
-            Choice(
-                stringResource(R.string.settings_caption_style), listOf(stringResource(R.string.settings_more_words), stringResource(R.string.settings_balanced), stringResource(R.string.settings_fewer_surer)), s.caution,
-                stringResource(R.string.settings_more_words_shows_more_of),
-                enabled = s.continuous,
-            ) { i -> vm.update { it.copy(caution = i) } }
-            val keep = listOf(1, 30, Settings.KEEP_FOREVER)
-            Choice(
-                stringResource(R.string.settings_keep_conversations), listOf(stringResource(R.string.settings_1_day), stringResource(R.string.settings_30_days), stringResource(R.string.settings_until_i_delete)), keep.indexOf(s.keepDays).coerceAtLeast(0),
-                stringResource(R.string.settings_older_conversations_are_deleted_from),
-            ) { i -> vm.update { it.copy(keepDays = keep[i]) } }
-            SwitchSetting(
-                stringResource(R.string.settings_show_signs_in_capitals),
-                stringResource(R.string.settings_writes_each_sign_as_a),
-                s.glossCaps,
-            ) { v -> vm.update { it.copy(glossCaps = v) } }
-            ActionRow(stringResource(R.string.settings_past_conversations), stringResource(R.string.settings_past_conversations_help)) { onHistory() }
-            ActionRow(stringResource(R.string.settings_delete_all_conversations), stringResource(R.string.settings_removes_every_conversation_in_history), danger = true) {
-                confirm = Confirm.CONVERSATIONS
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+            SectionTitle(stringResource(R.string.settings_conversation), Modifier.padding(top = 4.dp, start = 4.dp))
+            SettingsGroup {
+                Choice(
+                    stringResource(R.string.settings_captions_appear), listOf(stringResource(R.string.settings_as_they_sign), stringResource(R.string.settings_after_each_sign)), if (s.continuous) 0 else 1,
+                    if (s.continuous) stringResource(R.string.settings_each_word_shows_while_the)
+                    else stringResource(R.string.settings_one_word_per_sign_shown),
+                ) { i -> vm.update { it.copy(continuous = i == 0) } }
+                GroupDivider()
+                Choice(
+                    stringResource(R.string.settings_caption_style), listOf(stringResource(R.string.settings_more_words), stringResource(R.string.settings_balanced), stringResource(R.string.settings_fewer_surer)), s.caution,
+                    stringResource(R.string.settings_more_words_shows_more_of),
+                    enabled = s.continuous,
+                ) { i -> vm.update { it.copy(caution = i) } }
+                GroupDivider()
+                val keep = listOf(1, 30, Settings.KEEP_FOREVER)
+                Choice(
+                    stringResource(R.string.settings_keep_conversations), listOf(stringResource(R.string.settings_1_day), stringResource(R.string.settings_30_days), stringResource(R.string.settings_until_i_delete)), keep.indexOf(s.keepDays).coerceAtLeast(0),
+                    stringResource(R.string.settings_older_conversations_are_deleted_from),
+                ) { i -> vm.update { it.copy(keepDays = keep[i]) } }
+                GroupDivider()
+                SwitchSetting(
+                    stringResource(R.string.settings_show_signs_in_capitals),
+                    stringResource(R.string.settings_writes_each_sign_as_a),
+                    s.glossCaps,
+                ) { v -> vm.update { it.copy(glossCaps = v) } }
+                GroupDivider()
+                ActionRow(stringResource(R.string.settings_past_conversations), stringResource(R.string.settings_past_conversations_help)) { onHistory() }
+                GroupDivider()
+                ActionRow(stringResource(R.string.settings_delete_all_conversations), stringResource(R.string.settings_removes_every_conversation_in_history), danger = true) {
+                    confirm = Confirm.CONVERSATIONS
+                }
             }
 
-            SectionTitle(stringResource(R.string.settings_voice))
-            SwitchSetting(
-                stringResource(R.string.settings_speak_signed_words_aloud),
-                when {
-                    voice.error != null -> voice.error!!
-                    !voice.ready -> stringResource(R.string.settings_starting_the_phone_s_text)
-                    voice.onDevice -> stringResource(R.string.settings_uses_a_voice_installed_on)
-                    else -> stringResource(R.string.settings_no_installed_english_voice_was)
-                },
-                s.speak,
-            ) { v -> vm.update { it.copy(speak = v) } }
-            AnimatedVisibility(s.speak) {
-                SliderSetting(
-                    stringResource(R.string.settings_speaking_speed), "%.2f×".format(s.speechRate), stringResource(R.string.settings_faster_keeps_up_with_quick),
-                    s.speechRate, 0.8f..1.8f, 9,
-                ) { v -> vm.update { it.copy(speechRate = v) } }
-            }
-            InfoLine(
-                stringResource(R.string.settings_spoken_replies),
-                if (reply.available) stringResource(R.string.settings_tap_reply_on_the_talk)
-                else reply.note ?: stringResource(R.string.settings_checking_for_on_device_speech),
-            )
-
-            SectionTitle(stringResource(R.string.settings_camera))
-            Choice(
-                stringResource(R.string.settings_camera_on_the_talk_tab), listOf(stringResource(R.string.settings_back_facing_them), stringResource(R.string.settings_front_facing_me)), if (s.backCamera) 0 else 1,
-                stringResource(R.string.settings_back_when_you_hold_the),
-            ) { i -> vm.update { it.copy(backCamera = i == 0) } }
-            SwitchSetting(stringResource(R.string.settings_highlight_tracked_hands), stringResource(R.string.settings_draws_the_hands_the_app), s.showLandmarks) { v ->
-                vm.update { it.copy(showLandmarks = v) }
+            SectionTitle(stringResource(R.string.settings_voice), Modifier.padding(start = 4.dp))
+            SettingsGroup {
+                SwitchSetting(
+                    stringResource(R.string.settings_speak_signed_words_aloud),
+                    when {
+                        voice.error != null -> voice.error!!
+                        !voice.ready -> stringResource(R.string.settings_starting_the_phone_s_text)
+                        voice.onDevice -> stringResource(R.string.settings_uses_a_voice_installed_on)
+                        else -> stringResource(R.string.settings_no_installed_english_voice_was)
+                    },
+                    s.speak,
+                ) { v -> vm.update { it.copy(speak = v) } }
+                AnimatedVisibility(s.speak) {
+                    Column {
+                        GroupDivider()
+                        SliderSetting(
+                            stringResource(R.string.settings_speaking_speed), "%.2f×".format(s.speechRate), stringResource(R.string.settings_faster_keeps_up_with_quick),
+                            s.speechRate, 0.8f..1.8f, 9,
+                        ) { v -> vm.update { it.copy(speechRate = v) } }
+                    }
+                }
+                GroupDivider()
+                InfoLine(
+                    stringResource(R.string.settings_spoken_replies),
+                    if (reply.available) stringResource(R.string.settings_tap_reply_on_the_talk)
+                    else reply.note ?: stringResource(R.string.settings_checking_for_on_device_speech),
+                )
             }
 
-            SectionTitle(stringResource(R.string.settings_feedback))
-            SwitchSetting(
-                stringResource(R.string.settings_vibration),
-                stringResource(R.string.settings_a_short_tap_when_a),
-                s.vibrate,
-            ) { v -> vm.update { it.copy(vibrate = v) } }
-
-            SectionTitle(stringResource(R.string.settings_learning))
-            ActionRow(stringResource(R.string.settings_reset_learning_progress), stringResource(R.string.settings_forgets_which_signs_you_have), danger = true) {
-                confirm = Confirm.PROGRESS
+            SectionTitle(stringResource(R.string.settings_camera), Modifier.padding(start = 4.dp))
+            SettingsGroup {
+                Choice(
+                    stringResource(R.string.settings_camera_on_the_talk_tab), listOf(stringResource(R.string.settings_back_facing_them), stringResource(R.string.settings_front_facing_me)), if (s.backCamera) 0 else 1,
+                    stringResource(R.string.settings_back_when_you_hold_the),
+                ) { i -> vm.update { it.copy(backCamera = i == 0) } }
+                GroupDivider()
+                SwitchSetting(stringResource(R.string.settings_highlight_tracked_hands), stringResource(R.string.settings_draws_the_hands_the_app), s.showLandmarks) { v ->
+                    vm.update { it.copy(showLandmarks = v) }
+                }
             }
 
-            SectionTitle(stringResource(R.string.settings_about))
+            SectionTitle(stringResource(R.string.settings_feedback), Modifier.padding(start = 4.dp))
+            SettingsGroup {
+                SwitchSetting(
+                    stringResource(R.string.settings_vibration),
+                    stringResource(R.string.settings_a_short_tap_when_a),
+                    s.vibrate,
+                ) { v -> vm.update { it.copy(vibrate = v) } }
+            }
+
+            SectionTitle(stringResource(R.string.settings_learning), Modifier.padding(start = 4.dp))
+            SettingsGroup {
+                ActionRow(stringResource(R.string.settings_reset_learning_progress), stringResource(R.string.settings_forgets_which_signs_you_have), danger = true) {
+                    confirm = Confirm.PROGRESS
+                }
+            }
+
+            SectionTitle(stringResource(R.string.settings_about), Modifier.padding(start = 4.dp))
             About(vm, s.developer, onDeveloper)
             Spacer(Modifier.height(12.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -157,11 +183,15 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
                 }
             }
             Spacer(Modifier.height(12.dp))
+            SettingsGroup {
+                ActionRow(stringResource(R.string.licences_open), stringResource(R.string.licences_intro)) { onLicences() }
+            }
+            Spacer(Modifier.height(10.dp))
             Text(
                 stringResource(R.string.settings_trained_on_the_wlasl_and),
+                Modifier.padding(horizontal = 4.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            ActionRow(stringResource(R.string.licences_open), stringResource(R.string.licences_intro)) { onLicences() }
             Spacer(Modifier.height(16.dp))
             OutlinedButton(onClick = onSetUpAgain, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.settings_set_up_again)) }
             Spacer(Modifier.height(24.dp))
@@ -191,6 +221,24 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onDeveloper: () -> Uni
 
 private enum class Confirm { CONVERSATIONS, PROGRESS }
 
+@Composable
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, Palette.Hairline, RoundedCornerShape(20.dp))
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun GroupDivider() {
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
+}
+
 /** Version and vocabulary. Tapping the version seven times turns on developer options. */
 @Composable
 private fun About(vm: MainViewModel, developer: Boolean, onDeveloper: () -> Unit) {
@@ -200,7 +248,11 @@ private fun About(vm: MainViewModel, developer: Boolean, onDeveloper: () -> Unit
     }
     var taps by remember { mutableIntStateOf(0) }
     val resources = LocalResources.current
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Palette.Hairline),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
             Column(
                 Modifier.fillMaxWidth().clickable(onClickLabel = null) {

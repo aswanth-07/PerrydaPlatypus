@@ -32,6 +32,7 @@ import ai.echogesture.app.ui.components.SubScreen
 fun DeveloperScreen(vm: MainViewModel, onBack: () -> Unit) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val live by vm.live.collectAsStateWithLifecycle()
+    val overlay by vm.overlay.collectAsStateWithLifecycle()
     val info = if (live.ready) vm.engine.info else null
 
     SubScreen(stringResource(R.string.dev_developer_options), onBack) {
@@ -78,7 +79,7 @@ fun DeveloperScreen(vm: MainViewModel, onBack: () -> Unit) {
             AnimatedVisibility(live.ready) {
                 Text(
                     stringResource(R.string.dev_now_0f_fps_tracking_0f).format(
-                        live.fps, live.landmarksMs, live.modelMs, live.lanes, if (live.gpu) stringResource(R.string.talk_gpu) else stringResource(R.string.talk_cpu), if (live.lanes == 1) "" else "s",
+                        overlay.fps, overlay.landmarksMs, overlay.modelMs, live.lanes, if (live.gpu) stringResource(R.string.talk_gpu) else stringResource(R.string.talk_cpu), if (live.lanes == 1) "" else "s",
                     ),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

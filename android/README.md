@@ -10,11 +10,12 @@ opens, and **Videos**. Everything else opens over the tabs with a back arrow.
 
 | Screen | What it does |
 |---|---|
-| **Talk** | The camera fills the screen. A status pill worded for the camera in use ("Signing" / "Watching" / "Their hands aren't in view" / "Ask them to step back"), a head-and-shoulders outline until a body is tracked, tracked hands drawn as a soft glow, a switch-camera button, and the caption card at the bottom: the newest word large (muted until it settles), earlier words beside it, and under it the sign's other names ("same sign: physician") or "taught on this phone". When the model was not sure, "Not right?" offers two other signs it could have been: a tap swaps the word on screen and in the conversation and speaks it. Backspace removes the newest word, a long press clears the captions; both can be undone for 5 s. Controls: **Speak words** (say signed words aloud), **Reply** (the hearing person speaks; their words appear large for the signer, with "Show to signer" full screen and a rotate button for someone across a table), **Pause**. The conversation under way pulls up in a sheet with copy, share and All conversations. If hand tracking fails to start, a card offers Try again and a CPU/GPU switch. Keeps the screen on. |
-| **Learn** | Lessons: the 300 signs with a demonstration in 21 topics, lessons of about five, opening on the next lesson with a sign not yet learned, with overall progress and a practice streak. A lesson practises its signs in order: a stick figure loops the sign (full or half speed, "Hands" zooms on the hands), the learner copies it on the front camera beside it, and the card says "Yes, that was DRINK" or what it looked like instead; a summary leads to the next lesson. **Practise any sign** (search the 300) and **Teach the app a sign** open from here. Progress is kept on the phone. |
-| ↳ **Teach the app a sign** | Teach a sign the model does not know (a name sign, a word from another sign language) in four steps: name it (the app says when the word is already known or already taught); record 3 to 5 examples of 2.5 s after a 3-2-1 countdown, each replayed from its keypoints and deletable; review and save; sign it once and see it captioned. An example with no hands seen is refused; one far from the earlier examples (cosine below 0.5) is flagged to keep or redo. Saved signs are captioned and spoken on Talk and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
-| **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names and the five closest signs; with developer options on, timings for frames, landmarks, model and total. |
-| **Past conversations** | From Talk's conversation sheet or Settings. Signed words and spoken replies, grouped into conversations at pauses of more than 30 minutes, with detail, copy, share and delete. Kept in `files/conversation.tsv` for 30 days by default (1 day, 30 days or until deleted). |
+| **Talk** | The camera fills the screen. A status pill worded for the camera in use ("Signing" / "Watching" / "Their hands aren't in view" / "Ask them to step back"), a 1-tap `Continuous · Balanced` quick-tune mode pill, a head-and-shoulders outline until a body is tracked (hidden during reply display), tracked hands drawn as a soft glow, and the caption card at the bottom: a 3 dp live lock-in bar across the top edge, an auto-scrolling full-width caption ribbon with a soft left-edge fade (newest word large in cyan, tentative word muted with anti-flicker hysteresis), and under it the sign's other names ("same sign: physician") or "taught on this phone". When the model is not sure, "Not right?" offers two other signs it could have been: a tap swaps the word on screen and in the conversation and speaks it. Compact labeled pills underneath let the user **Speak** the full phrase aloud, **Undo** the last word (long press clears all), or **Clear**; both undoable for 5 s. Frosted bottom dock: **Speak** (auto-speak toggle), **Reply** (offline voice recognition — automatically opens offline Type & Quick-Reply if STT is unavailable), **Type** (offline typed message + 10 curated quick phrases + direct animated ASL launch), and **Pause**. Replies show large high-contrast text with **Show to signer** (full screen + 180° Rotate) and **Watch in sign / Show in sign** (animated real-signer ASL sequence). The conversation under way pulls up in a sheet with copy, share, quick-reply, and All conversations. Keeps the screen on. |
+| **Learn** | Unified hero progress card (streak badge, custom progress bar, "Continue lesson") over 300 signs in 21 topics (lessons of about five). A lesson practises its signs in order: a stick figure loops the sign (Play/Pause, full or half speed, "Hands" zoom, pronunciation speaker), the learner copies it on the bordered front camera beside it (with framing guide and live match meter), and the card says "Yes, that was DRINK" or what it looked like instead. **Sign dictionary** (offline text-to-sign translator & 300-sign visual browser), **Practise any sign**, and **Teach the app a sign** open from here. Progress is kept on the phone. |
+| ↳ **Sign dictionary & Text-to-Sign** | Fully offline English-to-ASL translator and searchable 300-sign visual dictionary built directly on `demos.bin` (737 KB) and `sets.json` synonyms (zero extra model size, zero network). Type or pick a phrase to watch the animated real-signer ASL sequence with interactive highlighted gloss pills, speed/hand-zoom controls, pronunciation audio, and 1-tap **"Practise"** jump straight into live camera verification, or browse/filter all 300 signs by topic. |
+| ↳ **Teach the app a sign** | Teach a sign the model does not know (a name sign, a word from another sign language) in four steps: name it (with quick idea chips; says when already known or taught); record 3 to 5 examples of 2.5 s after a 3-2-1 countdown, each replayed from its keypoints with a `"Hands N%"` visibility badge and deletable; review and save (builds multi-crop `Cores.windows` 768-d prototypes for timing-robust continuous recognition); sign it on the Try-it step with a live similarity match meter. Saved signs are captioned and spoken on Talk and Videos like any other word; rename and delete. Only keypoints are stored, never video. |
+| **Videos** | Pick a video of one sign (system photo picker). Runs the same pipeline as the scored `predict()` and shows the sign, its other names, the five closest signs, and quick **Speak**, **Watch sign**, and **Practise** actions right on the result card; with developer options on, timings for frames, landmarks, model and total. |
+| **Past conversations** | From Talk's conversation sheet or Settings. Searchable signed words and spoken/typed replies, grouped into conversations at pauses of more than 30 minutes, with detail, copy (with clipboard confirmation), share and delete. Kept in `files/conversation.tsv` for 30 days by default (1 day, 30 days or until deleted). |
 | **Settings** | Conversation (captions appear as they sign / after each sign, caption style More words / Balanced / Fewer, surer, keep conversations, show signs in capitals, delete all), Voice (speak aloud, speed, whether spoken replies are available), Camera (which camera Talk uses, highlight tracked hands), Vibration, Reset learning progress, About (privacy note, app permissions, open-source licences, Set up again). **Developer options**, unlocked by tapping the version seven times: confidence, stability and listening window for captions after each sign, taught-sign match, show details (best guesses, frame rate, timings, voice delay), hand skeleton, track on the GPU (off by default: two CPU trackers are faster), model figures. |
 
 First launch asks who holds the phone (back camera toward someone signing, or front camera toward yourself),
@@ -35,9 +36,7 @@ at once when the evidence is already enough. The leading word is shown muted unt
 (More words / Balanced / Fewer, surer) scales the evidence a caption needs. A build packed without the live model uses
 the clip model for the windows.
 
-With all 2,000 words open, on held-out test clips joined without rests, the INT8 live model's word error rate
-is 46.8% (45.3% when the signer rests after most signs; `scripts/live_cont.py --onnx`, settings cross-fitted on
-halves of the test clips; the table is in the main README). `SpotterTest` replays six
+With all 2,000 words open, on held-out test clips joined without rests, the live 2-model diverse souped ensemble (`android/models/echogesture_live_int8.onnx`, 5.72 MB INT8, 68.21% whole-clip top-1) achieves cross-fitted INT8 word error rate of **40.4%** (**39.6%** mixed, **41.7%** with rests; shipped fixed `commit=2.0` INT8 config: **39.9% / 39.2% / 41.5%**; **26.7–29.0%** same-sign; `scripts/live_cont.py --onnx`; full table in the main README). `SpotterTest` replays six
 streams through the Kotlin spotter with the shipped INT8 models and requires the same words at the same frames
 as Python, in both modes (`scripts/make_stream_fixture.py --live` writes `parity/streams.json`).
 
@@ -49,13 +48,13 @@ looks in a row above 35%).
 
 ### Tap to correct
 
-With 2,000 words open the top word is the sign that was made for 76.8% of test clips, and the right sign is usually
+With 2,000 words open the top word is the sign that was made for **81.1%** of test clips, and the right sign is usually
 the next guess. When the model's confidence in the shown sign is under 80% (`SignEngine.ALT_BELOW`), the caption
 card offers the best word of each of the next two signs in the ranking (`SameSignSets.alternatives`; names of the
 shown sign are already listed as "same sign"). A tap replaces the newest word in the caption and in the conversation
 (`SignEngine.correctLast`, `Spotter.replaceLast`: only while that word is still the newest) and speaks the
-correction. `scripts/alternatives_eval.py` scores the same rule on the WLASL2000 test clips: sign on screen 89.9%
-with offers under 67% of captions (90.8% if always offered); captions shown without offers are right 95.1% of the
+correction. `scripts/alternatives_eval.py` scores the same rule on the WLASL2000 test clips: sign on screen **93.15%**
+with offers under 67.5% of captions (**93.78%** if always offered); captions shown without offers are right **96.79%** of the
 time. `--es bench live --ez ui true` replays a video through the real screens with the camera off, to look at it.
 
 ### Spoken captions
@@ -69,29 +68,24 @@ p90 and 770 ms at worst, the slow ones being words that waited for the one befor
 settles 200 ms after the hands come to rest, so speech begins about 0.3 s after a sign ends. The engine's start is
 what is timed; the speaker's own output delay is not included.
 
-### Spoken replies (two-way conversation)
+### Spoken, typed & animated ASL replies (two-way conversation)
 
 Reply on the Talk tab turns the hearing person's speech into large text for the signer, so the conversation runs
-both ways: signs to voice, voice to text. It uses Android's on-device recogniser only
+both ways: signs to voice, voice/text to text and animated ASL. It uses Android's on-device recogniser only
 (`SpeechRecognizer.createOnDeviceSpeechRecognizer`, Android 12 and later) and asks for the microphone the first
 time; audio never leaves the phone and the app still has no internet permission. While it listens, the app's own
-voice pauses so it does not hear itself. If the phone lacks the offline English speech pack, Android 13+ offers to
-fetch it (the system downloads it, not the app); otherwise the app says how to add it. Replies join the conversation beside the signed words.
+voice pauses so it does not hear itself. When offline speech recognition is unavailable (or whenever the user taps **Type**), the offline Type & Quick-Reply sheet lets them pick curated everyday phrases or type any reply. Whenever any words in a spoken or typed reply match the 300 bundled `demos.bin` signs (including 2-word phrases, everyday aliases, morphological stems, and `sets.json` synonyms via `SignTranslator.kt`), **"Watch in sign" / "Show in sign"** plays the reply back as an animated real-signer ASL sequence (`SignSequencePlayer.kt`) with 180° Rotate support for across-the-table conversation. Replies join the conversation beside the signed words.
 
 ### Teach a sign
 
-The EchoGesture model also returns its pooled 384-number embedding. A taught sign is the unit mean of its examples'
+Both the clip model and the live 2-model ensemble return a pooled **768-number** unit-normalized ensemble embedding. A taught sign is the unit mean of its examples' multi-crop (`Cores.windows`)
 unit embeddings (a prototype); a live window or a clip whose embedding is at least 0.55 cosine from a prototype
 (developer options, 0.45 to 0.65) is that word, the closest prototype winning; otherwise the classifier answers. The
 examples are stored as model inputs (`files/taught/<id>/ex_N.bin`, about 120 KB each), not prototypes, because the
 clip model and the live-caption model each have their own embedding, so prototypes are rebuilt with each. Measured
-offline (`scripts/fewshot_eval.py`, a model trained on WLASL only, 20 ASL Citizen signs it never saw, examples and
-test clips from different signers, 300 episodes): 79.3% right with 1 example, 90.3% with 3, 92.5% with 5; at the
-0.55 threshold 2% of clips of known words trigger a taught sign and 80.5% of taught-sign clips are caught.
-On Indian Sign Language (INCLUDE, 23 signs, 11 taught per episode, split by clip because the set does not label
-signers) the EchoGesture model is right 87.5% / 95.1% / 96.5% with 1 / 3 / 5 examples, but at 0.55 about 37%
-of clips of untaught ISL signs also match a taught one: raise the threshold when teaching many signs of one other
-language.
+offline (`scripts/fewshot_eval.py`, baseline WLASL-only model, 20 ASL Citizen signs it never saw, examples and
+test clips from different signers, 300 episodes): 79.3% right with 1 example, 90.3% with 3, 92.5% with 5.
+On Indian Sign Language (INCLUDE, 23 signs, 0% training overlap, 11 taught per episode) the shipped 2-model EchoGesture ensemble is right **91.28% / 95.82% / 96.83%** with 1 / 3 / 5 examples.
 
 End to end on the emulator without a camera: `adb shell am start -n ai.echogesture.app/.MainActivity --es bench
 teach --es words AXE,TWINS --ei examples 3 --es file teach_test.mp4` replays `files/teach_<word>_<n>.mp4` as the
@@ -122,14 +116,16 @@ own clip and failed on the 9 others).
 | `app/.../engine/Speaker.kt` | On-device text-to-speech and its frame-to-sound timing |
 | `app/.../engine/Listener.kt` | Spoken replies: on-device speech recognition, partial results, error and language-pack handling |
 | `app/.../data/TaughtStore.kt` | Taught signs on the phone's private storage |
+| `app/.../data/SignTranslator.kt` | Pure-Kotlin offline English→ASL gloss matcher (2-word phrases, aliases, `sets.json` synonyms, stemmer, curated quick phrases) |
+| `app/.../ui/teach/SignSequencePlayer.kt` | Frame-accurate multi-sign real-signer ASL animator with tappable highlighted sentence pills, speed & hand-zoom controls |
+| `app/.../ui/teach/DictionaryScreen.kt` | Offline Text-to-Sign translator & searchable 300-sign topic-filtered visual dictionary |
 | `app/.../engine/Landmarks.kt` | Holistic result → `RawFrame` (hands slotted by distance to the pose wrists), frame preparation (upright, ≤ 480 px like the training videos) |
 | `app/.../ui/` | Compose screens, theme and components |
 | `app/.../data/SettingsRepository.kt` | Settings in DataStore |
 
-`signcore` has unit tests for the taught-sign logic (`TaughtTest`) and a parity test that runs the real INT8 model on the desktop JVM and checks that the Kotlin
-normaliser and the model's probabilities match Python on recorded test clips (normaliser within 7e-6,
-probabilities within 0.05, top-1 identical except where Python itself scores a near-tie; with the EchoGesture
-model, 39/40 identical and the other clip a 0.0671 vs 0.0668 tie):
+`signcore` has unit tests for the taught-sign logic (`TaughtTest`), core utilities (`CoresTest`), and a parity test that runs the real INT8 model on the desktop JVM and checks that the Kotlin
+normaliser and the model's probabilities match Python on recorded test clips (normaliser within 6.8e-6,
+worst probability diff 0.0040, **40/40 identical top-1**):
 
 ```bash
 python -I scripts/make_parity_fixture.py data/index/WLASL_v0.3.json data/kp_hol src/models android/parity --subset 2000
@@ -162,14 +158,8 @@ Measured on a Samsung Galaxy S26 (SM-S942B, Exynos 2600, Android 17), release bu
   change; idle seconds cost less.
 - **Ten minutes:** 29.9 fps in the first and in the last minute (no thermal drift), p95 49 ms, SoC 38.1 → 41.6 °C
   (peak 43.2), skin +2.3 °C, no throttling (thermal status 0, headroom 0.77), PSS 458 MB.
-- **Videos tab:** 24 frames over two video-mode trackers at once: 0.57 s per clip p50 (1.69 s with one CPU tracker,
-  2.03 s with one GPU tracker). `src/main.py` has the same as an option (`ECHO_LANES=2`: on the first 600 test clips
-  78.8% vs 79.5% top-1, a difference within noise, at 1.8× the speed); the scored `predict()` keeps one tracker,
-  the configuration every published number was measured with.
-- **Classifier:** INT8, ONNX Runtime, one thread with its workers sleeping between calls: 2.7 / 4.5 ms p50 / p95
-  back to back, 14.1 / 15.5 ms when paced like the spotter (6 a second; the cores clock down in between), 12 ms
-  p95 beside live tracking. Two threads with ONNX Runtime's default spin-waiting were no faster when paced and
-  kept a second core busy.
+- **Videos tab:** 24 frames over four CPU video-mode trackers in parallel: **0.46 s** per clip p50 (**457.9 ms**, p95 500.6 ms; down from 0.57 s with two trackers, 1.69 s with one). `src/main.py` also supports `ECHO_LANES=2` and caches Holistic landmarkers by resolution.
+- **Classifier:** Shipped 2-model INT8 ensemble (5.72 MB), ONNX Runtime Android, 1 thread (`spin=off`): **3.32 / 3.45 ms** p50 / p95 back to back (**3.20 / 3.29 ms** on 2 threads `spin=on`), 16.4 / 18.3 ms when paced at 6 Hz; live `SignNetV2` (3.03 MB) runs at **9.46 ms** p95 beside 30.2 fps live tracking (down from 14.55 ms), with live CPU load down to **172.1%** (from 180.8%) and memory PSS **460.8 MB** (from 474.5 MB).
 - **Power, on battery, whole phone with the screen on:** live at 30 fps 2,869 mW; nobody in view 724 mW with the
   signing-gated rate, 1,583 mW without; the app open with nothing tracked 712 mW; the classifier alone at 6 windows
   a second 395 mW above that (measured with 2 spinning threads). About 80 mJ per tracked frame on CPU or GPU.

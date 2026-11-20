@@ -21,6 +21,7 @@ import ai.echogesture.app.ui.settings.DeveloperScreen
 import ai.echogesture.app.ui.settings.LicencesScreen
 import ai.echogesture.app.ui.settings.SettingsScreen
 import ai.echogesture.app.ui.setup.SetupScreen
+import ai.echogesture.app.ui.teach.DictionaryScreen
 import ai.echogesture.app.ui.teach.LearnHubScreen
 import ai.echogesture.app.ui.teach.LearnScreen
 import ai.echogesture.app.ui.teach.LessonScreen
@@ -104,7 +105,10 @@ private object Route {
     const val DEVELOPER = "developer"
     const val LICENCES = "licences"
     const val SETUP = "setup"
-    const val PRACTICE = "practice"
+    const val PRACTICE = "practice?word={word}"
+    fun practice(word: String? = null) = if (word.isNullOrBlank()) "practice" else "practice?word=${android.net.Uri.encode(word)}"
+    const val DICTIONARY = "dictionary?word={word}"
+    fun dictionary(word: String? = null) = if (word.isNullOrBlank()) "dictionary" else "dictionary?word=${android.net.Uri.encode(word)}"
     const val LESSONS = "lessons"
     const val LESSON = "lesson/{id}"
     fun lesson(id: String) = "lesson/$id"
@@ -189,20 +193,44 @@ private fun Tabs(vm: MainViewModel) {
                     vm,
                     onLesson = { nav.navigate(Route.lesson(it)) },
                     onLessons = { nav.navigate(Route.LESSONS) },
-                    onPractise = { nav.navigate(Route.PRACTICE) },
+                    onDictionary = { nav.navigate(Route.dictionary()) },
+                    onPractise = { nav.navigate(Route.practice()) },
                     onTeach = { nav.navigate(Route.TEACH) },
                     onSettings = openSettings,
                 )
             }
             composable(Tab.Videos.route) {
-                ClipsScreen(vm, showTimings = settings.developer, onSettings = openSettings)
+                ClipsScreen(
+                    vm,
+                    showTimings = settings.developer,
+                    onWatchSign = { w -> nav.navigate(Route.dictionary(w)) },
+                    onPractiseSign = { w -> nav.navigate(Route.practice(w)) },
+                    onSettings = openSettings,
+                )
             }
             composable(Route.HISTORY) {
                 Sub { HistoryScreen(vm, onOpen = { nav.navigate(Route.conversation(it)) }, onBack = { nav.popBackStack() }) }
             }
 
-            composable(Route.PRACTICE) {
-                Sub { SubScreen(stringResource(R.string.screen_practise_any_sign), nav::popBackStack) { SignsCameraGate { LearnScreen(vm) } } }
+            composable(
+                Route.DICTIONARY,
+                arguments = listOf(navArgument("word") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) { e ->
+                Sub {
+                    DictionaryScreen(
+                        vm = vm,
+                        initialWord = e.arguments?.getString("word"),
+                        onPractiseWord = { w -> nav.navigate(Route.practice(w)) },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+            }
+            composable(
+                Route.PRACTICE,
+                arguments = listOf(navArgument("word") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) { e ->
+                val initial = e.arguments?.getString("word")
+                Sub { SubScreen(stringResource(R.string.screen_practise_any_sign), nav::popBackStack) { SignsCameraGate { LearnScreen(vm, initialWord = initial) } } }
             }
             composable(Route.LESSONS) {
                 Sub { LessonsScreen(vm, onOpen = { nav.navigate(Route.lesson(it)) }, onBack = { nav.popBackStack() }) }

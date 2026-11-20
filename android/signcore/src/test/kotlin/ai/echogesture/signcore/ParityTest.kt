@@ -118,4 +118,24 @@ class ParityTest {
         val one = Slots.assign(listOf(nearRight), pose)
         assertTrue(one[0] == null && one[1] === nearRight)
     }
+
+    @Test
+    fun slotsPreservePreferredSideWithoutPose() {
+        val rightOnly = Hand(FloatArray(63), null, preferredSlot = 1)
+        val noPose = Slots.assign(listOf(rightOnly), null)
+        assertTrue(noPose[0] == null && noPose[1] === rightOnly, "single right hand must stay in slot 1 when pose is null")
+
+        val nanPose = FloatArray(33 * 4) { Float.NaN }
+        val withNan = Slots.assign(listOf(rightOnly), nanPose)
+        assertTrue(withNan[0] == null && withNan[1] === rightOnly, "single right hand must stay in slot 1 when wrists are NaN")
+    }
+
+    @Test
+    fun topIndicesMatchesFullSortWithTieBreaking() {
+        val probs = floatArrayOf(0.1f, 0.3f, 0.2f, 0.3f, 0.05f, 0.05f)
+        val labels = listOf("A", "B", "C", "D", "E", "F")
+        val pred = Prediction(labels, probs, 1.0)
+        assertTrue(pred.topIndices(5).toList() == pred.order.take(5), "topIndices(5) must match stable sortedByDescending")
+        assertTrue(pred.topIndex == 1 && pred.top == "B", "ties must break to the lower index")
+    }
 }
