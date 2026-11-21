@@ -18,7 +18,10 @@ project (November 2026). It ran on our own laptop and phone, with our permission
 - **Analysis.** It analysed the results (for example, finding the same-sign sets in the WLASL index and testing the
   answer rule on the validation split before the test split was scored), and proposed designs, which we accepted
   or rejected.
-- **Documents.** It drafted the README files, the results table and the documents in `docs/`.
+- **Documents.** It drafted the README files, the results table and the diagrams in `docs/`.
+- **Presentation and demo video.** It built the slide visuals (rendered from HTML), assembled the deck file, and
+  edited and rendered the demo video, under our direction. We chose the story, the slides, the clips and the
+  wording, and approved every slide and every cut.
 
 ## What we did
 
@@ -28,9 +31,20 @@ project (November 2026). It ran on our own laptop and phone, with our permission
   reviewed what was produced.
 - Tested the app on our own phone and did the physical parts of the measurements (for example, unplugging the phone
   and switching it to airplane mode for the power test).
-- Made the presentation and the demo video.
+- Decided what the presentation and the demo video say and show, uploaded the video, and reviewed the final versions.
 
 We are responsible for everything in this submission.
+
+## AI-generated media in the presentation and the video
+
+- **Two illustrations.** The pharmacy scenes on slides 2 and 3 of the presentation are AI-generated images. Each is
+  labelled "AI-generated illustration" on the slide.
+- **The narrator's voice.** The narrator in the demo video is AI text-to-speech (Qwen3-TTS, run locally on our
+  laptop). The voice that speaks captions in the video is the app's own, Android's on-device text-to-speech.
+- **Not AI-generated.** The app footage in the video is the real app on our Galaxy S26, with held-out WLASL and
+  Indian Sign Language test clips fed in as the camera. The stick figures and keypoint figures in the slides are
+  drawn from MediaPipe keypoints of real signers' clips. The background music was synthesized by our own code (no
+  music model).
 
 ## What is not AI-generated
 
