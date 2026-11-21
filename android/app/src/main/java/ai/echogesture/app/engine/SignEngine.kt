@@ -440,11 +440,11 @@ class SignEngine(private val context: Context) : AutoCloseable {
         // The live model has its own embedding space, so it gets its own prototypes from the same stored examples.
         // An example is a whole recording, rest to rest; a live window is shorter and centred on the sign, so each
         // example is cut to the part such a window would hold (Cores.window) before the live model embeds it.
-        val lm = liveModel
+        val lm = liveModel ?: m
         val share = (spotter?.liveWindowMs ?: 1200L) / TEACH_MS.toFloat()
-        val liveProtos = if (lm == null || !supported) emptyList() else signs.mapNotNull { sign ->
+        val liveProtos = if (!supported) emptyList() else signs.mapNotNull { sign ->
             val embs = store.examples(sign.id).flatMap { ex ->
-                Cores.windows(ex, share).mapNotNull { win -> runCatching { lm.classify(win).embedding }.getOrNull() }
+                Cores.windows(ex, share).mapNotNull { win -> runCatching { lm.classify(win, needRaw = false).embedding }.getOrNull() }
             }
             if (embs.isEmpty()) null else sign.word to Embeddings.prototype(embs)
         }

@@ -112,6 +112,6 @@ val copyModels = tasks.register<Sync>("copyModels") {
     from(rootProject.file("../src/models")) {
         include("echogesture_int8.onnx", "labels.json", "export.json", "sets.json", "holistic_landmarker.task")
     }
-    from(rootProject.file("models")) { include("echogesture_live_int8.onnx", "live.json", "demos.bin") }
+    from(rootProject.file("models")) { include("live.json", "demos.bin") }
 }
 tasks.named("preBuild") { dependsOn(copyModels) }

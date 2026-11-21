@@ -82,6 +82,7 @@ class Predictor:
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = 1
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        so.add_session_config_entry("session.set_denormal_as_zero", "1")
         self.session = ort.InferenceSession(str(model_dir / MODEL_FILE), so, providers=["CPUExecutionProvider"])
         outputs = [o.name for o in self.session.get_outputs()]
         self.output = "raw_probs" if not SET_RULE and "raw_probs" in outputs else outputs[0]

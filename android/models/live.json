@@ -11,17 +11,17 @@
   "runs\\soup_live_dual_sharp3\\best.pt"
  ],
  "int8": {
-  "size_mb": 5.718,
+  "size_mb": 5.701,
   "test": {
    "n": 2878,
-   "top1": 68.21,
-   "top5": 94.41,
-   "class_avg": 63.89,
-   "agree_top1_with_torch": 99.2
+   "top1": 68.24,
+   "top5": 94.51,
+   "class_avg": 63.91,
+   "agree_top1_with_torch": 99.24
   },
   "one_thread": {
-   "p50_ms": 4.457,
-   "p95_ms": 5.351
+   "p50_ms": 4.403,
+   "p95_ms": 5.661
   }
  },
  "none_class": true,
@@ -30,30 +30,30 @@
   "words": 6,
   "continuous": {
    "norest": {
-    "wer": 40.4,
-    "wer_same_sign": 27.4,
-    "words_found": 60.3,
-    "false_per_100_words": 31.2,
+    "wer": 40.3,
+    "wer_same_sign": 27.2,
+    "words_found": 60.4,
+    "false_per_100_words": 31.1,
     "delay_ms_median": -320.0,
     "delay_ms_p90": 320.0,
     "streams": 120
    },
    "mixed": {
-    "wer": 39.6,
-    "wer_same_sign": 27.5,
+    "wer": 39.4,
+    "wer_same_sign": 27.4,
     "words_found": 61.7,
-    "false_per_100_words": 31.9,
+    "false_per_100_words": 31.8,
     "delay_ms_median": -320.0,
     "delay_ms_p90": 316.0,
     "streams": 120
    },
    "rest": {
-    "wer": 41.7,
-    "wer_same_sign": 29.4,
-    "words_found": 60.3,
-    "false_per_100_words": 34.3,
+    "wer": 41.5,
+    "wer_same_sign": 29.2,
+    "words_found": 60.4,
+    "false_per_100_words": 34.4,
     "delay_ms_median": -1040.0,
-    "delay_ms_p90": -212.0,
+    "delay_ms_p90": -176.0,
     "streams": 120
    }
   },
@@ -68,19 +68,19 @@
     "streams": 120
    },
    "mixed": {
-    "wer": 39.2,
-    "wer_same_sign": 27.1,
+    "wer": 39.0,
+    "wer_same_sign": 26.9,
     "words_found": 62.1,
-    "false_per_100_words": 31.4,
+    "false_per_100_words": 31.2,
     "delay_ms_median": -240.0,
     "delay_ms_p90": 424.0,
     "streams": 120
    },
    "rest": {
     "wer": 41.5,
-    "wer_same_sign": 29.0,
+    "wer_same_sign": 28.9,
     "words_found": 60.4,
-    "false_per_100_words": 33.9,
+    "false_per_100_words": 34.0,
     "delay_ms_median": -960.0,
     "delay_ms_p90": -80.0,
     "streams": 120

@@ -87,10 +87,10 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         for (spin in listOf(false, true)) for (threads in listOf(1, 2, 4)) {
             _status.value = "Classifier latency, $threads thread(s), spinning ${if (spin) "on" else "off"}"
             SignModel(bytes, labels, threads = threads, spin = spin).use { m ->
-                repeat(30) { m.classify(clip) }
+                repeat(30) { m.classify(clip, needRaw = false) }
                 // Back to back, and paced like the live spotter (6 a second), where idle workers either spin or sleep.
-                val ms = DoubleArray(runs) { m.classify(clip).latencyMs }
-                val paced = DoubleArray(minOf(runs, 120)) { Thread.sleep(160); m.classify(clip).latencyMs }
+                val ms = DoubleArray(runs) { m.classify(clip, needRaw = false).latencyMs }
+                val paced = DoubleArray(minOf(runs, 120)) { Thread.sleep(160); m.classify(clip, needRaw = false).latencyMs }
                 emit(out, JSONObject().put("bench", "model").put("words", engine.labels().size).put("threads", threads).put("spin", spin)
                     .put("runs", runs).put("p50_ms", pct(ms, 50.0)).put("p95_ms", pct(ms, 95.0)).put("mean_ms", ms.average())
                     .put("paced_p50_ms", pct(paced, 50.0)).put("paced_p95_ms", pct(paced, 95.0)))
@@ -350,7 +350,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
             FloatArray(t * 2 * 21 * 3) { rng.nextGaussian().toFloat() * 0.05f }, FloatArray(t * 4) { 1f })
         // The spotter classifies every 5 frames: 6 windows a second at 30 fps.
         val tag = "classifier_6hz_${threads}t" + if (spin) "_spin" else ""
-        SignModel(bytes, labels, threads = threads, spin = spin).use { m -> powerPhase(tag, seconds, 6) { m.classify(clip) } }
+        SignModel(bytes, labels, threads = threads, spin = spin).use { m -> powerPhase(tag, seconds, 6) { m.classify(clip, needEmbedding = false, needRaw = false) } }
         _status.value = "Power split done"
     }
 
@@ -369,7 +369,7 @@ class Bench(private val context: Context, private val engine: SignEngine) {
         SignModel(bytes, labels, threads = 1, spin = false).use { m ->
             for (r in 1..rounds) {
                 powerPhase("pair${r}_baseline", seconds, 0, null)
-                powerPhase("pair${r}_classifier", seconds, 6) { m.classify(clip) }
+                powerPhase("pair${r}_classifier", seconds, 6) { m.classify(clip, needEmbedding = false, needRaw = false) }
             }
         }
         _status.value = "Paired power done"

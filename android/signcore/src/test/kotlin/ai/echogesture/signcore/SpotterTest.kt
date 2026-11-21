@@ -83,7 +83,9 @@ class SpotterTest {
     @Test
     fun continuousSpotterMatchesPython() {
         val expect = File(dir, "streams.json")
-        val liveFile = File(dir, "../models/echogesture_live_int8.onnx")
+        val sepLive = File(dir, "../models/echogesture_live_int8.onnx")
+        val unifiedModel = File(dir, "../../src/models/echogesture_int8.onnx")
+        val liveFile = if (sepLive.exists()) sepLive else unifiedModel
         if (!expect.exists() || !liveFile.exists()) { println("no streams.json or live model: skipped"); return }
         val spec = JSONObject(expect.readText())
         val cfg = spec.optJSONObject("live")

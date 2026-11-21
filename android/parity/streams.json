@@ -51,6 +51,10 @@
      34
     ],
     [
+     "BIBLE",
+     58
+    ],
+    [
      "MUSIC",
      110
     ],
@@ -155,12 +159,8 @@
      258
     ],
     [
-     "FUN",
-     258
-    ],
-    [
      "SALT",
-     280
+     290
     ]
    ],
    "continuous": [
@@ -344,7 +344,7 @@
    "rest_frames": 12,
    "caption": [
     [
-     "CANDY",
+     "ACCENT",
      48
     ],
     [
@@ -362,16 +362,12 @@
     [
      "COUSIN",
      378
-    ],
-    [
-     "DEAF",
-     378
     ]
    ],
    "continuous": [
     [
      "CANDY",
-     33
+     37
     ],
     [
      "CANDY",

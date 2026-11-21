@@ -128,6 +128,147 @@ class FastFeatures(nn.Module):
         return torch.cat(parts, -1)
 
 
+class FastFeaturesV2(nn.Module):
+    """Exact bit-equivalent vectorized FeaturesV2: replaces fragmented per-landmark gathers, stacks,
+    and scalar norms with batched index_select + one [16, 15] anchor projection (removes ~178 ONNX nodes)."""
+
+    def __init__(self, orig: mv.FeaturesV2):
+        super().__init__()
+        self.face, self.world, self.c = orig.face, orig.world, orig.c
+        self.body_end = orig.body_end
+        self.lh_lo, self.rh_hi = orig.lh_lo, orig.rh_hi
+        self.dim, self.hand_dim, self.body_dim, self.contact_dim = orig.dim, orig.hand_dim, orig.body_dim, orig.contact_dim
+        self.register_buffer("parents", orig.parents.clone(), persistent=False)
+        self.register_buffer("key2_idx", orig.key2_idx.clone(), persistent=False)
+        self.register_buffer("face_key_idx", orig.face_key_idx.clone(), persistent=False)
+        ia = list(mv.TIP_PAIRS_A) + list(mv.HAND_TIPS) + list(mv.HAND_TIPS)
+        ib = list(mv.TIP_PAIRS_B) + [0] * 5 + list(mv.HAND_MCPS)
+        self.register_buffer("intra_a", torch.tensor(ia, dtype=torch.long), persistent=False)
+        self.register_buffer("intra_b", torch.tensor(ib, dtype=torch.long), persistent=False)
+        m_anc = torch.zeros(16, 15, dtype=torch.float32)
+        for off in (0, 8):
+            m_anc[off + 0, 0] = 1.0
+            m_anc[off + 1, 1] = 0.5
+            m_anc[off + 1, 2] = 0.5
+            m_anc[off + 2, 5] = 0.5
+            m_anc[off + 2, 6] = 0.5
+            m_anc[off + 3, 7] = 0.5
+            m_anc[off + 3, 8] = 0.5
+            m_anc[off + 4, 13] = 0.5
+            m_anc[off + 4, 14] = 0.5
+        m_anc[5, 3] = 1.0
+        m_anc[6, 7] = 1.0
+        m_anc[7, 8] = 1.0
+        m_anc[13, 4] = 1.0
+        m_anc[14, 8] = 1.0
+        m_anc[15, 7] = 1.0
+        self.register_buffer("m_anc_t", m_anc.t().contiguous(), persistent=False)
+        self.register_buffer("h2h_l", torch.tensor([0, 9, 4, 8, 12, 8, 9], dtype=torch.long), persistent=False)
+        self.register_buffer("h2h_r", torch.tensor([0, 9, 4, 8, 12, 9, 8], dtype=torch.long), persistent=False)
+        self.register_buffer("speed_idx", torch.tensor([11, 12, dv.LH[0] + 9, dv.RH[0] + 9], dtype=torch.long), persistent=False)
+        self.register_buffer("h_anc_idx", torch.tensor([dv.LH[0], dv.LH[0] + 9, dv.RH[0], dv.RH[0] + 9], dtype=torch.long), persistent=False)
+        self.register_buffer("hw_v_idx", torch.tensor([11, 12] + list(range(dv.LH[0], dv.RH[1])), dtype=torch.long), persistent=False)
+        self.register_buffer("pi_idx", torch.tensor([9, 8], dtype=torch.long), persistent=False)
+        self.register_buffer("c1", torch.tensor([1, 2, 0], dtype=torch.long), persistent=False)
+        self.register_buffer("c2", torch.tensor([2, 0, 1], dtype=torch.long), persistent=False)
+
+    def _cross(self, a, b):
+        return a.index_select(-1, self.c1) * b.index_select(-1, self.c2) - a.index_select(-1, self.c2) * b.index_select(-1, self.c1)
+
+    def _palm_frame(self, w):
+        y = w[:, :, :, 9, :]
+        y = y / (y.norm(dim=-1, keepdim=True) + 1e-6)
+        v = w[:, :, :, 5, :] - w[:, :, :, 17, :]
+        z = self._cross(v, y)
+        z = z / (z.norm(dim=-1, keepdim=True) + 1e-6)
+        x = self._cross(y, z)
+        axes = torch.stack([x, y, z], -2)
+        return w @ axes.transpose(-1, -2), axes
+
+    def _compute(self, x, w, s):
+        b, t = x.shape[:2]
+        c = self.c
+        body = x[:, :, :self.body_end, :] if c == 3 else x[:, :, :self.body_end, :c]
+        pose = body[:, :, :dv.NPOSE, :]
+        hands = body[:, :, self.lh_lo:self.rh_hi, :].reshape(b, t, 2, 21, c)
+        local = hands - hands[:, :, :, :1, :]
+        size = local[:, :, :, mv.NORM_POINT, :].norm(dim=-1, keepdim=True).unsqueeze(-1).clamp_min(0.05)
+        hands_local = (local / size).clamp(-dv.CLAMP, dv.CLAMP)
+        vel1_raw = torch.cat([torch.zeros_like(body[:, :1]), body[:, 1:] - body[:, :-1]], 1)
+        vel1 = (vel1_raw * 4.0).clamp(-dv.CLAMP, dv.CLAMP)
+        pose_vel1 = vel1[:, :, :dv.NPOSE, :]
+        hands_vel1 = vel1[:, :, dv.LH[0]:dv.RH[1], :]
+        hw_v = vel1_raw.index_select(2, self.hw_v_idx)
+        hw_acc = (torch.cat([torch.zeros_like(hw_v[:, :1]), hw_v[:, 1:] - hw_v[:, :-1]], 1) * 4.0).clamp(-dv.CLAMP, dv.CLAMP)
+        wrist_acc = hw_acc[:, :, :2, :]
+        hands_acc = hw_acc[:, :, 2:, :]
+        k2 = x.index_select(2, self.key2_idx) if c == 3 else x.index_select(2, self.key2_idx)[..., :c]
+        vel2 = (torch.cat([torch.zeros_like(k2[:, :2]), k2[:, 2:] - k2[:, :-2]], 1) * 2.0).clamp(-dv.CLAMP, dv.CLAMP)
+        if self.world:
+            shape, axes = self._palm_frame(w)
+            shape = shape.clamp(-dv.CLAMP, dv.CLAMP)
+            ref_h = shape
+        else:
+            shape, axes = None, None
+            ref_h = hands_local
+        bones = (ref_h[:, :, :, 1:21, :] - ref_h.index_select(3, self.parents)).clamp(-dv.CLAMP, dv.CLAMP)
+        intra_dists = (ref_h.index_select(3, self.intra_a) - ref_h.index_select(3, self.intra_b)).norm(dim=-1).clamp(0.0, dv.CLAMP)
+        pose3 = x[:, :, :dv.NPOSE, :] if c != 3 else pose
+        anc = torch.matmul(pose3.transpose(-1, -2), self.m_anc_t).transpose(-1, -2).reshape(b, t, 2, 8, 3)
+        h3 = hands if c == 3 else x[:, :, self.lh_lo:self.rh_hi, :].reshape(b, t, 2, 21, 3)
+        h_pi = h3.index_select(3, self.pi_idx)
+        d_pi_anc = (h_pi.unsqueeze(4) - anc.unsqueeze(3)).norm(dim=-1).clamp(0.0, dv.CLAMP)
+        d_palm_anc = d_pi_anc[:, :, :, 0, :]
+        d_idx_anc = d_pi_anc[:, :, :, 1, :]
+        h_palm = h_pi[:, :, :, 0, :]
+        vec_nose = (h_palm - anc[:, :, 0:1, 0, :]).clamp(-dv.CLAMP, dv.CLAMP)
+        vec_mouth = (h_palm - anc[:, :, 0:1, 2, :]).clamp(-dv.CLAMP, dv.CLAMP)
+        lh3, rh3 = h3[:, :, 0], h3[:, :, 1]
+        h2h_pts = (lh3.index_select(2, self.h2h_l) - rh3.index_select(2, self.h2h_r)).norm(dim=-1).clamp(0.0, dv.CLAMP)
+        contact_parts = [d_palm_anc.reshape(b, t, 16), d_idx_anc.reshape(b, t, 16),
+                         vec_nose.reshape(b, t, 6), vec_mouth.reshape(b, t, 6)]
+        if self.face:
+            face_pos = x[:, :, dv.FACE[0]:dv.FACE[1], :] if c == 3 else x[:, :, dv.FACE[0]:dv.FACE[1], :c]
+            fk = x.index_select(2, self.face_key_idx) if c == 3 else x.index_select(2, self.face_key_idx)[..., :c]
+            fvel = (torch.cat([torch.zeros_like(fk[:, :1]), fk[:, 1:] - fk[:, :-1]], 1) * 4.0).clamp(-dv.CLAMP, dv.CLAMP)
+            brow_mid = 0.5 * (x[:, :, dv.FACE[0] + 58, :] + x[:, :, dv.FACE[0] + 59, :])
+            low_lip = x[:, :, dv.FACE[0] + 15, :]
+            f_anc = torch.stack([brow_mid, low_lip], 2).unsqueeze(2).unsqueeze(3)
+            f_seen = s[:, :, 3:4]
+            d_pif = (h_pi.unsqueeze(4) - f_anc).norm(dim=-1).clamp(0.0, dv.CLAMP)
+            d_pf = d_pif[:, :, :, 0, :].reshape(b, t, 4) * f_seen
+            d_if = d_pif[:, :, :, 1, :].reshape(b, t, 4) * f_seen
+            contact_parts += [d_pf, d_if]
+        else:
+            face_pos, fvel = None, None
+        contact_parts.append(h2h_pts)
+        if self.world:
+            palm_dots = (axes[:, :, 0] * axes[:, :, 1]).sum(-1).clamp(-1.0, 1.0)
+            contact_parts.append(palm_dots)
+        contacts = torch.cat(contact_parts, -1)
+        speeds = vel1.index_select(2, self.speed_idx).norm(dim=-1).clamp(0.0, dv.CLAMP)
+        h_anc_pos = body.index_select(2, self.h_anc_idx)
+        return (pose, face_pos, body, hands_local, vel1, pose_vel1, hands_vel1,
+                shape, axes, bones, intra_dists, contacts, hw_acc, wrist_acc, hands_acc,
+                vel2, fvel, speeds, h_anc_pos, s)
+
+    def forward(self, x, w, s):
+        b, t = x.shape[:2]
+        (pose, face_pos, body, hands_local, vel1, pose_vel1, hands_vel1,
+         shape, axes, bones, intra_dists, contacts, hw_acc, wrist_acc, hands_acc,
+         vel2, fvel, speeds, h_anc_pos, seen) = self._compute(x, w, s)
+        pos = x if (self.face and self.c == 3) else (x[:, :, :, :self.c] if self.face else body)
+        parts = [pos.reshape(b, t, -1), hands_local.reshape(b, t, -1), vel1.reshape(b, t, -1)]
+        if self.world:
+            parts += [shape.reshape(b, t, -1), axes.reshape(b, t, -1)]
+        parts += [bones.reshape(b, t, -1), intra_dists.reshape(b, t, -1), contacts,
+                  hw_acc.reshape(b, t, -1), vel2.reshape(b, t, -1)]
+        if self.face:
+            parts.append(fvel.reshape(b, t, -1))
+        parts += [speeds, seen]
+        return torch.cat(parts, -1)
+
+
 class FastConvBlock(nn.Module):
     """ConvBlock or RepConvBlock in B x T x C layout: pointwise convs become Linear (fused DynamicQuantizeMatMul
     in ORT), all depthwise + BatchNorm1d branches fold into ONE depthwise conv, and ECA runs without transposes."""
@@ -196,7 +337,7 @@ class FastSignNet(nn.Module):
         self.pool = orig.pool
         self.feat_ver = getattr(orig, "feat_ver", 1)
         self.register_buffer("pool_w", orig.pool_w.clone().view(1, -1, 1), persistent=False)
-        self.features = orig.features if isinstance(orig.features, mv.FeaturesV2) else FastFeatures(orig.features)
+        self.features = FastFeaturesV2(orig.features) if isinstance(orig.features, mv.FeaturesV2) else FastFeatures(orig.features)
         self.stem = _fold_conv1_bn(orig.stem, orig.stem_bn)
         self.blocks = _fold_blocks(orig.blocks)
         self.top = _conv1_to_linear(orig.top)
@@ -227,7 +368,7 @@ class FastDualStreamSignNet(nn.Module):
         self.pool = orig.pool
         self.feat_ver = 2
         self.register_buffer("pool_w", orig.pool_w.clone().view(1, -1, 1), persistent=False)
-        self.features = orig.features
+        self.features = FastFeaturesV2(orig.features) if isinstance(orig.features, mv.FeaturesV2) else orig.features
         self.hand_stem = _fold_conv1_bn(orig.hand_stem, orig.hand_bn)
         self.body_stem = _fold_conv1_bn(orig.body_stem, orig.body_bn)
         self.hand_blocks = _fold_blocks(orig.hand_blocks)
@@ -268,7 +409,7 @@ class FastConvBiGRUNet(nn.Module):
         self.pool = orig.pool
         self.feat_ver = orig.feat_ver
         self.register_buffer("pool_w", orig.pool_w.clone().view(1, -1, 1), persistent=False)
-        self.features = orig.features if isinstance(orig.features, mv.FeaturesV2) else FastFeatures(orig.features)
+        self.features = FastFeaturesV2(orig.features) if isinstance(orig.features, mv.FeaturesV2) else FastFeatures(orig.features)
         self.stem = _fold_conv1_bn(orig.stem, orig.stem_bn)
         self.conv_pre = _fold_blocks(orig.conv_pre)
         self.gru1 = orig.gru1
@@ -354,7 +495,7 @@ class Deploy(nn.Module):
         # Share FeaturesV2 across ensemble members when both use FeaturesV2 on the same canonicalized input
         self.shared_feat_v2 = (
             self.shared_canon
-            and all(isinstance(getattr(m, "features", None), mv.FeaturesV2) for m in models)
+            and all(isinstance(getattr(m, "features", None), (mv.FeaturesV2, FastFeaturesV2)) for m in models)
             and all(m.features.face == models[0].features.face
                     and m.features.world == models[0].features.world
                     and m.features.c == models[0].features.c for m in models)
@@ -424,7 +565,7 @@ class Deploy(nn.Module):
                         e = m.embed_from_streams(stream_feat[0], stream_feat[1]) if isinstance(m, FastDualStreamSignNet) else m.embed(xs, ws, ss)
                     else:
                         if flat_feat is None:
-                            pos = xs[:, :, :, :fmod.c] if fmod.face else body
+                            pos = xs if (fmod.face and fmod.c == 3) else (xs[:, :, :, :fmod.c] if fmod.face else body)
                             parts = [pos.reshape(b, t, -1), hands_local.reshape(b, t, -1), vel1.reshape(b, t, -1)]
                             if fmod.world:
                                 parts += [shape.reshape(b, t, -1), axes.reshape(b, t, -1)]

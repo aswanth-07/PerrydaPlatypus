@@ -3,6 +3,8 @@ package ai.echogesture.signcore
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 /**
@@ -77,9 +79,19 @@ class SignModel(
 ) : AutoCloseable {
     private val env = OrtEnvironment.getEnvironment()
     private val session: OrtSession
+    private val outputNames: Set<String>
+    private val primaryOutput: String
     private val ptsShape = longArrayOf(1, tIn.toLong(), Layout.P.toLong(), 3)
     private val wldShape = longArrayOf(1, tIn.toLong(), 2, 21, 3)
     private val seenShape = longArrayOf(1, tIn.toLong(), 4)
+
+    // Reusable direct buffers per thread eliminate 108 KB heap-to-native copies per call with zero lock contention.
+    private class Scratch(tIn: Int) {
+        val pts: FloatBuffer = ByteBuffer.allocateDirect(tIn * Layout.P * 3 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        val wld: FloatBuffer = ByteBuffer.allocateDirect(tIn * 2 * 21 * 3 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        val seen: FloatBuffer = ByteBuffer.allocateDirect(tIn * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+    }
+    private val scratch = ThreadLocal.withInitial { Scratch(tIn) }
 
     init {
         session = OrtSession.SessionOptions().use { opts ->
@@ -89,32 +101,54 @@ class SignModel(
             opts.setMemoryPatternOptimization(true)
             opts.addConfigEntry("session.intra_op.allow_spinning", if (spin) "1" else "0")
             opts.addConfigEntry("session.inter_op.allow_spinning", if (spin) "1" else "0")
+            opts.addConfigEntry("session.set_denormal_as_zero", "1")
             env.createSession(modelBytes, opts)
         }
+        outputNames = session.outputNames
+        primaryOutput = if ("probs" in outputNames) "probs" else outputNames.first()
     }
 
-    fun classify(clip: Clip): Prediction {
+    fun classify(clip: Clip, needEmbedding: Boolean = true, needRaw: Boolean = true): Prediction {
         val c = if (clip.t == tIn) clip else Resampler.resample(clip, tIn)
         val start = System.nanoTime()
+        val buf = scratch.get()!!
+        buf.pts.clear(); buf.pts.put(c.points); buf.pts.flip()
+        buf.wld.clear(); buf.wld.put(c.world); buf.wld.flip()
+        buf.seen.clear(); buf.seen.put(c.seen); buf.seen.flip()
         var tPts: OnnxTensor? = null
         var tWld: OnnxTensor? = null
         var tSeen: OnnxTensor? = null
         try {
-            tPts = OnnxTensor.createTensor(env, FloatBuffer.wrap(c.points), ptsShape)
-            tWld = OnnxTensor.createTensor(env, FloatBuffer.wrap(c.world), wldShape)
-            tSeen = OnnxTensor.createTensor(env, FloatBuffer.wrap(c.seen), seenShape)
+            tPts = OnnxTensor.createTensor(env, buf.pts, ptsShape)
+            tWld = OnnxTensor.createTensor(env, buf.wld, wldShape)
+            tSeen = OnnxTensor.createTensor(env, buf.seen, seenShape)
             val inputs = HashMap<String, OnnxTensor>(4).apply {
                 put("points", tPts)
                 put("world", tWld)
                 put("seen", tSeen)
             }
-            return session.run(inputs).use { result ->
-                @Suppress("UNCHECKED_CAST")
-                fun row(name: String): FloatArray? = result.get(name).orElse(null)?.let { (it.value as Array<FloatArray>)[0] }
-                @Suppress("UNCHECKED_CAST")
-                val probs = (result[0].value as Array<FloatArray>)[0]
-                Prediction(labels, probs, (System.nanoTime() - start) / 1e6, row("set_probs") ?: probs, row("embedding"), row("raw_probs"),
-                    row("none")?.get(0) ?: 0f)
+            val want = HashSet<String>(6).apply {
+                add(primaryOutput)
+                if ("set_probs" in outputNames) add("set_probs")
+                if (needEmbedding && "embedding" in outputNames) add("embedding")
+                if (needRaw && "raw_probs" in outputNames) add("raw_probs")
+                if ("none" in outputNames) add("none")
+            }
+            return session.run(inputs, want).use { result ->
+                fun readFloats(name: String): FloatArray? {
+                    val opt = result.get(name)
+                    if (!opt.isPresent) return null
+                    val fb = (opt.get() as OnnxTensor).floatBuffer
+                    return FloatArray(fb.remaining()).also { fb.get(it) }
+                }
+                val probs = readFloats(primaryOutput)!!
+                Prediction(
+                    labels, probs, (System.nanoTime() - start) / 1e6,
+                    readFloats("set_probs") ?: probs,
+                    if (needEmbedding) readFloats("embedding") else null,
+                    if (needRaw) readFloats("raw_probs") else null,
+                    readFloats("none")?.get(0) ?: 0f,
+                )
             }
         } finally {
             tPts?.close()
@@ -127,7 +161,7 @@ class SignModel(
     fun classifyFrames(frames: List<RawFrame>, width: Int, height: Int, maxFrames: Int = 96): Prediction {
         val picked = if (frames.size <= maxFrames) frames else
             (0 until maxFrames).map { frames[Math.round(it * (frames.size - 1).toDouble() / (maxFrames - 1)).toInt()] }
-        return classify(Normaliser.normalise(picked, width, height))
+        return classify(Normaliser.normalise(picked, width, height), needRaw = false)
     }
 
     override fun close() = session.close()

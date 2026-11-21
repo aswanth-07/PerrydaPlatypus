@@ -42,8 +42,8 @@
   <text class="h" x="262" y="98">MediaPipe Holistic</text>
   <text class="t" x="262" y="124">Pose, both hands, face</text>
   <text class="t" x="262" y="144">+ metric 3D hand points</text>
-  <text class="s" x="262" y="188">13.7 MB · 34.1 ms p50</text>
-  <text class="s" x="262" y="206">30.2 fps (2 CPU lanes)</text>
+  <text class="s" x="262" y="188">13.68 MB · 34.5 ms p50</text>
+  <text class="s" x="262" y="206">30.24 fps (2 CPU lanes)</text>
 
   <rect class="box" x="488" y="68" width="204" height="162" rx="12"/>
   <text class="h" x="504" y="98">Normalise</text>
@@ -53,12 +53,12 @@
   <text class="s" x="504" y="206">Python ↔ Kotlin &lt; 7e-6</text>
 
   <rect class="key" x="722" y="68" width="442" height="162" rx="12"/>
-  <text class="h-blue" x="742" y="98">EchoGesture INT8 ONNX · 5.72 MB</text>
-  <text class="b" x="742" y="124">2-Model Ensemble: SignNetV2 + DualStreamSignNet</text>
-  <text class="t" x="742" y="146">Shared FeaturesV2 (1,238-d) · Folded RepConv + Transformer</text>
-  <text class="t" x="742" y="166">Cross-gated dual streams · CondFlip + FastSetRule in graph</text>
-  <text class="m" x="742" y="194">2,000 ASL words · 67.93% Top-1 (80.22% @ 1k) · 93.99% Top-5</text>
-  <text class="s" x="742" y="213">3.45 ms p95 on Galaxy S26 (1 thread) · 99.06% FP32-INT8 agreement</text>
+  <text class="h-blue" x="742" y="98">Unified EchoGesture INT8 ONNX · 5.70 MB</text>
+  <text class="b" x="742" y="124">Single 2-Model Ensemble: SignNetV2 + DualStreamSignNet</text>
+  <text class="t" x="742" y="146">Shared FastFeaturesV2 (1,238-d) · Folded RepConv + Transformer</text>
+  <text class="t" x="742" y="166">Cross-gated dual streams · CondFlip + FastSetRule + none head</text>
+  <text class="m" x="742" y="194">2,000 ASL words · 68.24% Top-1 (0.00 pt quant drop) · 94.51% Top-5</text>
+  <text class="s" x="742" y="213">3.30 ms p95 on Galaxy S26 (1t; 3.02 ms 4t) · 99.24% FP32 agreement</text>
 
   <path class="line" d="M 216 149 L 243 149"/>
   <path class="line" d="M 458 149 L 485 149"/>
@@ -66,9 +66,9 @@
 
   <!-- Row 2: Outputs -->
   <rect class="box" x="722" y="266" width="442" height="82" rx="12"/>
-  <text class="h" x="742" y="295">Graph Outputs (Single ONNX Call)</text>
-  <text class="t" x="742" y="320">prediction · top-5 · confidence · same-sign set · 768-d embedding</text>
-  <text class="s" x="742" y="338">Total bundle w/ Holistic: 19.40 MB (≤ 20 MB) · 6/6 moderate robustness pass</text>
+  <text class="h" x="742" y="295">Unified Graph Outputs (Single ONNX Session)</text>
+  <text class="t" x="742" y="320">probs · set_probs · none (transition) · 768-d embedding</text>
+  <text class="s" x="742" y="338">Total ML w/ Holistic: 19.38 MB (&lt; 20 MB everywhere) · 6/6 rob. pass</text>
   <path class="line" d="M 943 230 L 943 263"/>
 
   <!-- Row 3: Consumers -->
@@ -82,12 +82,12 @@
   <text class="s" x="54" y="548">Python 3.11 · CPU-only · Docker · ECHO_VOCAB_FILE</text>
 
   <rect class="app" x="394" y="416" width="770" height="152" rx="12"/>
-  <text class="h-green" x="414" y="446">Offline Android App (Kotlin, Jetpack Compose, Material 3)</text>
-  <text class="t" x="414" y="472"><tspan font-weight="700" fill="#0f172a">Talk:</tspan> Continuous live captions (5.72 MB live ensemble, 39.9% WER, 30.2 fps) · Offline TTS (70 ms) · Tap to correct (93.15%)</text>
+  <text class="h-green" x="414" y="446">Offline Android App (Kotlin, Jetpack Compose, Material 3 · 47.2 MB APK)</text>
+  <text class="t" x="414" y="472"><tspan font-weight="700" fill="#0f172a">Talk:</tspan> Continuous live captions (39.9% fixed WER, 30.24 fps, 16.27 ms under load) · Offline TTS (52 ms) · Tap to correct (93.09%)</text>
   <text class="t" x="414" y="494"><tspan font-weight="700" fill="#0f172a">Two-Way Reply + Reply in Sign:</tspan> Voice/typed reply → 180° rotatable text &amp; animated real-signer ASL (0 extra model bytes)</text>
   <text class="t" x="414" y="516"><tspan font-weight="700" fill="#0f172a">Learn &amp; Dictionary:</tspan> Offline 300-sign Text-to-Sign translator &amp; interactive camera practice (737 KB real-signer keypoints)</text>
-  <text class="t" x="414" y="538"><tspan font-weight="700" fill="#0f172a">Teach &amp; Videos:</tspan> Add new signs in 3–5 examples (95.8% 3-shot ISL, 0 retraining) · Picked video recognition (0.46 s p50)</text>
-  <text class="s" x="414" y="558">Galaxy S26: 457 mW whole-phone power w/ model at live rate (+6 mW model share) · 12.1% 10-min thermal drift (status 0)</text>
+  <text class="t" x="414" y="538"><tspan font-weight="700" fill="#0f172a">Teach &amp; Videos:</tspan> Add new signs in 3–5 examples (95.8% 3-shot ISL, 0 retraining) · Picked video recognition (0.47 s p50)</text>
+  <text class="s" x="414" y="558">Galaxy S26: 433 mW whole-phone power w/ model at 6 Hz (+68 mW share) · 686 mW idle-gated · 13.9% 10-min drift (status 0)</text>
 
   <path class="line" d="M 852 348 L 852 384 L 202 384 L 202 413"/>
   <path class="line" d="M 943 348 L 943 413"/>

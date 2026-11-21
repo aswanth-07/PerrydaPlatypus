@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
-# Ship the live-caption model: the folded dynamic INT8 export of one or more checkpoints trained on windows of
-# continuous signing (train.py --cont), with the decoder settings scripts/live_cont.py chose for it, into
-# android/models/ (echogesture_live_int8.onnx and live.json). The app packs both; predict() does not use them.
-# usage: scripts/export_live.sh CONT_JSON CKPT [CKPT...]
+# Update android/models/live.json with the measured continuous-signing decoder settings for the unified
+# EchoGesture model (src/models/echogesture_int8.onnx), optionally exporting checkpoints first.
+# usage: scripts/export_live.sh CONT_JSON [CKPT...]
 #        CONT_JSON = the --out file of live_cont.py; EXPORT_ARGS defaults to "--dynamic --exclude stem --set-rule"
 set -eu
 cd "$(dirname "$0")/.."
 PY="${ECHO_PY:-python}"   # the training environment's Python 3.11
 cont=$1; shift
-out="runs/deploy_live"
-mkdir -p "$out"
-ARGS="${EXPORT_ARGS:---dynamic --exclude stem --set-rule}"
-"$PY" -I scripts/export.py data/index/WLASL_v0.3.json data/cache_hol2000w.pt "$out" "$@" --subset 2000 $ARGS
-cp "$out/echogesture_int8.onnx" android/models/echogesture_live_int8.onnx
-"$PY" -I - "$out/export.json" "$cont" android/models/live.json <<'PYEOF'
+if [ "$#" -gt 0 ]; then
+  scripts/finalize_model.sh "$@"
+fi
+"$PY" -I - src/models/export.json "$cont" android/models/live.json <<'PYEOF'
 import json, sys
 export, cont = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
 s = cont["settings"]
@@ -25,4 +22,4 @@ live = dict(window_ms=int(round(1000 * cont["window_s"])), stride_ms=int(s["stri
 json.dump(live, open(sys.argv[3], "w"), indent=1)
 print("live.json:", {k: live[k] for k in ("window_ms", "stride_ms", "lo", "gap", "emin", "commit", "tail_ms")})
 PYEOF
-echo "shipped android/models/echogesture_live_int8.onnx from $*"
+echo "updated android/models/live.json for unified src/models/echogesture_int8.onnx"

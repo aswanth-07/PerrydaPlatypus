@@ -2,7 +2,7 @@
 
 Everything the evaluator runs is in this folder: `main.py` (the `predict()` function), the three modules it uses
 (`holistic_kp.py` keypoints, `normalise.py` normalisation, `extract.py` video reading) and `models/`:
-`echogesture_int8.onnx` (the EchoGesture model, 2,000 ASL words, 5.72 MB INT8 2-model diverse ensemble), `labels.json`, `sets.json` (the
+`echogesture_int8.onnx` (the unified EchoGesture model, 2,000 ASL words, 5.70 MB INT8 2-model diverse ensemble; 19.38 MB total incl. Holistic), `labels.json`, `sets.json` (the
 same-sign set of each word), `export.json` (how it was exported and what it scored) and
 `holistic_landmarker.task` (MediaPipe Holistic). Nothing is downloaded at run time and nothing leaves
 the machine.

@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                         delay(intent.getIntExtra("wait", 60) * 1000L)   // time to unplug the phone
                         bench.powerPaired(intent.getIntExtra("rounds", 4), intent.getIntExtra("seconds", 40))
                         bench.live(150, 30, listOf(false, false), prefix = "power")
+                        bench.live(90, 30, listOf(false, false), blank = true, gate = true, prefix = "power")
                     }
                     "power2" -> {
                         delay(intent.getIntExtra("wait", 45) * 1000L)

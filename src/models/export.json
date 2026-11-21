@@ -1,12 +1,12 @@
 {
  "ckpts": [
-  "runs\\soup_champ_v2\\best.pt",
-  "runs\\soup_champ_dual\\best.pt"
+  "runs\\soup_live_v2_sharp3\\best.pt",
+  "runs\\soup_live_dual_sharp3\\best.pt"
  ],
  "weights": null,
  "t_in": 64,
  "test_clips": 2878,
- "none_class": false,
+ "none_class": true,
  "int8_scheme": {
   "dynamic": true,
   "folded": true,
@@ -19,15 +19,15 @@
  },
  "torch": {
   "n": 2878,
-  "top1": 68.14,
-  "top5": 93.99,
-  "class_avg": 63.99
+  "top1": 68.24,
+  "top5": 94.44,
+  "class_avg": 63.89
  },
  "torch_before_rule": {
   "n": 2878,
-  "top1": 66.96,
-  "top5": 94.58,
-  "class_avg": 64.12
+  "top1": 67.16,
+  "top5": 94.96,
+  "class_avg": 64.27
  },
  "same_sign": {
   "links": 590,
@@ -36,31 +36,31 @@
   "beta": 2.0
  },
  "fp32": {
-  "size_mb": 20.236,
+  "size_mb": 20.223,
   "test": {
    "n": 2878,
-   "top1": 68.14,
-   "top5": 93.99,
-   "class_avg": 63.99,
+   "top1": 68.24,
+   "top5": 94.44,
+   "class_avg": 63.89,
    "agree_top1_with_torch": 100.0
   },
   "one_thread": {
-   "p50_ms": 10.606,
-   "p95_ms": 14.328
+   "p50_ms": 8.672,
+   "p95_ms": 11.729
   }
  },
  "int8": {
-  "size_mb": 5.716,
+  "size_mb": 5.701,
   "test": {
    "n": 2878,
-   "top1": 67.93,
-   "top5": 93.99,
-   "class_avg": 63.79,
-   "agree_top1_with_torch": 99.06
+   "top1": 68.24,
+   "top5": 94.51,
+   "class_avg": 63.91,
+   "agree_top1_with_torch": 99.24
   },
   "one_thread": {
-   "p50_ms": 6.447,
-   "p95_ms": 8.494
+   "p50_ms": 4.403,
+   "p95_ms": 5.661
   }
  }
 }

@@ -76,7 +76,10 @@ def main():
     if a.live:
         import live_cont as lc
         live = lc.OnnxWindowModel(a.live, fixture["t_in"], half=False)
-        cfg = json.loads((pathlib.Path(a.live).parent / "live.json").read_text())
+        lp = pathlib.Path(a.live).parent / "live.json"
+        if not lp.exists():
+            lp = pathlib.Path(__file__).resolve().parents[1] / "android" / "models" / "live.json"
+        cfg = json.loads(lp.read_text(encoding="utf-8"))
         set_of = np.array(json.loads(pathlib.Path(a.sets).read_text())) if a.sets else None
     clips = fixture["clips"]
     streams = []

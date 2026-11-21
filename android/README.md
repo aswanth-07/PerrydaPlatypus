@@ -27,17 +27,17 @@ Nothing the app keeps (conversations, taught signs, progress, settings) is backe
 
 The live spotter (`signcore/Spotter.kt`, continuous mode) captions each sign as it is made; the signer does not
 lower the hands between words. While a wrist is above a rest line (one shoulder width under the shoulders), and
-for 600 ms after both have dropped, the last 1.2 s are classified every 160 ms by the live-caption copy of the
-EchoGesture model (`android/models/echogesture_live_int8.onnx`, packed into the app's assets beside `live.json`,
-its measured decoder settings). That model was trained on windows of continuous signing and answers with the sign at the window's
-centre or with "no sign" between two. A run of windows that name a sign is one sign: each window adds its five
-best answers' probabilities as evidence, and the sign with the most evidence is captioned when the run ends, or
-at once when the evidence is already enough. The leading word is shown muted until then. Settings > Caption style
-(More words / Balanced / Fewer, surer) scales the evidence a caption needs. A build packed without the live model uses
-the clip model for the windows.
+for 600 ms after both have dropped, the last 1.2 s are classified every 160 ms by the unified EchoGesture model
+(`src/models/echogesture_int8.onnx`, `5.70 MB`, packed once into `assets/` beside `live.json`, its measured
+decoder settings — keeping total ML weight incl. Holistic strictly **19.38 MB < 20 MB** and loading a single
+ONNX Runtime session in RAM). That model was trained on both whole signs and continuous windows and outputs word
+probabilities, a transition ("no sign") probability, and `768-d` embeddings. A run of windows that name a sign is
+one sign: each window adds its five best answers' probabilities as evidence, and the sign with the most evidence
+is captioned when the run ends, or at once when the evidence is already enough. The leading word is shown muted
+until then. Settings > Caption style (More words / Balanced / Fewer, surer) scales the evidence a caption needs.
 
-With all 2,000 words open, on held-out test clips joined without rests, the live 2-model diverse souped ensemble (`android/models/echogesture_live_int8.onnx`, 5.72 MB INT8, 68.21% whole-clip top-1) achieves cross-fitted INT8 word error rate of **40.4%** (**39.6%** mixed, **41.7%** with rests; shipped fixed `commit=2.0` INT8 config: **39.9% / 39.2% / 41.5%**; **26.7–29.0%** same-sign; `scripts/live_cont.py --onnx`; full table in the main README). `SpotterTest` replays six
-streams through the Kotlin spotter with the shipped INT8 models and requires the same words at the same frames
+With all 2,000 words open, on held-out test clips joined without rests, the unified 2-model diverse souped ensemble (`src/models/echogesture_int8.onnx`, `5.70 MB` INT8, **68.24%** whole-clip top-1) achieves cross-fitted INT8 word error rate of **40.3%** (**39.4%** mixed, **41.5%** with rests; shipped fixed `commit=2.0` INT8 config: **39.9% / 39.0% / 41.5%**; **26.7–28.9%** same-sign; `scripts/live_cont.py --onnx`; full table in the main README). `SpotterTest` replays six
+streams through the Kotlin spotter with the unified INT8 model and requires the same words at the same frames
 as Python, in both modes (`scripts/make_stream_fixture.py --live` writes `parity/streams.json`).
 
 Settings > Captions appear > "After each sign" brings back the 15 Nov behaviour: a stretch opens when a wrist
@@ -48,25 +48,24 @@ looks in a row above 35%).
 
 ### Tap to correct
 
-With 2,000 words open the top word is the sign that was made for **81.1%** of test clips, and the right sign is usually
+With 2,000 words open the top word is the sign that was made for **81.48%** of test clips, and the right sign is usually
 the next guess. When the model's confidence in the shown sign is under 80% (`SignEngine.ALT_BELOW`), the caption
 card offers the best word of each of the next two signs in the ranking (`SameSignSets.alternatives`; names of the
 shown sign are already listed as "same sign"). A tap replaces the newest word in the caption and in the conversation
 (`SignEngine.correctLast`, `Spotter.replaceLast`: only while that word is still the newest) and speaks the
-correction. `scripts/alternatives_eval.py` scores the same rule on the WLASL2000 test clips: sign on screen **93.15%**
-with offers under 67.5% of captions (**93.78%** if always offered); captions shown without offers are right **96.79%** of the
+correction. `scripts/alternatives_eval.py` scores the same rule on the WLASL2000 test clips: sign on screen **93.09%**
+with offers under 61.6% of captions (**93.88%** if always offered); captions shown without offers are right **96.74%** of the
 time. `--es bench live --ez ui true` replays a video through the real screens with the camera off, to look at it.
 
 ### Spoken captions
 
 Each word the spotter settles is spoken by the phone's own text-to-speech voice (an installed voice, so it works
 offline; Settings warns when none is installed). The status line shows how long after the camera frame that
-settled the word the sound started, last and median. Measured on a Galaxy S26 with the 2,000-word model
-(`--es bench live --es file stream.mp4 --ez voice true`, a stream of ten chained test signs replayed at 25 fps, 26
-words spoken): the text-to-speech engine starts 70 ms (median) after the frame that settled the word, 368 ms at
-p90 and 770 ms at worst, the slow ones being words that waited for the one before them to finish. With captions at rest (how this was measured) the word
-settles 200 ms after the hands come to rest, so speech begins about 0.3 s after a sign ends. The engine's start is
-what is timed; the speaker's own output delay is not included.
+settled the word the sound started, last and median. Measured on a Galaxy S26 with the unified 2,000-word model
+(`--es bench live --es file stream.mp4 --ez voice true`, replayed at 25 fps, 24 words spoken): the offline
+text-to-speech engine starts **52 ms** (median) after the frame that settled the word, **91 ms** at p90 and 588 ms
+at worst (`on_device: true`, 0 network). The engine's start is what is timed; the speaker's own output delay is not
+included.
 
 ### Spoken, typed & animated ASL replies (two-way conversation)
 
@@ -78,14 +77,14 @@ voice pauses so it does not hear itself. When offline speech recognition is unav
 
 ### Teach a sign
 
-Both the clip model and the live 2-model ensemble return a pooled **768-number** unit-normalized ensemble embedding. A taught sign is the unit mean of its examples' multi-crop (`Cores.windows`)
+The unified 2-model ensemble returns a pooled **768-number** unit-normalized ensemble embedding shared across live captions and clips. A taught sign is the unit mean of its examples' multi-crop (`Cores.windows`)
 unit embeddings (a prototype); a live window or a clip whose embedding is at least 0.55 cosine from a prototype
 (developer options, 0.45 to 0.65) is that word, the closest prototype winning; otherwise the classifier answers. The
-examples are stored as model inputs (`files/taught/<id>/ex_N.bin`, about 120 KB each), not prototypes, because the
-clip model and the live-caption model each have their own embedding, so prototypes are rebuilt with each. Measured
+examples are stored as model inputs (`files/taught/<id>/ex_N.bin`, about 120 KB each), not prototypes, so prototypes
+rebuild automatically whenever the model updates. Measured
 offline (`scripts/fewshot_eval.py`, baseline WLASL-only model, 20 ASL Citizen signs it never saw, examples and
 test clips from different signers, 300 episodes): 79.3% right with 1 example, 90.3% with 3, 92.5% with 5.
-On Indian Sign Language (INCLUDE, 23 signs, 0% training overlap, 11 taught per episode) the shipped 2-model EchoGesture ensemble is right **91.28% / 95.82% / 96.83%** with 1 / 3 / 5 examples.
+On Indian Sign Language (INCLUDE, 23 signs, 0% training overlap, 11 taught per episode) the unified 2-model EchoGesture ensemble is right **91.52% / 95.81% / 96.82%** with 1 / 3 / 5 examples.
 
 End to end on the emulator without a camera: `adb shell am start -n ai.echogesture.app/.MainActivity --es bench
 teach --es words AXE,TWINS --ei examples 3 --es file teach_test.mp4` replays `files/teach_<word>_<n>.mp4` as the
@@ -156,13 +155,10 @@ Measured on a Samsung Galaxy S26 (SM-S942B, Exynos 2600, Android 17), release bu
 - **Signing-gated rate.** While no hand has been seen for 2 s, only one frame per 120 ms is tracked (about 8 fps,
   one lane); the first frame with a hand brings back every frame. No sign starts without a hand, so captions do not
   change; idle seconds cost less.
-- **Ten minutes:** 29.9 fps in the first and in the last minute (no thermal drift), p95 49 ms, SoC 38.1 → 41.6 °C
-  (peak 43.2), skin +2.3 °C, no throttling (thermal status 0, headroom 0.77), PSS 458 MB.
-- **Videos tab:** 24 frames over four CPU video-mode trackers in parallel: **0.46 s** per clip p50 (**457.9 ms**, p95 500.6 ms; down from 0.57 s with two trackers, 1.69 s with one). `src/main.py` also supports `ECHO_LANES=2` and caches Holistic landmarkers by resolution.
-- **Classifier:** Shipped 2-model INT8 ensemble (5.72 MB), ONNX Runtime Android, 1 thread (`spin=off`): **3.32 / 3.45 ms** p50 / p95 back to back (**3.20 / 3.29 ms** on 2 threads `spin=on`), 16.4 / 18.3 ms when paced at 6 Hz; live `SignNetV2` (3.03 MB) runs at **9.46 ms** p95 beside 30.2 fps live tracking (down from 14.55 ms), with live CPU load down to **172.1%** (from 180.8%) and memory PSS **460.8 MB** (from 474.5 MB).
-- **Power, on battery, whole phone with the screen on:** live at 30 fps 2,869 mW; nobody in view 724 mW with the
-  signing-gated rate, 1,583 mW without; the app open with nothing tracked 712 mW; the classifier alone at 6 windows
-  a second 395 mW above that (measured with 2 spinning threads). About 80 mJ per tracked frame on CPU or GPU.
+- **Ten minutes (590 s on final unified APK):** **30.09 fps** mean (`30.25 → 29.77 fps`, `1.6%` throughput drift), Holistic `34.4 / 41.0 ms` p50/p95 (`13.9%` thermal drift, PASS ≤ 20%), SoC `31.4 → 40.2 °C` (`+8.8 °C`, peak `41.0 °C`), skin `31.2 → 36.3 °C` (`+5.1 °C`), zero throttling (`thermal_status = 0`, headroom `0.711`), **0.0%** GPU busy, **179.1%** mean CPU (`176.0%` 60 s steady-state), **445.9 MB** mean PSS (`462.8 MB` 60 s max, single ORT session).
+- **Videos tab:** 24 frames over four CPU video-mode trackers in parallel: **0.47 s** per clip p50 (**473.7 ms**, p95 **504.3 ms**, unified ensemble `9.50 ms`). `src/main.py` also supports `ECHO_LANES=2` and caches Holistic landmarkers by resolution.
+- **Classifier:** Unified 2-model INT8 ensemble (`5.70 MB`, `FastFeaturesV2` + direct buffers), ONNX Runtime Android, 1 thread (`spin=off`): **3.21 / 3.30 ms** p50 / p95 back to back (**3.15 / 3.26 ms** on 2 threads `spin=on`; **2.98 / 3.02 ms** on 4 threads `spin=on`), `15.9 / 19.0 ms` when paced at 6 Hz (`11.5 / 13.8 ms` on 2t); runs at **13.06 / 16.27 ms** p50 / p95 beside 30.24 fps live tracking (`13.13 / 19.10 ms` over 10 min).
+- **Power (on battery, airplane mode, Wi-Fi/BT off, whole phone screen on):** unified classifier at live 6 Hz rate **433 mW** (`+68 ± 14 mW` settled share above `360 mW` screen-on baseline); full 30 fps live pipeline **2,944 mW** (`2.94 W`); nobody in view signing-gated (7.57 fps, `33.6%` CPU) **686 mW** (**77% reduction**).
 
 ## Benchmarks on the phone
 
@@ -201,7 +197,7 @@ The build uses Gradle, the standard Android build tool (Android Studio runs the 
 2. `android/local.properties`: `sdk.dir=C:\\path\\to\\Android\\Sdk` (Android Studio writes this for you).
 3. Nothing to copy by hand: the `copyModels` task fills the app's assets before every build from `src/models/`
    (`echogesture_int8.onnx`, `labels.json`, `sets.json`, `export.json`, `holistic_landmarker.task`) and
-   `android/models/` (`echogesture_live_int8.onnx`, `live.json`, `demos.bin`). The assets folder is not kept in Git.
+   `android/models/` (`live.json`, `demos.bin`). Total ML models packed into the APK: **19.38 MB** (< 20 MB). The assets folder is not kept in Git.
 4. `gradle -p android :app:assembleRelease` → `app/build/outputs/apk/release/app-release.apk` (signed with the
    debug key so it installs directly; use a real key for distribution).
 

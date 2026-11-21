@@ -41,22 +41,22 @@ number on screen comes from a file in the repository (named at the end); nothing
 | What | Value | Source |
 |---|---|---|
 | Vocabulary | 2,000 ASL words (WLASL2000) | `src/models/labels.json` |
-| WLASL2000 official test split (INT8, 2,878 clips) | **67.93%** top-1, **93.99%** top-5 (FP32 **68.14%**) | `results/predictions.summary.json`, `src/models/export.json` |
-| The same model on WLASL's 1,000 / 300 / 100 most common words | **80.2% / 90.4% / 93.0%** top-1 | `results/results.csv`, rows `top1_accuracy_wlasl*` |
-| Live captions, word error rate on chained test clips | **40.4%** no-rest (**39.9%** fixed), **39.6%** mixed (**39.2%** fixed), **41.7%** rest (**26.7–29.0%** same-sign) | `results/results.csv`, rows `live_caption_word_error_rate_*` |
-| Model size, latency p95 on the phone (1 CPU thread) | **5.72 MB** ensemble (matching 5.72 MB live ensemble), **3.45 ms** p95 | `results/results.csv`, rows `model_size`, `latency_p95_phone` |
-| Power | the whole phone 457 mW with the model running at the live rate (screen on); the model's own share +6 mW | `results/results.csv`, rows `avg_power*` |
-| Hand tracking | MediaPipe Holistic, 13.7 MB (19.40 MB total with ensemble) | `src/models/holistic_landmarker.task` |
-| Robustness, moderate (drop in points) | **6 / 6 PASS** (angled 0.49, low light 0.98, moving head 1.01, low res 2.23, combined 3.34, occlusion 4.24) | `results/results.csv`, rows `robustness_drop_moderate_*` |
-| Voice delay on the phone | speech starts 70 ms (median) after the frame that settles the word, about 0.3 s after the hands come to rest | `results/results.csv`, row `voice_delay_p50_phone`; live on the app's status line with details on |
-| Live speed on the phone | **30.2 fps**, every camera frame tracked, **9.46 ms** classifier p95 under load, thermal drift 12.1% over 10 min | `results/results.csv`, rows `live_fps_phone`, `holistic_p95_phone`, `thermal_drift_10min` |
-| Video recognition on the phone | **0.46 s** per clip (457.9 ms p50) | `results/results.csv`, row `video_recognition_p50_phone` |
-| Teach a sign | **91.3% / 95.8% / 96.8%** Indian Sign Language (1/3/5-shot); 90.3% / 92.5% unseen ASL | `results/results.csv`, README |
+| WLASL2000 official test split (INT8, 2,878 clips) | **68.24%** top-1 (`0.00 pt` quant drop from FP32), **94.51%** top-5 (**81.48%** same-sign) | `results/results.csv`, `src/models/export.json` |
+| The same unified model on WLASL's 1,000 / 300 / 100 most common words | **79.96% / 90.72% / 93.41%** top-1 | `results/results.csv`, rows `top1_accuracy_wlasl*` |
+| Live captions, word error rate on chained test clips | **40.3%** no-rest (**39.9%** fixed), **39.4%** mixed (**39.0%** fixed), **41.5%** rest (**26.7–28.9%** same-sign) | `results/results.csv`, rows `live_caption_word_error_rate_*` |
+| Model size, latency p95 on the phone (1 CPU thread) | **5.70 MB** unified ensemble (**19.38 MB** total w/ Holistic across repo, ZIP & APK), **3.30 ms** p95 (`3.02 ms` 4t) | `results/results.csv`, rows `model_size*`, `latency_p95_phone` |
+| Power (Galaxy S26, battery, airplane mode) | **433 mW** whole phone w/ model at 6 Hz (`+68 mW` settled share over `360 mW` baseline); **686 mW** idle-gated (`2,944 mW` active 30 fps) | `results/results.csv`, rows `avg_power*`, `power_idle_gated` |
+| Hand tracking | MediaPipe Holistic, 13.68 MB (19.38 MB total with unified ensemble) | `src/models/holistic_landmarker.task` |
+| Robustness, moderate (drop in points) | **6 / 6 PASS, all ≤ 4.0 pt** (angled 0.59, low light 0.87, moving head 0.90, low res 2.36, occlusion 3.75, combined 3.99) | `results/results.csv`, rows `robustness_drop_moderate_*` |
+| Voice delay on the phone | speech starts **52 ms** p50 (**91 ms** p90) after the frame that settles the word (`on_device: true`) | `results/results.csv`, row `voice_delay_p50_phone`; live on the app's status line with details on |
+| Live speed on the phone | **30.24 fps**, every camera frame tracked, **16.27 ms** unified ensemble p95 under load, thermal drift **13.9%** over 10 min (`thermal_status = 0`) | `results/results.csv`, rows `live_fps_phone`, `classifier_p95_phone_under_load`, `thermal_drift_10min` |
+| Video recognition on the phone | **0.47 s** per clip (`473.7 ms` p50, `504.3 ms` p95) | `results/results.csv`, row `video_recognition_p50_phone` |
+| Teach a sign | **91.5% / 95.8% / 96.8%** Indian Sign Language (1/3/5-shot); 90.3% / 92.5% unseen ASL | `results/results.csv`, README |
 
 ## Wording rules for the video
 
 - Say what was measured and where; never "state of the art" or "novel".
-- The 70% target is not met at 2,000 words; say the measured number plainly, and that the same model file is at
-  80.22% when it answers from WLASL's 1,000 most common words.
+- The 70% target is not met at 2,000 words; say the measured number plainly (**68.24%**), and that the same model file is at
+  **79.96%** when it answers from WLASL's 1,000 most common words (`85.41%` on unseen ASL Citizen signers).
 - Occlusion and the combined condition are the weakest; if a take fails there, keep it and say so rather than
   cutting to a lucky one.

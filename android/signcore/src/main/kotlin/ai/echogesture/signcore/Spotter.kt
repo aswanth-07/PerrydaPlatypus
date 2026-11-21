@@ -215,8 +215,8 @@ class Spotter(
         var sign = false
         if (window.size >= 8 && handFrames >= minHandFrames) {
             val live = liveModel
-            pred = (live ?: model).classify(Normaliser.normalise(window, width, height))
-            val tm = if (live != null) liveTaught else taught
+            val tm = liveTaught ?: taught
+            pred = (live ?: model).classify(Normaliser.normalise(window, width, height), needEmbedding = tm != null, needRaw = false)
             val bestTaught = tm?.best(pred.embedding)
             liveTaughtBest = bestTaught
             hit = bestTaught?.takeIf { it.cosine >= tm.threshold }
