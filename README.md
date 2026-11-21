@@ -117,7 +117,7 @@ with the final **`5.70 MB`** model, and recorded with device and runtime in [`re
 
 ### System design
 
-![System design: the two people outside, the phone as the trust boundary, the two-way loop through the app's modules](docs/system_design.png)
+![System design: the two people outside, the phone as the boundary, sign to speech and speech to sign](docs/system_design.png)
 
 The signer's frames go to MediaPipe Holistic, the 119 keypoints per frame go to the sign engine (one ONNX graph),
 captions are built and spoken in the phone's offline voice. The hearing person replies by voice (on-device speech
@@ -136,9 +136,9 @@ storage. The manifest removes the `INTERNET` permission.
    - **`DualStreamSignNet`:** separate hand and body streams that gate each other, then a joint stream.
    Their probabilities are averaged, and a same-sign rule inside the graph resolves WLASL's 308 synonym sets (`DOCTOR` = `PHYSICIAN`; [`scripts/signsets.py`](scripts/signsets.py)). The same graph also outputs a 768-d embedding for Teach-a-Sign and a "between signs" score for live captions.
 
-### From two FP32 networks to one INT8 graph
+### 3.5× smaller, 2.1× faster, zero accuracy lost
 
-![Compression pipeline: train, fold, lower, merge, quantize](docs/compression_pipeline.png)
+![Compression, drawn to scale: 20.22 MB FP32 to 5.70 MB INT8 with the same top-1](docs/compression_pipeline.png)
 
 [`scripts/export.py`](scripts/export.py) folds every RepConv block and BatchNorm into single layers, turns pointwise
 convolutions into MatMuls, exports one opset-17 graph (944 nodes) and quantizes its 57 MatMuls to INT8 per channel
