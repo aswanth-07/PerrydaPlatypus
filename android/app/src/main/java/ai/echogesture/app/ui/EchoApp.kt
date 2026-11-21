@@ -65,13 +65,9 @@ import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier

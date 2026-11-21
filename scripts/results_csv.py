@@ -19,7 +19,6 @@ With --vocab-subsets (scripts/vocab_subsets.py output) the same model's top-1 on
 lists is listed, and with --live-cont (scripts/live_cont.py --onnx output for the shipped live model) the app's
 live-caption word error rate on the three kinds of signing stream; with --phone-voice (the app's live benchmark run with
 --ez voice true) the delay from the camera frame that settles a word to the phone starting to speak it.
-scripts/make_results.sh holds the whole command.
 Usage: results_csv.py <model_dir> <out.csv> [--unseen unseen.json] [--e2e predictions.summary.json] [--suite suite.json]
        [--phone phone_summary.json] [--phone-model bench_model.jsonl] [--vocab-subsets f.json] [--live-cont f.json]
 """
@@ -150,7 +149,7 @@ def main():
             if s in rob and c in rob[s]:
                 rows.append((f"robustness_drop_{s}_{c}", "<=5", rob[s][c]["drop"], "pt", "", rob_rt, rob[s][c]["drop"] <= 5))
     if a.phone_model:
-        pm = [json.loads(l) for l in open(a.phone_model, encoding="utf-8") if l.strip()]
+        pm = [json.loads(line) for line in open(a.phone_model, encoding="utf-8") if line.strip()]
         # The app's setting: 1 thread, workers not spinning (older logs have no "spin" field: 2 threads).
         two = next((r for r in pm if r["threads"] == 1 and r.get("spin") is False), None) or next((r for r in pm if r["threads"] == 2), pm[0])
         paced = f"; paced like the live spotter (6 a second, cores idle between calls) p95 {two['paced_p95_ms']:.1f} ms" if "paced_p95_ms" in two else ""
@@ -174,11 +173,11 @@ def main():
             rows.append((metric, "", q["avg_power_mw"], "mW", phone_dev, (what[0] + "; " if what else "") +
                          f"{q['power_rows_on_battery'] * 10} s on battery, whole phone, screen on", ""))
     if a.phone_clip:
-        pc = [json.loads(l) for l in open(a.phone_clip, encoding="utf-8") if l.strip()][-1]
+        pc = [json.loads(line) for line in open(a.phone_clip, encoding="utf-8") if line.strip()][-1]
         rows.append(("video_recognition_p50_phone", "", round(pc["total_p50_ms"], 0), "ms", phone_dev,
                      f"Videos tab on a picked clip: decode + 24 frames on 2 Holistic lanes ({'GPU' if pc['gpu'] else 'CPU'}) + classifier, {pc['runs']} warm runs", ""))
     if a.phone_voice:
-        pv = [json.loads(l) for l in open(a.phone_voice, encoding="utf-8") if l.strip()]
+        pv = [json.loads(line) for line in open(a.phone_voice, encoding="utf-8") if line.strip()]
         st = next(r for r in pv if r.get("event") == "start")
         v = next(r for r in pv if r.get("event") == "voice")
         rows.append(("voice_delay_p50_phone", "", v["voice_p50_ms"], "ms", phone_dev,

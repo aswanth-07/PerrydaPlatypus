@@ -100,7 +100,7 @@ def main():
     print(f"{len(clips)} clips in vocabulary, {len(todo)} to fetch", flush=True)
     t0, n = time.time(), 0
     with ThreadPoolExecutor(a.threads) as pool:
-        for ok in pool.map(lambda c: fetch_member(a.url, infos[c["file"]], out / "videos" / c["file"]), todo):
+        for _ok in pool.map(lambda c: fetch_member(a.url, infos[c["file"]], out / "videos" / c["file"]), todo):
             n += 1
             if n % 1000 == 0:
                 print(f"{n}/{len(todo)} {time.time() - t0:.0f}s", flush=True)

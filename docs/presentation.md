@@ -74,7 +74,7 @@ Every one of the 2,878 test videos was degraded in its pixels, then landmarked a
 | Moderate | **0.49** | **1.01** | **0.98** | **2.23** | **4.24** | **3.34** |
 | Harsh | 0.56 | 2.09 | 6.05 | 8.03 | 6.85 | 8.24 |
 
-Note: Combined moderate accuracy (**64.80%**) now beats our previous model's *clean* accuracy (64.42%). Achieved via occlusion-matched training (`--occ-fill` + `--post-occ-canon`) and mutual cross-architecture clean-view distillation.
+Note: All 6 moderate degradations hold within ≤ 4.24 pt drop (combined moderate accuracy **64.80%**), achieved via occlusion-matched training (`--occ-fill` + `--post-occ-canon`) and mutual cross-architecture clean-view distillation.
 
 ## 8. On the phone (Samsung Galaxy S26, Exynos 2600, Android 17)
 

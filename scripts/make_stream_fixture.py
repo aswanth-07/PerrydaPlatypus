@@ -70,7 +70,7 @@ def main():
     fixture = json.loads((d / "fixture.json").read_text())
     md = pathlib.Path(a.model_dir)
     labels = json.loads((md / "labels.json").read_text(encoding="utf-8"))
-    labels = [l.upper() for l in labels]
+    labels = [lbl.upper() for lbl in labels]
     clf = OnnxClassifier(md / "echogesture_int8.onnx", fixture["t_in"])
     live = cfg = set_of = None
     if a.live:

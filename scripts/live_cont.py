@@ -150,7 +150,7 @@ def tally(caps, data):
     """Counts over streams: errors (edit distance), true words, words found, false words, and the delays."""
     errs = words = found = inserted = same = 0
     lag, per = [], []
-    for timed, (frames, truth, bounds, fps, *_rest) in zip(caps, data):
+    for timed, (_frames, truth, bounds, fps, *_rest) in zip(caps, data):
         cap = [w for w, _ in timed]
         lag += le.delays(timed, truth, bounds, fps)
         e = le.edit(cap, truth)

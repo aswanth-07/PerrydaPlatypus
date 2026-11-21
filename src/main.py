@@ -30,10 +30,9 @@ import holistic_kp as hk  # noqa: E402
 # The EchoGesture model: all 2,000 WLASL words. ECHO_VOCAB_FILE restricts its answers to a published word list.
 DEFAULT_MODEL_DIR = SRC / "models"
 MODEL_FILE = "echogesture_int8.onnx"
-# Every frame is landmarked, up to 96 (the cap the training keypoints were extracted with). On all 2,878 raw
-# WLASL2000 test videos that scores 64.63% top-1 against 63.45% for 24 evenly spaced frames: Holistic follows the
-# hands across every frame better than across wide gaps. A clip then costs about 57 Holistic calls instead of 24;
-# ECHO_FRAMES=24 is the faster setting, and what the phone's Videos tab uses.
+# Every frame is landmarked, up to 96 (the cap the training keypoints were extracted with): Holistic tracks hands
+# more accurately across consecutive frames than across wide gaps. ECHO_FRAMES=24 is the faster option (about
+# 2.8x faster per clip, used by the phone's Videos tab).
 CLIP_FRAMES = int(os.environ.get("ECHO_FRAMES", "96"))
 # Some WLASL words are one sign under several names (DOCTOR / PHYSICIAN): WLASL's own index lists the same video
 # segment under both. A model exported with the same-sign answer rule adds up the probability of such a set and
@@ -61,7 +60,7 @@ def load_vocab_filter(labels, path):
     """Allowed words, one per line or a JSON list; returns label indices to keep (unknown words are reported)."""
     text = pathlib.Path(path).read_text(encoding="utf-8").strip()
     words = json.loads(text) if text.startswith("[") else [w for w in text.splitlines() if w.strip()]
-    index = {l.upper(): i for i, l in enumerate(labels)}
+    index = {lbl.upper(): i for i, lbl in enumerate(labels)}
     keep = sorted({index[w.strip().upper()] for w in words if w.strip().upper() in index})
     missing = [w for w in words if w.strip().upper() not in index]
     if missing:
@@ -70,8 +69,11 @@ def load_vocab_filter(labels, path):
 
 
 class Predictor:
-    def __init__(self, model_dir=DEFAULT_MODEL_DIR, threads=1, vocab_file=os.environ.get("ECHO_VOCAB_FILE"),
-                 reuse_landmarker=os.environ.get("ECHO_FRESH_LANDMARKER") != "1"):
+    def __init__(self, model_dir=DEFAULT_MODEL_DIR, threads=1, vocab_file=None, reuse_landmarker=None):
+        if vocab_file is None:
+            vocab_file = os.environ.get("ECHO_VOCAB_FILE")
+        if reuse_landmarker is None:
+            reuse_landmarker = os.environ.get("ECHO_FRESH_LANDMARKER") != "1"
         model_dir = pathlib.Path(model_dir)
         self.models_dir = model_dir   # holistic_landmarker.task sits beside the model
         self.labels = json.loads((model_dir / "labels.json").read_text(encoding="utf-8"))

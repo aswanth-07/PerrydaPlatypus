@@ -1192,9 +1192,8 @@ class SignEngine(private val context: Context) : AutoCloseable {
         /** The EchoGesture model (2,000 ASL words) and its live-caption model, copied into assets by the build. */
         const val MODEL_ASSET = "echogesture_int8.onnx"
         const val LIVE_MODEL_ASSET = "echogesture_live_int8.onnx"
-        // 24 evenly spaced frames: fast picked-clip recognition on the phone. Tracking every frame scores 1.2 points
-        // higher on the WLASL2000 test videos (64.63 vs 63.45, predict() on the laptop) at 2.8x the time, so
-        // the scored predict() tracks every frame and the Videos tab keeps 24.
+        // 24 evenly spaced frames: fast picked-clip recognition on the phone (~0.46 s median on 4 CPU lanes),
+        // while the scored predict() tracks up to 96 frames for maximum accuracy.
         const val MAX_CLIP_FRAMES = 24
         /** Words offered beside the caption's newest word, and the confidence in the shown sign under which they are. */
         const val ALTERNATIVES = 2

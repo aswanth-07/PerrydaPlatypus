@@ -187,7 +187,7 @@ def cont_streams(entries, kp_dir, split, subset, n_streams, n_words, seed, mix=(
             continue
         fps = clips[0][2]
         frames, truth, bounds, kinds = [], [], [], []
-        for n, (fr, (s0, a, b, s1), _, g) in enumerate(clips):
+        for n, (fr, (s0, a, b, _s1), _, g) in enumerate(clips):
             if n == 0:
                 frames += fr[:a]
             else:
@@ -281,7 +281,8 @@ def windows(data, spans, left, perm, c, pool, t_in, flip_fn, none_share=0.25, re
     dev = c.device
     b = len(c)
     X, W, S, L = data["X"], data["W"], data["S"], data["L"]
-    u01 = lambda lo=0.0, hi=1.0: torch.empty(b, 1, device=dev).uniform_(lo, hi)
+    def u01(lo=0.0, hi=1.0):
+        return torch.empty(b, 1, device=dev).uniform_(lo, hi)
     ia = pool[torch.randint(len(pool), (b,), device=dev)]
     ic = pool[torch.randint(len(pool), (b,), device=dev)]
     sp, spa, spc = spans[c].float(), spans[ia].float(), spans[ic].float()
@@ -313,7 +314,8 @@ def windows(data, spans, left, perm, c, pool, t_in, flip_fn, none_share=0.25, re
                          a0 + u01() * d)
     s = centre + (torch.linspace(-0.5, 0.5, t_in, device=dev)[None]) * width          # B x t stream time
 
-    ease = lambda v: v * v * (3 - 2 * v)
+    def ease(v):
+        return v * v * (3 - 2 * v)
     Lb, La, Lc = L[c][:, None].float() - 1, L[ia][:, None].float() - 1, L[ic][:, None].float() - 1
     last_b = b0 - 1
     # A neighbour's pose at the join: the start (end) of its core, or for a hover a still pose half-way through

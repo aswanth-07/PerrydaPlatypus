@@ -9,7 +9,7 @@ blend of the model's own split and how often WLASL lists each gloss:
 
     p'(g) = P(set of g) * p(g)^gamma * n(g)^beta / sum over the set of p(h)^gamma * n(h)^beta
 
-gamma and beta were chosen on WLASL val with a model that never trained on val (scripts/set_rule.py).
+gamma and beta were chosen on WLASL val with a model that never trained on val, then fixed for deployment.
 """
 import collections
 

@@ -165,7 +165,8 @@ def sparsify(X, W, S, L, lo=16, hi=32):
     r = torch.arange(b, device=dev)[:, None]
     keep = L > n
     Lx = torch.where(keep, torch.full_like(L, n), L)
-    pad = lambda Z: torch.where(keep.view(-1, *([1] * (Z.dim() - 1))), torch.nn.functional.pad(Z[r, idx], (0, 0) * (Z.dim() - 2) + (0, Z.shape[1] - n)), Z)
+    def pad(Z):
+        return torch.where(keep.view(-1, *([1] * (Z.dim() - 1))), torch.nn.functional.pad(Z[r, idx], (0, 0) * (Z.dim() - 2) + (0, Z.shape[1] - n)), Z)
     return pad(X), pad(W), pad(S), Lx
 
 
@@ -417,7 +418,6 @@ def main():
             extra_cls["aslc_" + pathlib.Path(c["file"]).stem] = c["cls"]
     train_ids = set(pathlib.Path(a.train_ids).read_text().split()) if a.train_ids else None
     rows = select(cache, entries, a.subset, train_ids)
-    n_wlasl_tr = len(rows["train"][0])
     if a.add_test:
         import zlib
         ti, ty = rows["test"]

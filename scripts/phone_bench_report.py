@@ -26,7 +26,8 @@ import statistics as st
 
 
 def pairs(d):
-    rows = lambda f: [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+    def rows(f):
+        return [json.loads(line) for line in open(f, encoding="utf-8") if line.strip()]
     rounds = []
     for k in range(1, 100):
         fb, fc = d / f"power_phase_pair{k}_baseline.jsonl", d / f"power_phase_pair{k}_classifier.jsonl"
@@ -58,14 +59,15 @@ def main():
         if a.out:
             pathlib.Path(a.out).write_text(json.dumps(out, indent=1), encoding="utf-8")
         return
-    rows = [json.loads(l) for l in open(a.live, encoding="utf-8") if l.strip()]
+    rows = [json.loads(line) for line in open(a.live, encoding="utf-8") if line.strip()]
     start = next(r for r in rows if r.get("event") == "start")
     rep = [r for r in rows if "t_s" in r]
     if not rep:
         raise SystemExit("no periodic reports in " + a.live)
     first = [r for r in rep if r["t_s"] <= 65]
     last = [r for r in rep if r["t_s"] >= rep[-1]["t_s"] - 60]
-    m = lambda rs, k: st.mean(r[k] for r in rs)
+    def m(rs, k):
+        return st.mean(r[k] for r in rs)
     fps0, fps1 = m(first, "fps"), m(last, "fps")
     lat0, lat1 = m(first, "landmarks_p95_ms"), m(last, "landmarks_p95_ms")
     out = dict(
@@ -99,7 +101,8 @@ def main():
     out["power_rows_on_battery"] = len(batt)
     if a.sampler:
         s = [r for r in csv.DictReader(open(a.sampler, encoding="utf-8")) if r.get("ap_c")]
-        num = lambda r, k: float(r[k]) if r.get(k) not in (None, "") else None
+        def num(r, k):
+            return float(r[k]) if r.get(k) not in (None, "") else None
         gpu = [num(r, "gpu_busy_pct") for r in s if num(r, "gpu_busy_pct") is not None]
         out.update(
             gpu_busy_pct_mean=round(st.mean(gpu[1:] or gpu), 1) if gpu else None,

@@ -41,7 +41,7 @@ predict("clip.mp4")
 | Variable | Default | Effect |
 |---|---|---|
 | `ECHO_VOCAB_FILE` | unset | a word list (one per line or a JSON list): answers are restricted to those words |
-| `ECHO_FRAMES` | `96` | frames landmarked per clip: every frame up to 96, then evenly spaced. `24` is 2.8x faster per clip and costs 1.2 points top-1 (63.45% vs 64.63% on the 2,878 WLASL2000 test videos) |
+| `ECHO_FRAMES` | `96` | frames landmarked per clip: every frame up to 96, then evenly spaced. `24` is ~2.8× faster per clip with a small (~1.2 pt) accuracy trade-off |
 | `ECHO_SET_RULE` | `1` | `0` answers from the network's own probabilities instead of the same-sign answer rule (see the main README) |
 | `ECHO_FRESH_LANDMARKER` | unset | `1` builds a new Holistic landmarker per clip (same accuracy, slower) |
 | `ECHO_LANES` | `1` | `2`: two Holistic landmarkers take the clip's frames in turn, in parallel threads; 1.8x faster per clip, 78.8% vs 79.5% top-1 on the first 600 test clips (within noise). Published numbers use 1 |

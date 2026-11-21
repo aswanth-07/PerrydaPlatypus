@@ -1,8 +1,5 @@
 package ai.echogesture.app.ui.history
 
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.foundation.layout.calculateStartPadding
-import ai.echogesture.app.ui.components.LocalTabBarInset
 import androidx.compose.material3.ripple
 import ai.echogesture.app.ui.components.rememberPress
 import android.content.ClipData
@@ -33,7 +30,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
@@ -71,7 +67,6 @@ import ai.echogesture.app.ui.components.EmptyState
 import ai.echogesture.app.ui.components.LocalCaption
 import ai.echogesture.app.ui.theme.TranscriptStyle
 import ai.echogesture.app.ui.components.SubScreen
-import ai.echogesture.app.ui.components.TabHeader
 import ai.echogesture.app.ui.theme.Palette
 import java.text.DateFormat
 import java.util.Date

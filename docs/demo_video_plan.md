@@ -41,9 +41,8 @@ number on screen comes from a file in the repository (named at the end); nothing
 | What | Value | Source |
 |---|---|---|
 | Vocabulary | 2,000 ASL words (WLASL2000) | `src/models/labels.json` |
-| Top-1 / top-5, held-out test split | from `int8.test` | `src/models/export.json` |
+| WLASL2000 official test split (INT8, 2,878 clips) | **67.93%** top-1, **93.99%** top-5 (FP32 **68.14%**) | `results/predictions.summary.json`, `src/models/export.json` |
 | The same model on WLASL's 1,000 / 300 / 100 most common words | **80.2% / 90.4% / 93.0%** top-1 | `results/results.csv`, rows `top1_accuracy_wlasl*` |
-| WLASL2000 official test split (INT8, 2,878 clips) | **67.93%** top-1, **93.99%** top-5 | `results/predictions.summary.json` |
 | Live captions, word error rate on chained test clips | **40.4%** no-rest (**39.9%** fixed), **39.6%** mixed (**39.2%** fixed), **41.7%** rest (**26.7–29.0%** same-sign) | `results/results.csv`, rows `live_caption_word_error_rate_*` |
 | Model size, latency p95 on the phone (1 CPU thread) | **5.72 MB** ensemble (matching 5.72 MB live ensemble), **3.45 ms** p95 | `results/results.csv`, rows `model_size`, `latency_p95_phone` |
 | Power | the whole phone 457 mW with the model running at the live rate (screen on); the model's own share +6 mW | `results/results.csv`, rows `avg_power*` |
