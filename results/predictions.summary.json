@@ -1,13 +1,21 @@
 {
  "model_dir": "src/models",
  "model_file": "echogesture_int8.onnx",
- "source": "WLASL2000 official test split (cached Holistic keypoints, 1 CPU thread)",
+ "source": "WLASL2000 official test split (cached Holistic keypoints, 1 CPU thread; exact summary of results/predictions.jsonl and results/predictions.json)",
  "clips": 2878,
- "top1": 67.93,
- "top5": 93.99,
+ "unique_clip_ids": 2878,
+ "top1": 68.24,
+ "top5": 94.51,
  "latency_ms": {
-  "p50": 5.61,
-  "p95": 7.54,
-  "mean": 5.79
+  "p50": 6.46,
+  "p95": 9.21,
+  "mean": 6.66
+ },
+ "benchmark_latency_ms": {
+  "laptop_1t_p50": 4.403,
+  "laptop_1t_p95": 5.661,
+  "galaxy_s26_1t_p50": 3.21,
+  "galaxy_s26_1t_p95": 3.30,
+  "note": "results/results.csv and src/models/export.json report the isolated 1-thread benchmark (5.661 ms laptop / 3.30 ms Galaxy S26); latency_ms above summarizes the self-reported per-clip values recorded inside predictions.jsonl."
  }
 }

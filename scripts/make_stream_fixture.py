@@ -9,7 +9,7 @@ Two spotters are recorded for every stream:
 Each stream is `per` consecutive fixture clips at 25 fps (40 ms a frame) followed by half a second with nobody in
 view, with the first clip's frame size for every frame. Writes android/parity/streams.json (a few kilobytes).
 
-Usage: make_stream_fixture.py <parity_dir> [--per 6] [--model-dir src/models] [--live android/models/echogesture_live_int8.onnx --sets src/models/sets.json]
+Usage: make_stream_fixture.py <parity_dir> [--per 6] [--model-dir src/models] [--live src/models/echogesture_int8.onnx --sets src/models/sets.json]
 """
 import argparse
 import json
@@ -63,7 +63,7 @@ def main():
     ap.add_argument("parity_dir")
     ap.add_argument("--per", type=int, default=6)
     ap.add_argument("--model-dir", default=str(pathlib.Path(__file__).resolve().parents[1] / "src" / "models"))
-    ap.add_argument("--live", help="the live INT8 model (echogesture_live_int8.onnx, with live.json beside it)")
+    ap.add_argument("--live", help="the unified INT8 model (src/models/echogesture_int8.onnx; reads android/models/live.json)")
     ap.add_argument("--sets", help="sets.json of the vocabulary: words that are one sign gather evidence together")
     a = ap.parse_args()
     d = pathlib.Path(a.parity_dir)

@@ -2,7 +2,7 @@
 # Update android/models/live.json with the measured continuous-signing decoder settings for the unified
 # EchoGesture model (src/models/echogesture_int8.onnx), optionally exporting checkpoints first.
 # usage: scripts/export_live.sh CONT_JSON [CKPT...]
-#        CONT_JSON = the --out file of live_cont.py; EXPORT_ARGS defaults to "--dynamic --exclude stem --set-rule"
+#        CONT_JSON = the --out file of live_cont.py; EXPORT_ARGS defaults to "--dynamic --set-rule"
 set -eu
 cd "$(dirname "$0")/.."
 PY="${ECHO_PY:-python}"   # the training environment's Python 3.11

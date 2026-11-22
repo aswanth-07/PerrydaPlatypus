@@ -4,8 +4,7 @@
 *.zip
 *.pt
 *.onnx
-# The EchoGesture INT8 models ship with the source (src/models for predict(), android/models for the app's live captions)
-!android/models/*.onnx
+# The unified EchoGesture INT8 model ships with the source in src/models/ (shared by predict() and the Android app)
 !src/models/*.onnx
 *.tflite
 *.npz

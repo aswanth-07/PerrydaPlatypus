@@ -11,11 +11,10 @@
   "dynamic": true,
   "folded": true,
   "ops": "Gemm,MatMul",
-  "fp32_nodes": [
-   "/hand_stem/MatMul/MatMulAddFusion",
-   "/body_stem/MatMul/MatMulAddFusion",
-   "/stem/MatMul/MatMulAddFusion"
-  ]
+  "quantized_matmuls": 57,
+  "fp32_convs": 24,
+  "total_nodes": 944,
+  "fp32_nodes": []
  },
  "torch": {
   "n": 2878,

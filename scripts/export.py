@@ -725,8 +725,14 @@ def main():
                         op_types_to_quantize=ops.split(","), calibrate_method=getattr(CalibrationMethod, a.calib_method),
                         nodes_to_exclude=exclude)
     raw.unlink()
+    q_nodes = onnx.load(str(int8)).graph.node
+    actual_fp32 = [n.name for n in q_nodes if n.name in set(exclude) and n.op_type in ("Conv", "Gemm", "MatMul")]
     res = dict(ckpts=a.ckpts, weights=weights, t_in=t_in, test_clips=len(y), none_class=deploy.none,
-               int8_scheme=dict(dynamic=a.dynamic, folded=fold, ops=ops, fp32_nodes=exclude),
+               int8_scheme=dict(dynamic=a.dynamic, folded=fold, ops=ops,
+                                quantized_matmuls=sum(n.op_type == "MatMulInteger" for n in q_nodes),
+                                fp32_convs=sum(n.op_type == "Conv" for n in q_nodes),
+                                total_nodes=len(q_nodes),
+                                fp32_nodes=actual_fp32),
                torch=tv.score(torch_probs, y))
     if sets_info is not None:
         res["torch_before_rule"] = tv.score(torch_raw, y)

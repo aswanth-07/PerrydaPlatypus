@@ -104,9 +104,9 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-// Assets are generated, not kept in Git: before every build Sync copies the EchoGesture model, its labels, same-sign
-// sets and export record and the MediaPipe Holistic bundle from src/models (the files predict() loads), and the
-// live-caption model, its decoder settings and the Learn demonstrations from android/models.
+// Assets are generated, not kept in Git: before every build Sync copies the unified EchoGesture INT8 model, its labels,
+// same-sign sets, export record and MediaPipe Holistic bundle from src/models (the files predict() loads), and the
+// continuous decoder settings and Learn demonstrations from android/models.
 val copyModels = tasks.register<Sync>("copyModels") {
     into(layout.projectDirectory.dir("src/main/assets"))
     from(rootProject.file("../src/models")) {

@@ -192,7 +192,7 @@ only from rows on battery: a charger feeds the phone, so the battery current is 
 
 The build uses Gradle, the standard Android build tool (Android Studio runs the same build).
 
-1. Install the Android SDK (Android Studio, or the command-line tools) with platform 36 and build-tools 36.1.0,
+1. Install the Android SDK (Android Studio, or the command-line tools) with platform 37 (Android 17, minor 2) and build-tools 36.0.0,
    and accept its licence.
 2. `android/local.properties`: `sdk.dir=C:\\path\\to\\Android\\Sdk` (Android Studio writes this for you).
 3. Nothing to copy by hand: the `copyModels` task fills the app's assets before every build from `src/models/`
@@ -220,4 +220,4 @@ the one bundled with JDK 24; point `TEST_JAVA_HOME` at a JDK copy whose `bin` ho
 
 Versions: AGP 9.5.1 (built-in Kotlin, so only the Compose compiler plugin is applied), Kotlin 2.4.21,
 Compose BOM 2026.09.00, MediaPipe tasks-vision 1.2.2 (same as the Python package used for training),
-ONNX Runtime Android 1.31.1, CameraX 1.6.2, compile/target SDK 36, min SDK 28, arm64-v8a.
+ONNX Runtime Android 1.31.1, CameraX 1.6.2, compile SDK 37 (minor 2), target SDK 36, min SDK 28, arm64-v8a.

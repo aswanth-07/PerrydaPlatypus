@@ -20,14 +20,14 @@ Teach-a-Sign and a native Kotlin + Jetpack Compose Android app.
 
 | Item | Where it is |
 |---|---|
-| **Submission package** (as per the theme) | [`VIT_Vellore_PerrydaPlatypus.zip`](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest/download/VIT_Vellore_PerrydaPlatypus.zip) in the [latest release](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest): `src/` (the scored `predict()` with the model) and `results/` (`results.csv`, test predictions, leak audit) |
+| **Submission package** (as per the theme) | [`VIT_Vellore_PerrydaPlatypus.zip`](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest/download/VIT_Vellore_PerrydaPlatypus.zip) in the [latest release](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest): top-level `src/` (`predict()`, unified 5.70 MB INT8 model + MediaPipe Holistic), `results/` (`results.csv`, `predictions.jsonl`, `predictions.json`, `predictions.summary.json`, `leak_audit.json`), `scripts/` (ONNX INT8 conversion script `export.py` and supporting modules), `Dockerfile`, `requirements.txt`, `README.md`, `AI_DISCLOSURE.md` and `LICENSE` |
 | **Source code** | [`src/`](src/) the scored `predict()` and the shipped model · [`scripts/`](scripts/) training, ONNX INT8 export, evaluation · [`android/`](android/) the Android app |
 | **Presentation** | [`presentation/VIT_Vellore_PerrydaPlatypus.pdf`](presentation/VIT_Vellore_PerrydaPlatypus.pdf) (13 slides) · [`.pptx`](presentation/VIT_Vellore_PerrydaPlatypus.pptx) |
-| **Video** | [YouTube, 2:32](https://youtu.be/MOmjmc9EhGg) · the same file is in the [latest release](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest) as `VIT_Vellore_PerrydaPlatypus_Demo.mp4` |
+| **Video** | [YouTube, 2:32](https://youtu.be/MOmjmc9EhGg) · the release copy (`VIT_Vellore_PerrydaPlatypus_Demo.mp4`) is in the [latest release](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest) |
 | **AI disclosure** | [`AI_DISCLOSURE.md`](AI_DISCLOSURE.md) |
 | **README** | this file · [`src/README.md`](src/README.md) (`predict()` reference and options) · [`android/README.md`](android/README.md) (every screen, building the app) |
 | **APK** | [`EchoGesture.apk`](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest/download/EchoGesture.apk) (47.2 MB, arm64, Android 9+; spoken replies need Android 12+) |
-| **Results** | [`results/results.csv`](results/results.csv) (every metric with its device and runtime) · [`results/predictions.jsonl`](results/predictions.jsonl) · [`results/leak_audit.json`](results/leak_audit.json) |
+| **Results** | [`results/results.csv`](results/results.csv) (every metric with its device and runtime) · [`results/predictions.jsonl`](results/predictions.jsonl) & [`predictions.json`](results/predictions.json) (identical 2,878 records) · [`results/predictions.summary.json`](results/predictions.summary.json) · [`results/leak_audit.json`](results/leak_audit.json) |
 
 ---
 
@@ -102,7 +102,7 @@ with the final **`5.70 MB`** model, and recorded with device and runtime in [`re
 
 | Metric | Target | Measured | Status |
 |---|---|---|---|
-| **Top-1 accuracy (WLASL2000, 2,878 clips)** | ≥ 70% | **68.24%** INT8 (**0.00 pt** drop from FP32 · **94.51%** top-5 · **81.48%** same-sign · **99.24%** FP32 agreement) | Ahead of published 55–63% |
+| **Top-1 accuracy (WLASL2000, 2,878 clips)** | ≥ 70% | **68.24%** INT8 (**0.00 pt** drop from FP32 · **94.51%** top-5 · **81.48%** same-sign · **99.24%** FP32 agreement) | Ahead of published SOTA (up to 67.07%) |
 | **Top-1 accuracy (smaller vocabularies, same model)** | ≥ 70% | **79.96%** WLASL1000 (`97.01%` top-5) · **90.72%** WLASL300 · **93.41%** WLASL100 (`ECHO_VOCAB_FILE`) | **PASS** |
 | **Unseen signers (ASL Citizen, 20,117 clips)** | ≥ 70% | **85.41%** on 11 held-out signers never seen in training | **PASS** |
 | **Inference latency (p95)** | ≤ 50 ms | **3.30 ms** on the Galaxy S26 (1 CPU thread; **3.02 ms** with 4) · **5.66 ms** laptop CPU (1 thread) | **PASS (15× margin)** |
