@@ -10,9 +10,9 @@ One **5.70 MB INT8 ONNX model** (a two-network ensemble, `SignNetV2` + `DualStre
 With MediaPipe Holistic (`13.68 MB`) the whole ML footprint is **19.38 MB**. The same model drives live captions,
 Teach-a-Sign and a native Kotlin + Jetpack Compose Android app.
 
-[![EchoGesture demo video (2:32) on YouTube](docs/demo_video_thumbnail.jpg)](https://youtu.be/MOmjmc9EhGg)
+[![EchoGesture demo video (2:32) on YouTube](docs/demo_video_thumbnail.jpg)](https://youtu.be/pN1xusooyY8)
 
-▶ **Demo video (2:32): <https://youtu.be/MOmjmc9EhGg>**
+▶ **Demo video (2:32): <https://youtu.be/pN1xusooyY8>**
 
 ---
 
@@ -23,7 +23,7 @@ Teach-a-Sign and a native Kotlin + Jetpack Compose Android app.
 | **Submission package** (as per the theme) | [`VIT_Vellore_PerrydaPlatypus.zip`](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest/download/VIT_Vellore_PerrydaPlatypus.zip) in the [latest release](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest): top-level `src/` (`predict()`, unified 5.70 MB INT8 model + MediaPipe Holistic), `results/` (`results.csv`, `predictions.jsonl`, `predictions.json`, `predictions.summary.json`, `leak_audit.json`), `scripts/` (ONNX INT8 conversion script `export.py` and supporting modules), `Dockerfile`, `requirements.txt`, `README.md`, `AI_DISCLOSURE.md` and `LICENSE` |
 | **Source code** | [`src/`](src/) the scored `predict()` and the shipped model · [`scripts/`](scripts/) training, ONNX INT8 export, evaluation · [`android/`](android/) the Android app |
 | **Presentation** | [`presentation/VIT_Vellore_PerrydaPlatypus.pdf`](presentation/VIT_Vellore_PerrydaPlatypus.pdf) (13 slides) · [`.pptx`](presentation/VIT_Vellore_PerrydaPlatypus.pptx) |
-| **Video** | [YouTube, 2:32](https://youtu.be/MOmjmc9EhGg) · the release copy (`VIT_Vellore_PerrydaPlatypus_Demo.mp4`) is in the [latest release](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest) |
+| **Video** | [YouTube, 2:32](https://youtu.be/pN1xusooyY8) · the release copy (`VIT_Vellore_PerrydaPlatypus_Demo.mp4`) is in the [latest release](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest) |
 | **AI disclosure** | [`AI_DISCLOSURE.md`](AI_DISCLOSURE.md) |
 | **README** | this file · [`src/README.md`](src/README.md) (`predict()` reference and options) · [`android/README.md`](android/README.md) (every screen, building the app) |
 | **APK** | [`EchoGesture.apk`](https://github.com/aswanth-07/PerrydaPlatypus/releases/latest/download/EchoGesture.apk) (47.2 MB, arm64, Android 9+; spoken replies need Android 12+) |
